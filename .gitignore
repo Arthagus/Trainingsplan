@@ -1,0 +1,15 @@
+# Laufzeitdaten — liegen im Docker-Volume, gehoeren nie ins Repo
+/data/
+/uploads/
+
+# SQLite-Nebendateien
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Konfiguration mit Secrets
+.env
+
+# Claude Code, maschinenspezifisch
+.claude/settings.local.json
