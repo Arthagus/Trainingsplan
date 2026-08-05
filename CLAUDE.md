@@ -130,6 +130,10 @@ Diese fünf Punkte sind die Stellen, an denen eine naive Implementierung falsch 
    versehentlichen Häkchens undefiniert.
 4. **Übungen werden archiviert, nicht gelöscht** (`archived = 1`, §6.3). Hartes Löschen
    verletzt die Fremdschlüssel des `workout_log` — die Historie muss vollständig bleiben.
+   Archiviert heißt aber **versteckt, nicht verschwunden**: Die Admin-Übungsliste hat einen
+   Filter *Aktiv / Archiviert / Alle* mit sichtbaren Anzahlen, und jede archivierte Zeile
+   nennt Archivierungsdatum, betroffene Pläne und die Anzahl ihrer Log-Einträge. Endgültig
+   löschbar ist nur, was weder in einem Plan steht noch Log-Einträge hat.
 5. **„Letztes Gewicht" überspringt leere Werte:** `WHERE weight IS NOT NULL ORDER BY
    performed_at DESC LIMIT 1` (§4). Sonst geht ein Gewicht verloren, nur weil es einmal nicht
    eingetragen wurde.

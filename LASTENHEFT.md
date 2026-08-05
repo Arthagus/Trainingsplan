@@ -188,9 +188,11 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
 **exercises** — Übungen
 - `id`, `name_de`, `name_en`, `muscle_group_id` (FK → muscle_groups),
-  `description`, `image_path`, `archived` (bool, Default 0), `created_at`
+  `description`, `image_path`, `archived` (bool, Default 0),
+  `archived_at` (datetime, nullable), `created_at`
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
-  Dropdowns und Tauschvorschlägen, bleiben aber für die Historie referenzierbar.
+  Dropdowns und Tauschvorschlägen, bleiben aber für die Historie referenzierbar und sind im
+  Admin jederzeit einsehbar (§6.3).
 
 **users** — Benutzer
 - `id`, `name` (eindeutiger Login-Name), `password_hash`, `is_admin` (bool),
@@ -244,7 +246,7 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
 | Aktion | Verhalten |
 |---|---|
-| Übung löschen | Kein hartes Löschen. `archived = 1` (§6.3). Historie bleibt vollständig. |
+| Übung löschen | Regelfall: kein hartes Löschen, sondern `archived = 1` (§6.3) — Historie bleibt vollständig. Hartes Löschen nur, wenn die Übung weder in einem Plan referenziert wird noch `workout_log`-Einträge hat; dann inkl. Bilddatei und Thumbnail. |
 | Muskelgruppe löschen | Nur zulässig, wenn keine Übung sie referenziert — sonst Hinweis. Umbenennen ist immer erlaubt. |
 | Plan löschen | Verboten, solange eine offene Einheit auf ihn zeigt. Sonst: `plan_exercises` kaskadiert, `users.last_plan_id` → `ON DELETE SET NULL`, `sessions`/`workout_log` bleiben erhalten. |
 | Planposition entfernen | Verboten, solange eine offene Einheit läuft (§6.4). Sonst bleibt der `workout_log` erhalten; die Historie zeigt weiter auf `exercise_id`. |
@@ -331,7 +333,29 @@ Nur für Benutzer mit `is_admin`.
   Tauschvorschlägen, die `workout_log`-Historie bleibt vollständig erhalten und
   referenzierbar. Ist eine Übung noch in einem Plan referenziert, wird beim Archivieren ein
   Hinweis mit der Liste der betroffenen Pläne angezeigt und bestätigt.
-- Eine Liste „archivierte Übungen" erlaubt das Reaktivieren.
+
+**Einsicht in archivierte Übungen (zwingend).** Archiviert heißt versteckt, nicht verschwunden —
+der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
+
+- Die Übungsliste hat einen **Filter mit drei Zuständen**: *Aktiv* (Standard), *Archiviert*,
+  *Alle*. Im Zustand *Alle* sind archivierte Zeilen sichtbar abgesetzt (gedimmt, mit Badge
+  „archiviert").
+- Der Filter zeigt die **Anzahl** je Zustand direkt an, z. B. „Aktiv (23) · Archiviert (4) ·
+  Alle (27)". Die Zahl ist auch dann sichtbar, wenn gerade *Aktiv* gewählt ist — sonst merkt
+  niemand, dass es überhaupt ein Archiv gibt.
+- Jede archivierte Übung zeigt in der Liste zusätzlich:
+  - **archiviert am** (`archived_at`),
+  - **noch in Plänen referenziert?** — mit Namen der betroffenen Pläne und Benutzer,
+  - **Anzahl der `workout_log`-Einträge**, also wie viel Historie an ihr hängt.
+
+  Damit ist auf einen Blick erkennbar, ob eine Übung folgenlos archiviert wurde oder ob noch
+  Pläne und Historie daran hängen.
+- **Reaktivieren** setzt `archived = 0` und `archived_at = NULL`; die Übung erscheint danach
+  wieder in Dropdowns und Tauschvorschlägen.
+- **Endgültig löschen** ist nur zulässig, wenn die Übung **weder** in einem Plan referenziert
+  wird **noch** `workout_log`-Einträge besitzt (also faktisch nie benutzt wurde — typischer
+  Fall: Tippfehler beim Anlegen). Der Button ist sonst deaktiviert, mit Begründung als
+  Tooltip. Beim Löschen wird auch die Bilddatei samt Thumbnail aus `uploads/` entfernt.
 
 **6.4 Planverwaltung**
 - Pro Benutzer **einen oder zwei** Pläne anlegen (Maximum 2 erzwingen — die Alternation in
@@ -522,10 +546,14 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
 11. Nächste Einheit: die getauschte Position zeigt wieder die **Original**-Übung; die
     vorbelegten Gewichte entsprechen dem letzten Mal.
 12. Als Benutzer A per manipulierter ID einen Plan/Log von Benutzer B aufrufen → **403**.
-13. Eine `.php`-Datei mit Bild-Endung hochladen → **abgelehnt**; ein gültiges Bild landet
+13. Eine benutzte Übung archivieren → sie verschwindet aus Dropdowns und Tauschvorschlägen,
+    der Filter zeigt „Archiviert (1)", die Zeile nennt Archivierungsdatum, betroffene Pläne
+    und die Anzahl der Log-Einträge; „endgültig löschen" ist deaktiviert. Reaktivieren bringt
+    sie zurück. Eine nie benutzte Übung lässt sich dagegen endgültig löschen, Bild inklusive.
+14. Eine `.php`-Datei mit Bild-Endung hochladen → **abgelehnt**; ein gültiges Bild landet
     re-enkodiert unter Zufallsnamen und ist über `/uploads/...` **nicht ausführbar**.
-14. 6× falsches Passwort → Sperre greift; nach erfolgreichem Login ist der Zähler zurückgesetzt.
-15. Ein Gerät über `devices.php` abmelden → dieses Gerät verlangt beim nächsten Aufruf wieder
+15. 6× falsches Passwort → Sperre greift; nach erfolgreichem Login ist der Zähler zurückgesetzt.
+16. Ein Gerät über `devices.php` abmelden → dieses Gerät verlangt beim nächsten Aufruf wieder
     das Passwort, die anderen nicht.
-16. Backup erstellen, herunterladen, wieder einspielen → Datenbestand unverändert.
-17. Container `down` + `up --build` → Daten und Bilder sind vollständig da.
+17. Backup erstellen, herunterladen, wieder einspielen → Datenbestand unverändert.
+18. Container `down` + `up --build` → Daten und Bilder sind vollständig da.
