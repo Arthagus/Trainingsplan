@@ -10,7 +10,7 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 > im Git-Verlauf (Commit „Lastenheft (Originalfassung)").
 >
 > **Nachtrag:** Muskelgruppen hängen nicht mehr als einzelner Fremdschlüssel an der Übung,
-> sondern als n:m-Zuordnung mit Hauptgruppen-Kennzeichnung (§4 `exercise_muscle_groups`,
+> sondern als n:m-Zuordnung mit Primär-Kennzeichnung (§4 `exercise_muscle_groups`,
 > §6.3 Checkbox-Auswahl, §7.5 Tauschlogik).
 
 ---
@@ -20,7 +20,7 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 Ein Administrator pflegt über eine Weboberfläche Übungen und Trainingspläne für mehrere
 Benutzer. Die Benutzer rufen ihren Plan im Studio am Smartphone auf, sehen die anstehenden
 Übungen inkl. des zuletzt verwendeten Gewichts, haken erledigte Übungen ab und können bei
-Bedarf eine Übung durch eine Alternative derselben Hauptmuskelgruppe ersetzen. Ein Training wird
+Bedarf eine Übung durch eine Alternative derselben primären Muskelgruppe ersetzen. Ein Training wird
 als **Einheit (Session)** geführt, die auch über Mitternacht hinweg aktiv bleibt (siehe §7).
 
 **Nutzerkreis:** klein und geschlossen (aktuell zwei Personen). Kein öffentliches
@@ -197,10 +197,22 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - Primärschlüssel ist `(exercise_id, muscle_group_id)`.
 - **Eine Übung kann mehrere Muskelgruppen haben** — Bankdrücken trifft Brust *und* Trizeps,
   Klimmzüge Rücken *und* Bizeps. Mindestens eine Zuordnung ist Pflicht.
-- **Genau eine** Zuordnung je Übung trägt `is_primary = 1`: die Hauptmuskelgruppe. Sie
-  bestimmt, wo die Übung einsortiert wird und welche Alternativen der Tausch vorschlägt
-  (§7.5). Ohne diese Unterscheidung würde der Tausch für Bankdrücken auch reine
-  Trizeps-Übungen anbieten — fachlich unbrauchbar.
+- **`is_primary` unterscheidet primär und sekundär.** Genau eine Zuordnung je Übung trägt
+  `is_primary = 1` (die **primäre** Muskelgruppe — die, wegen der man die Übung macht), alle
+  weiteren sind **sekundär** (werden mittrainiert, sind aber nicht der Zweck).
+  Bankdrücken: Brust primär, Trizeps sekundär. Klimmzüge: Rücken primär, Bizeps sekundär.
+- Diese Unterscheidung trägt die gesamte Tauschlogik (§7.5): Vorgeschlagen wird nur, was
+  dieselbe **primäre** Gruppe hat. Ohne sie liefen die Vorschläge in beide Richtungen falsch —
+  für Bankdrücken kämen reine Trizeps-Übungen, und für eine Trizeps-Übung käme Bankdrücken,
+  das niemand macht, um den Trizeps zu trainieren.
+- **Datenbankseitig abgesichert**, damit „genau eine" nicht bloß Konvention bleibt:
+  ```sql
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_emg_one_primary
+      ON exercise_muscle_groups(exercise_id) WHERE is_primary = 1;
+  ```
+  Ein partieller Unique-Index (von SQLite unterstützt) macht eine zweite Primärgruppe zum
+  Fehler statt zu einem stillen Datenschaden. Beim Umsetzen der Primärgruppe deshalb erst
+  zurücksetzen, dann neu setzen — beides in einer Transaktion.
 
 **exercises** — Übungen
 - `id`, `name_de`, `name_en`, `description`, `image_path`, `archived` (bool, Default 0),
@@ -353,16 +365,20 @@ Nur für Benutzer mit `is_admin`.
   Mehrfachauswahl ist eine Checkbox-Liste die passende Bedienform, und alle verfügbaren
   Gruppen sind auf einen Blick sichtbar.
   - **Mindestens eine** Gruppe muss angehakt sein; das Formular lehnt sonst ab.
-  - Zusätzlich wird **eine** der angehakten Gruppen als **Hauptmuskelgruppe** markiert
-    (Radiobutton neben der jeweiligen Checkbox, aktivierbar nur für angehakte Zeilen). Bei
-    genau einer Auswahl wird sie automatisch zur Hauptgruppe. Wird die Hauptgruppe abgewählt,
-    rückt die oberste verbleibende nach — das Formular darf nie ohne Hauptgruppe abgeschickt
-    werden können.
-  - Beispiel: Bankdrücken → Brust (Haupt) + Trizeps; Klimmzüge → Rücken (Haupt) + Bizeps.
+  - Zusätzlich wird **eine** der angehakten Gruppen als **primär** markiert (Radiobutton
+    neben der jeweiligen Checkbox, aktivierbar nur für angehakte Zeilen); alle übrigen
+    angehakten gelten als **sekundär**. Bei genau einer Auswahl wird sie automatisch primär.
+    Wird die primäre Gruppe abgewählt, rückt die oberste verbleibende nach — das Formular
+    darf nie ohne Primärgruppe abgeschickt werden können.
+  - Die Spaltenüberschriften heißen entsprechend „primär" und „sekundär", damit beim Anlegen
+    klar ist, dass primär die Gruppe meint, **wegen der** man die Übung macht — nicht bloß
+    die am stärksten beteiligte.
+  - Beispiel: Bankdrücken → Brust primär, Trizeps sekundär; Klimmzüge → Rücken primär,
+    Bizeps sekundär.
   - Neue Gruppen lassen sich hier **nicht** anlegen; dafür gibt es §6.2. Ein Link dorthin
     steht neben der Liste.
-- Die Übungsliste zeigt je Übung die Hauptgruppe hervorgehoben und die weiteren Gruppen
-  dahinter, und lässt sich nach Muskelgruppe filtern (trifft Haupt- **und** Nebengruppen).
+- Die Übungsliste zeigt je Übung die Primärgruppe hervorgehoben und die weiteren Gruppen
+  dahinter, und lässt sich nach Muskelgruppe filtern (trifft Primär- **und** Sekundärgruppen).
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
 - **Archivieren statt Löschen:** Übungen werden nicht hart gelöscht, sondern mit
   `archived = 1` archiviert. Archivierte Übungen erscheinen nicht mehr in Dropdowns und
@@ -429,7 +445,7 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 
 **7.3 Plan-/Übungsansicht**
 - Übungen des Plans in Reihenfolge. Pro Übung:
-  - Name (deutsch, optional englisch), Muskelgruppen (Hauptgruppe zuerst und hervorgehoben,
+  - Name (deutsch, optional englisch), Muskelgruppen (Primärgruppe zuerst und hervorgehoben,
     weitere dahinter kleiner/gedämpft), Bild-Thumbnail (antippbar für Beschreibung/großes Bild),
   - **Gewichts-Eingabefeld, vorbelegt mit dem zuletzt protokollierten Gewicht** nach der
     Regel in §4 (leere Werte werden übersprungen; leer, falls noch nie ein Gewicht
@@ -459,7 +475,7 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Wiederholen-Button erscheint (§2).
 
 **7.5 Übungstausch (Alternativen)**
-- „Übung tauschen" schlägt alternative Übungen **derselben Hauptmuskelgruppe** vor: alle
+- „Übung tauschen" schlägt alternative Übungen **derselben primären Muskelgruppe** vor: alle
   nicht archivierten Übungen, deren `is_primary`-Zuordnung auf dieselbe Gruppe zeigt wie die
   der aktuellen Übung, ohne die aktuelle selbst.
 
@@ -471,10 +487,16 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
      AND e.archived = 0
   ```
 
-  **Bewusst nur die Hauptgruppe, nicht jede Überschneidung.** Träfe der Vorschlag jede
-  gemeinsame Gruppe, bekäme man für Bankdrücken (Brust + Trizeps) auch Trizepsdrücken
-  angeboten — kein sinnvoller Ersatz für eine Brustübung. Umgekehrt landen Übungen mit
-  passender Hauptgruppe zuverlässig in der Liste, egal wie viele Nebengruppen sie haben.
+  **Bewusst nur die Primärgruppe, nicht jede Überschneidung.** Der Vergleich läuft
+  primär-gegen-primär; Sekundärgruppen werden zum Matching **gar nicht** herangezogen. Das
+  ist in beide Richtungen wichtig:
+  - Für **Bankdrücken** (Brust primär) kämen sonst reine Trizeps-Übungen — kein Ersatz für
+    eine Brustübung.
+  - Für **Trizepsdrücken** (Trizeps primär) käme sonst Bankdrücken — das macht niemand, um
+    den Trizeps zu trainieren.
+
+  Umgekehrt landen Übungen mit passender Primärgruppe zuverlässig in der Liste, egal wie
+  viele Sekundärgruppen sie mitbringen.
 - Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
   erkennbar ist, was man sich zusätzlich einhandelt.
 - Gibt es keine Alternative, wird das als Hinweis ausgegeben, nicht als leere Liste.
@@ -583,7 +605,7 @@ Manuell am echten Handy über die Subdomain zu prüfen — `Secure`-Cookies, Rem
 PWA-Installation lassen sich lokal nicht sinnvoll testen.
 
 1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und 2 Pläne an. Mindestens eine Übung
-   bekommt **zwei** Muskelgruppen (z. B. Bankdrücken → Brust als Hauptgruppe + Trizeps); ein
+   bekommt **zwei** Muskelgruppen (z. B. Bankdrücken → Brust als Primärgruppe + Trizeps); ein
    Speichern **ohne** angehakte Gruppe wird abgelehnt. Der Versuch, eine noch zugeordnete
    Muskelgruppe zu löschen, wird mit Nennung der betroffenen Übungen verweigert.
 2. Benutzer meldet sich am Handy an **mit** „Angemeldet bleiben" und installiert die PWA über
@@ -592,7 +614,7 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
    der DB ist rotiert, `last_used_at` aktualisiert.
 4. Erste Übung abhaken → Einheit entsteht, Gewicht wird gespeichert.
 5. Zweite Übung tauschen („nur diese Einheit") → Ersatzübung erscheint, Plan bleibt unverändert.
-   Die Vorschläge enthalten **nur** Übungen mit derselben **Hauptmuskelgruppe** — eine reine
+   Die Vorschläge enthalten **nur** Übungen mit derselben **primären Muskelgruppe** — eine reine
    Trizeps-Übung taucht als Ersatz für Bankdrücken **nicht** auf, obwohl sich beide die
    Nebengruppe Trizeps teilen.
 6. Handy sperren, App neu öffnen → Fortschritt und Häkchen sind erhalten.
