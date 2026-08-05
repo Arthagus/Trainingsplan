@@ -1,9 +1,39 @@
-# CLAUDE.md — Trainingsplan-Web-App
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
 
 Arbeitsanweisungen für Claude Code in diesem Repo. `LASTENHEFT.md` ist maßgeblich für das
 **Was** (Fachlichkeit, Abnahmekriterien); diese Datei regelt das **Wie** (Konventionen).
 Bei Widerspruch gewinnt der Code als Beschreibung des Ist-Zustands, das Lastenheft als
 Beschreibung des Soll-Zustands.
+
+## Projektstatus — bitte zuerst lesen
+
+**Es existiert noch kein Code.** Das Repo enthält aktuell nur `LASTENHEFT.md`, diese Datei und
+`.gitignore`. Alles, was unten an Dateien, Funktionen und Verzeichnissen genannt wird
+(`lib/db.php`, `db()`, `apiFetch()`, `image.php`, `schema.sql`, `Dockerfile` …), ist
+**Soll-Zustand, nicht Bestand** — nicht danach suchen, sondern so anlegen.
+
+Reihenfolge des Aufbaus laut Plan: Gerüst (`schema.sql`, `lib/*`, Docker/Compose,
+Nginx-Beispiel) → Admin-Oberfläche → Handy-Ansicht und Session-Logik.
+
+Vor dem Gerüst zu klären (steht noch aus): Subdomain-Name, Container-Port, Host-Pfade der
+beiden Volumes.
+
+**Vorlagen-Repos** — die Konventionen unten stammen von dort, und die genannten Bausteine
+lassen sich weitgehend übernehmen statt neu zu schreiben:
+
+- `/home/rezeption/Projekte/Body-Fat-Tracker` — PDO-Setup (`lib/db.php`), `h()`,
+  `json_ok()`/`json_err()`, `apiFetch()` (`assets/app.js`), CSRF, Seiten+JS-Paarung
+- `/home/rezeption/Projekte/Speisekarte` — GD-Bildverarbeitung (`saveResizedImage()` in
+  `api.php`), Path-Jail-Auslieferung (`dish_image.php`), Rate-Limit-Tabelle;
+  `doku/maintenance_anleitung.md` ist eine fertige, portable Bauanleitung für die
+  Wartungs-/Backup-Seite
+
+Beide Repos sind Vorlage, nicht Vorschrift. Wo sie sich widersprechen, gilt der Body-Fat-Tracker
+(siehe `LASTENHEFT.md` §2.1).
 
 ## Lokale Entwicklung
 
@@ -14,15 +44,27 @@ php -S 127.0.0.1:8100 -t "$(pwd)"      # Dev-Server, im Hintergrund starten
 Kein Build-Step, kein Paketmanager, kein Composer, kein npm, kein Migrationstool.
 Port 8100, weil 8765 (Body-Fat-Tracker) und 8090 (Speisekarte) bereits belegt sind.
 
-Prüfen statt Tests:
+**Es gibt kein Test-Framework** — wie in beiden Vorlagen-Repos wird stattdessen gelintet:
 
 ```bash
+# alles
 find . -name '*.php' -not -path './data/*' -exec php -l {} \;
-find assets api -name '*.js' -exec node --check {} \;
+find . -name '*.js'  -not -path './data/*' -exec node --check {} \;
+
+# einzelne Datei (der übliche Fall nach einer Änderung)
+php -l api/session.php
+node --check assets/app.js
 ```
 
-Nicht lokal prüfbar und nur über die Subdomain testbar: `Secure`-Cookies, Remember-Me,
-PWA-Installation, `X-Forwarded-Proto`-Verhalten.
+Die Abnahme läuft über die 18 manuellen Kriterien in `LASTENHEFT.md` §11, nicht über
+automatisierte Tests.
+
+Nicht lokal prüfbar und nur über die Subdomain testbar: Remember-Me über mehrere Geräte,
+PWA-Installation, `X-Forwarded-Proto`-Verhalten hinter dem echten Nginx.
+
+Das `Secure`-Flag ist am Dev-Server **kein** Hindernis: Browser behandeln `http://127.0.0.1`
+und `http://localhost` als sicheren Kontext und speichern `Secure`-Cookies dort. Das Flag darf
+also bedingungslos gesetzt bleiben — es gibt keinen Grund, es lokal abzuschalten.
 
 ## Architektur
 
