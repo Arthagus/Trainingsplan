@@ -616,7 +616,8 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
 5. Zweite Übung tauschen („nur diese Einheit") → Ersatzübung erscheint, Plan bleibt unverändert.
    Die Vorschläge enthalten **nur** Übungen mit derselben **primären Muskelgruppe** — eine reine
    Trizeps-Übung taucht als Ersatz für Bankdrücken **nicht** auf, obwohl sich beide die
-   Nebengruppe Trizeps teilen.
+   Sekundärgruppe Trizeps teilen. Gegenprobe: Beim Tausch einer reinen Trizeps-Übung taucht
+   Bankdrücken **nicht** in den Vorschlägen auf.
 6. Handy sperren, App neu öffnen → Fortschritt und Häkchen sind erhalten.
 7. Ein Häkchen ab-wählen → Log-Eintrag verschwindet, Zähler springt zurück.
 8. Alle Übungen abhaken → **Abschluss-Bestätigung** erscheint; „Noch nicht" lässt die Einheit
