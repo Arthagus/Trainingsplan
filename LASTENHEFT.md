@@ -8,6 +8,10 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 > §7.6 Auto-Ende, §7.3 Gewichts-Fallback) und vier Funktionen ergänzt (§6.5 Wartung, §7.7
 > Passwortwechsel und Geräteverwaltung, §7.6 Hinweis bei alter Einheit). Die Erstfassung liegt
 > im Git-Verlauf (Commit „Lastenheft (Originalfassung)").
+>
+> **Nachtrag:** Muskelgruppen hängen nicht mehr als einzelner Fremdschlüssel an der Übung,
+> sondern als n:m-Zuordnung mit Hauptgruppen-Kennzeichnung (§4 `exercise_muscle_groups`,
+> §6.3 Checkbox-Auswahl, §7.5 Tauschlogik).
 
 ---
 
@@ -16,7 +20,7 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 Ein Administrator pflegt über eine Weboberfläche Übungen und Trainingspläne für mehrere
 Benutzer. Die Benutzer rufen ihren Plan im Studio am Smartphone auf, sehen die anstehenden
 Übungen inkl. des zuletzt verwendeten Gewichts, haken erledigte Übungen ab und können bei
-Bedarf eine Übung durch eine Alternative derselben Muskelgruppe ersetzen. Ein Training wird
+Bedarf eine Übung durch eine Alternative derselben Hauptmuskelgruppe ersetzen. Ein Training wird
 als **Einheit (Session)** geführt, die auch über Mitternacht hinweg aktiv bleibt (siehe §7).
 
 **Nutzerkreis:** klein und geschlossen (aktuell zwei Personen). Kein öffentliches
@@ -184,12 +188,25 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 **muscle_groups** — kontrolliertes Vokabular für Muskelpartien
 - `id`, `name_de`, `name_en`, `sort_order`
 - Standardwerte geseedet: Brust, Rücken, Schultern, Bizeps, Trizeps, Beine, Waden, Bauch
-  (im Admin erweiterbar).
+  (im Admin erweiterbar, §6.2). Muskelgruppen sind Voraussetzung für das Anlegen von Übungen —
+  sie werden vorab im Adminbereich gepflegt, nicht nebenbei beim Übungsanlegen erfasst.
+
+**exercise_muscle_groups** — Zuordnung Übung ↔ Muskelgruppen (n:m)
+- `exercise_id` (FK → exercises), `muscle_group_id` (FK → muscle_groups),
+  `is_primary` (bool, Default 0)
+- Primärschlüssel ist `(exercise_id, muscle_group_id)`.
+- **Eine Übung kann mehrere Muskelgruppen haben** — Bankdrücken trifft Brust *und* Trizeps,
+  Klimmzüge Rücken *und* Bizeps. Mindestens eine Zuordnung ist Pflicht.
+- **Genau eine** Zuordnung je Übung trägt `is_primary = 1`: die Hauptmuskelgruppe. Sie
+  bestimmt, wo die Übung einsortiert wird und welche Alternativen der Tausch vorschlägt
+  (§7.5). Ohne diese Unterscheidung würde der Tausch für Bankdrücken auch reine
+  Trizeps-Übungen anbieten — fachlich unbrauchbar.
 
 **exercises** — Übungen
-- `id`, `name_de`, `name_en`, `muscle_group_id` (FK → muscle_groups),
-  `description`, `image_path`, `archived` (bool, Default 0),
+- `id`, `name_de`, `name_en`, `description`, `image_path`, `archived` (bool, Default 0),
   `archived_at` (datetime, nullable), `created_at`
+- Die Muskelgruppen hängen **nicht** als Fremdschlüssel an der Übung, sondern an der
+  Zuordnungstabelle `exercise_muscle_groups` (n:m, siehe unten).
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
   Dropdowns und Tauschvorschlägen, bleiben aber für die Historie referenzierbar und sind im
   Admin jederzeit einsehbar (§6.3).
@@ -247,7 +264,7 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 | Aktion | Verhalten |
 |---|---|
 | Übung löschen | Regelfall: kein hartes Löschen, sondern `archived = 1` (§6.3) — Historie bleibt vollständig. Hartes Löschen nur, wenn die Übung weder in einem Plan referenziert wird noch `workout_log`-Einträge hat; dann inkl. Bilddatei und Thumbnail. |
-| Muskelgruppe löschen | Nur zulässig, wenn keine Übung sie referenziert — sonst Hinweis. Umbenennen ist immer erlaubt. |
+| Muskelgruppe löschen | Nur zulässig, wenn keine Zuordnung in `exercise_muscle_groups` auf sie zeigt — auch keine von archivierten Übungen. Sonst Hinweis mit der Liste der betroffenen Übungen. Umbenennen und Umsortieren sind immer erlaubt. |
 | Plan löschen | Verboten, solange eine offene Einheit auf ihn zeigt. Sonst: `plan_exercises` kaskadiert, `users.last_plan_id` → `ON DELETE SET NULL`, `sessions`/`workout_log` bleiben erhalten. |
 | Planposition entfernen | Verboten, solange eine offene Einheit läuft (§6.4). Sonst bleibt der `workout_log` erhalten; die Historie zeigt weiter auf `exercise_id`. |
 | Benutzer löschen | Löscht `remember_tokens` und `plans` kaskadierend, entfernt aber **nicht** `sessions`/`workout_log` — der Admin bekommt vor dem Löschen die Anzahl betroffener Einheiten angezeigt und bestätigt explizit. |
@@ -322,11 +339,30 @@ Nur für Benutzer mit `is_admin`.
 
 **6.2 Muskelgruppen**
 - Liste einsehen, erweitern, umbenennen und sortieren (Standardwerte vorgeseedet).
-- Löschen nur, wenn keine Übung die Gruppe referenziert.
+- Löschen nur, wenn keine Übung die Gruppe referenziert (§4.1).
+- Diese Pflege geht dem Anlegen von Übungen **voraus**: Die Übungsmaske bietet ausschließlich
+  hier definierte Gruppen an und erlaubt kein Anlegen neuer Gruppen nebenbei. Die Liste zeigt
+  je Gruppe die **Anzahl zugeordneter Übungen** (aktiv/archiviert getrennt), damit erkennbar
+  ist, was benutzt wird und was leer steht.
 
 **6.3 Übungsverwaltung**
-- CRUD für Übungen mit Feldern: Name (deutsch + englisch), Muskelgruppe (Dropdown aus
-  `muscle_groups`), Beschreibung, Bild.
+- CRUD für Übungen mit Feldern: Name (deutsch + englisch), Muskelgruppen (siehe unten),
+  Beschreibung, Bild.
+- **Muskelgruppen-Auswahl per Checkboxen, mehrfach möglich.** Die Maske zeigt alle in §6.2
+  definierten Gruppen als Checkbox-Liste in deren `sort_order`. Kein Dropdown — bei
+  Mehrfachauswahl ist eine Checkbox-Liste die passende Bedienform, und alle verfügbaren
+  Gruppen sind auf einen Blick sichtbar.
+  - **Mindestens eine** Gruppe muss angehakt sein; das Formular lehnt sonst ab.
+  - Zusätzlich wird **eine** der angehakten Gruppen als **Hauptmuskelgruppe** markiert
+    (Radiobutton neben der jeweiligen Checkbox, aktivierbar nur für angehakte Zeilen). Bei
+    genau einer Auswahl wird sie automatisch zur Hauptgruppe. Wird die Hauptgruppe abgewählt,
+    rückt die oberste verbleibende nach — das Formular darf nie ohne Hauptgruppe abgeschickt
+    werden können.
+  - Beispiel: Bankdrücken → Brust (Haupt) + Trizeps; Klimmzüge → Rücken (Haupt) + Bizeps.
+  - Neue Gruppen lassen sich hier **nicht** anlegen; dafür gibt es §6.2. Ein Link dorthin
+    steht neben der Liste.
+- Die Übungsliste zeigt je Übung die Hauptgruppe hervorgehoben und die weiteren Gruppen
+  dahinter, und lässt sich nach Muskelgruppe filtern (trifft Haupt- **und** Nebengruppen).
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
 - **Archivieren statt Löschen:** Übungen werden nicht hart gelöscht, sondern mit
   `archived = 1` archiviert. Archivierte Übungen erscheinen nicht mehr in Dropdowns und
@@ -393,8 +429,8 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 
 **7.3 Plan-/Übungsansicht**
 - Übungen des Plans in Reihenfolge. Pro Übung:
-  - Name (deutsch, optional englisch), Muskelgruppe, Bild-Thumbnail (antippbar für
-    Beschreibung/großes Bild),
+  - Name (deutsch, optional englisch), Muskelgruppen (Hauptgruppe zuerst und hervorgehoben,
+    weitere dahinter kleiner/gedämpft), Bild-Thumbnail (antippbar für Beschreibung/großes Bild),
   - **Gewichts-Eingabefeld, vorbelegt mit dem zuletzt protokollierten Gewicht** nach der
     Regel in §4 (leere Werte werden übersprungen; leer, falls noch nie ein Gewicht
     protokolliert wurde). Das Feld **darf leer bleiben** (z. B. Bauch/Dips ohne
@@ -423,9 +459,25 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Wiederholen-Button erscheint (§2).
 
 **7.5 Übungstausch (Alternativen)**
-- „Übung tauschen" schlägt alternative Übungen **derselben Muskelgruppe** vor
-  (`WHERE muscle_group_id = <aktuell> AND id != <aktuell> AND archived = 0`).
-  Gibt es keine Alternative, wird das als Hinweis ausgegeben, nicht als leere Liste.
+- „Übung tauschen" schlägt alternative Übungen **derselben Hauptmuskelgruppe** vor: alle
+  nicht archivierten Übungen, deren `is_primary`-Zuordnung auf dieselbe Gruppe zeigt wie die
+  der aktuellen Übung, ohne die aktuelle selbst.
+
+  ```sql
+  SELECT e.* FROM exercises e
+    JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id AND emg.is_primary = 1
+   WHERE emg.muscle_group_id = :primary_group_of_current
+     AND e.id != :current_exercise_id
+     AND e.archived = 0
+  ```
+
+  **Bewusst nur die Hauptgruppe, nicht jede Überschneidung.** Träfe der Vorschlag jede
+  gemeinsame Gruppe, bekäme man für Bankdrücken (Brust + Trizeps) auch Trizepsdrücken
+  angeboten — kein sinnvoller Ersatz für eine Brustübung. Umgekehrt landen Übungen mit
+  passender Hauptgruppe zuverlässig in der Liste, egal wie viele Nebengruppen sie haben.
+- Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
+  erkennbar ist, was man sich zusätzlich einhandelt.
+- Gibt es keine Alternative, wird das als Hinweis ausgegeben, nicht als leere Liste.
 - Nach Auswahl fragt die App den Modus:
   - **Nur diese Einheit (einmalig einstreuen):** `exercise_swaps`-Eintrag für die aktive
     Einheit + das betreffende `plan_exercise`. Die Ansicht zeigt die Ersatzübung; wird
@@ -530,13 +582,19 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 Manuell am echten Handy über die Subdomain zu prüfen — `Secure`-Cookies, Remember-Me und die
 PWA-Installation lassen sich lokal nicht sinnvoll testen.
 
-1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und 2 Pläne an.
+1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und 2 Pläne an. Mindestens eine Übung
+   bekommt **zwei** Muskelgruppen (z. B. Bankdrücken → Brust als Hauptgruppe + Trizeps); ein
+   Speichern **ohne** angehakte Gruppe wird abgelehnt. Der Versuch, eine noch zugeordnete
+   Muskelgruppe zu löschen, wird mit Nennung der betroffenen Übungen verweigert.
 2. Benutzer meldet sich am Handy an **mit** „Angemeldet bleiben" und installiert die PWA über
    „Zum Startbildschirm hinzufügen".
 3. Browser schließen, App vom Startbildschirm öffnen → **kein erneuter Login**; der Token in
    der DB ist rotiert, `last_used_at` aktualisiert.
 4. Erste Übung abhaken → Einheit entsteht, Gewicht wird gespeichert.
 5. Zweite Übung tauschen („nur diese Einheit") → Ersatzübung erscheint, Plan bleibt unverändert.
+   Die Vorschläge enthalten **nur** Übungen mit derselben **Hauptmuskelgruppe** — eine reine
+   Trizeps-Übung taucht als Ersatz für Bankdrücken **nicht** auf, obwohl sich beide die
+   Nebengruppe Trizeps teilen.
 6. Handy sperren, App neu öffnen → Fortschritt und Häkchen sind erhalten.
 7. Ein Häkchen ab-wählen → Log-Eintrag verschwindet, Zähler springt zurück.
 8. Alle Übungen abhaken → **Abschluss-Bestätigung** erscheint; „Noch nicht" lässt die Einheit

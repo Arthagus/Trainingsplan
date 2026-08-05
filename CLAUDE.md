@@ -179,6 +179,11 @@ Diese fünf Punkte sind die Stellen, an denen eine naive Implementierung falsch 
 5. **„Letztes Gewicht" überspringt leere Werte:** `WHERE weight IS NOT NULL ORDER BY
    performed_at DESC LIMIT 1` (§4). Sonst geht ein Gewicht verloren, nur weil es einmal nicht
    eingetragen wurde.
+6. **Muskelgruppen sind n:m, nicht 1:n** (`exercise_muscle_groups`, §4). Eine Übung hat
+   beliebig viele Gruppen, aber **genau eine** mit `is_primary = 1`. Der Übungstausch (§7.5)
+   matcht **nur** auf die Hauptgruppe — nicht auf jede Überschneidung, sonst bekommt man für
+   Bankdrücken (Brust + Trizeps) Trizepsdrücken als „Alternative" vorgeschlagen. Auswahl im
+   Admin über Checkboxen plus Radiobutton für die Hauptgruppe, mindestens eine Pflicht.
 
 ## Deployment
 
