@@ -1,0 +1,41 @@
+services:
+  trainingsplan:
+    build: .
+    image: trainingsplan:latest
+    container_name: trainingsplan
+    restart: unless-stopped
+
+    # Bindung an die LXC-IP im Proxmox-Internetz (10.10.10.2), NICHT an 0.0.0.0.
+    # 127.0.0.1 waere hier falsch: der Nginx laeuft auf dem Proxmox-Host und
+    # muesste den Port ueber das interne Netz erreichen koennen.
+    ports:
+      - "${BIND_ADDR:-10.10.10.2}:${HOST_PORT:-8066}:80"
+
+    environment:
+      TZ: "${TZ:-Europe/Vienna}"
+      DB_PATH: /var/www/html/data/trainingsplan.db
+      APP_SECRET: "${APP_SECRET:?APP_SECRET fehlt - siehe .env.example}"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD fehlt - siehe .env.example}"
+
+    # Zwingend: ohne diese beiden Volumes sind Datenbank und Bilder nach jedem
+    # Rebuild weg.
+    #
+    # Bewusst Named Volumes statt Bind-Mounts: Docker befuellt ein neues Volume
+    # aus dem Image und uebernimmt dabei Eigentuemer und Rechte, hier also
+    # www-data (UID 33). Ein Bind-Mount auf ein Host-Verzeichnis entstuende
+    # dagegen als root:root - der Apache koennte weder die Datenbank anlegen
+    # noch Bilder speichern, und es waere ein chown von Hand noetig.
+    volumes:
+      - trainingsplan-data:/var/www/html/data
+      - trainingsplan-uploads:/var/www/html/uploads
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  trainingsplan-data:
+  trainingsplan-uploads:

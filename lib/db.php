@@ -1,0 +1,312 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/helpers.php';
+
+/**
+ * Datenbankzugriff. db() ist der einzige Weg zur Verbindung und stellt
+ * sicher, dass Schema, Seed und Erst-Admin vorhanden sind.
+ */
+
+/**
+ * Halter fuer die PDO-Singleton-Referenz. Per Referenz, damit db() und
+ * db_close() denselben static-Wert teilen.
+ */
+function &_db_holder(): ?PDO {
+    static $pdo = null;
+    return $pdo;
+}
+
+/**
+ * Pfad zur SQLite-Datei.
+ *
+ * Anders als in den Vorlagen-Repos nicht hartkodiert: der Container bekommt
+ * ihn ueber DB_PATH gesetzt, weil die Datei im Volume liegt.
+ */
+function db_path(): string {
+    $env = getenv('DB_PATH');
+    return ($env !== false && $env !== '') ? $env : __DIR__ . '/../data/trainingsplan.db';
+}
+
+/**
+ * Liefert die Singleton-PDO-Verbindung und richtet die Datenbank beim ersten
+ * Aufruf ein.
+ */
+function db(): PDO {
+    $pdo = &_db_holder();
+    if ($pdo !== null) {
+        return $pdo;
+    }
+
+    $path = db_path();
+    $dir  = dirname($path);
+
+    if (!is_dir($dir) && !@mkdir($dir, 0o755, true) && !is_dir($dir)) {
+        throw new RuntimeException('Datenverzeichnis lässt sich nicht anlegen: ' . $dir);
+    }
+    if (!is_writable($dir)) {
+        throw new RuntimeException(
+            'Datenverzeichnis ist nicht beschreibbar: ' . $dir
+            . ' — gehört das Volume dem Webserver-Benutzer (UID 33)?'
+        );
+    }
+
+    $pdo = new PDO('sqlite:' . $path, null, null, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES   => false,
+    ]);
+
+    // WAL erlaubt Lesen waehrend geschrieben wird -- und ist der Grund, warum
+    // ein Backup nie per Dateikopie entstehen darf (doku/deployment.md).
+    $pdo->exec('PRAGMA journal_mode = WAL');
+    $pdo->exec('PRAGMA foreign_keys = ON');
+    $pdo->exec('PRAGMA busy_timeout = 5000');
+
+    init_schema($pdo);
+
+    return $pdo;
+}
+
+/**
+ * Gibt die Verbindung frei (PDO hat kein close()).
+ * Wird vor dem Ueberschreiben der Datei beim Restore gebraucht.
+ */
+function db_close(): void {
+    $pdo = &_db_holder();
+    $pdo = null;
+}
+
+/**
+ * Legt Tabellen und Indizes an, zieht Migrationen nach und sorgt fuer
+ * Muskelgruppen und Erst-Admin. Laeuft bei jedem Start; alles darin ist
+ * idempotent.
+ */
+function init_schema(PDO $pdo): void {
+    $sqlFile = __DIR__ . '/../schema.sql';
+    $sql = @file_get_contents($sqlFile);
+    if ($sql === false) {
+        throw new RuntimeException('schema.sql nicht lesbar: ' . $sqlFile);
+    }
+    $pdo->exec($sql);
+
+    apply_migrations($pdo);
+    seed_muscle_groups($pdo);
+    bootstrap_first_admin($pdo);
+}
+
+/**
+ * Nachtraeglich hinzugekommene Spalten.
+ *
+ * SQLite kennt kein "ADD COLUMN IF NOT EXISTS", deshalb je Spalte ein Blick in
+ * PRAGMA table_info. Bewusst kein Migrationsverzeichnis und kein Werkzeug --
+ * neue Spalten kommen als weiterer Block hierher, Muster:
+ *
+ *     if (!column_exists($pdo, 'exercises', 'video_url')) {
+ *         $pdo->exec('ALTER TABLE exercises ADD COLUMN video_url TEXT');
+ *     }
+ *
+ * Der Block bleibt stehen, auch wenn die Spalte laengst ueberall existiert:
+ * eine wiederhergestellte alte Sicherung braucht ihn wieder.
+ */
+function apply_migrations(PDO $pdo): void {
+    // 2026-08-06: Schwerpunkt innerhalb der Primaergruppe ("oben", "stehend").
+    // Rein additiv -- bestehende Uebungen bekommen NULL und verhalten sich
+    // unveraendert. Wird auf der Live-Datenbank beim ersten Start des neuen
+    // Images ausgefuehrt.
+    if (!column_exists($pdo, 'exercises', 'focus')) {
+        $pdo->exec('ALTER TABLE exercises ADD COLUMN focus TEXT');
+    }
+
+    // 2026-08-06: Muskelgruppen bekommen zwei Ebenen. Bestehende Gruppen
+    // werden zu Hauptgruppen (parent_id bleibt NULL) und verhalten sich
+    // unveraendert -- die Zuordnung zu Hauptgruppen erfolgt von Hand.
+    //
+    // ALTER TABLE ADD COLUMN kann in SQLite keinen Fremdschluessel nachtragen;
+    // die Beziehung wird deshalb in der Anwendung geprueft (api/muscle_groups.php).
+    // Bei einer frisch angelegten Datenbank steht der Fremdschluessel aus
+    // schema.sql dagegen von Anfang an.
+    if (!column_exists($pdo, 'muscle_groups', 'parent_id')) {
+        $pdo->exec('ALTER TABLE muscle_groups ADD COLUMN parent_id INTEGER REFERENCES muscle_groups(id)');
+    }
+
+    // 2026-08-07: Wiederholungen werden nicht mehr erfasst -- ein Feld je
+    // Einheit kann 12/10/9 ueber drei Saetze nicht abbilden (§7.4).
+    //
+    // ACHTUNG, DESTRUKTIV: Diese Migration loescht Daten. Sie wurde am
+    // 2026-08-07 ausdruecklich freigegeben, als noch keine abgeschlossene
+    // Trainingseinheit existierte. DROP COLUMN gibt es in SQLite seit 3.35;
+    // die Spalte steht in keinem Index, deshalb greift keine Einschraenkung.
+    if (column_exists($pdo, 'workout_log', 'reps')) {
+        $pdo->exec('ALTER TABLE workout_log DROP COLUMN reps');
+    }
+
+    // Der Index gehoert hierher und nicht in schema.sql: Dort liefe er vor
+    // dem ALTER oben und scheiterte auf einer Bestandsdatenbank an der noch
+    // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die
+    // Spalte in jedem Fall bereits, bei frischer wie bei bestehender Datenbank.
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_muscle_groups_parent
+                    ON muscle_groups(parent_id, sort_order)');
+
+    // 2026-08-07: Benutzernamen unterscheiden nicht mehr nach Schreibweise.
+    //
+    // users.name traegt aus schema.sql ein UNIQUE, und das vergleicht SQLite
+    // binaer. Beim Live-Test liess sich deshalb ein zweites Konto "oliver"
+    // anlegen, obwohl es "Oliver" schon gab -- zwei Zeilen, die in keiner
+    // Liste auseinanderzuhalten sind. Zusammen mit dem COLLATE NOCASE in
+    // attempt_login() ist der Name jetzt durchgaengig schreibweisenunabhaengig.
+    //
+    // GRENZE: SQLites NOCASE faltet ausschliesslich ASCII A-Z. "Mueller" und
+    // "mueller" fallen zusammen, "Müller" und "müller" nicht.
+    index_name_nocase($pdo);
+}
+
+/**
+ * Legt den schreibweisenunabhaengigen Index auf users.name an.
+ *
+ * Eigene Funktion wegen der Vorpruefung: Gaebe es bereits zwei Namen, die sich
+ * nur in der Schreibweise unterscheiden, scheiterte CREATE UNIQUE INDEX -- und
+ * weil das den Start abbricht, stuende die App, ohne dass die Meldung sagt,
+ * WELCHE Namen schuld sind. Denkbar ist der Fall nur beim Zurueckspielen einer
+ * alten Sicherung; die Meldung nennt dann die Paare, damit sich einer davon
+ * gezielt umbenennen laesst.
+ *
+ * Bewusst KEIN stilles Ueberspringen: Der uebrige Code verlaesst sich darauf,
+ * dass der Index die Kollision abfaengt (benutzer_umbenennen() in lib/auth.php).
+ * Ein nicht angelegter Index waere eine Zusage, die niemand mehr einloest.
+ */
+function index_name_nocase(PDO $pdo): void {
+    $doppelt = $pdo->query(
+        'SELECT group_concat(name, " / ") AS namen
+           FROM users
+          GROUP BY name COLLATE NOCASE
+         HAVING COUNT(*) > 1'
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    if ($doppelt !== []) {
+        throw new RuntimeException(
+            'Benutzernamen sind ab Version 1.0.9 unabhaengig von der Schreibweise '
+            . 'eindeutig. Diese Namen stehen dem entgegen und muessen zuerst '
+            . 'bereinigt werden: ' . implode('; ', $doppelt)
+        );
+    }
+
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name_nocase
+                    ON users(name COLLATE NOCASE)');
+}
+
+/**
+ * Prueft, ob eine Spalte existiert. Hilfsmittel fuer apply_migrations().
+ */
+function column_exists(PDO $pdo, string $table, string $column): bool {
+    // Tabellenname kommt ausschliesslich aus dem Code, nie aus einer Eingabe --
+    // PRAGMA erlaubt keine Platzhalter.
+    $rows = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+    foreach ($rows as $row) {
+        if (($row['name'] ?? '') === $column) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Legt die Standard-Muskelgruppen an -- aber nur, solange die Tabelle leer ist.
+ *
+ * Bewusst nicht "INSERT OR IGNORE" je Zeile: eine vom Admin geloeschte Gruppe
+ * kaeme sonst bei jedem Neustart zurueck.
+ */
+function seed_muscle_groups(PDO $pdo): void {
+    $count = (int)$pdo->query('SELECT COUNT(*) FROM muscle_groups')->fetchColumn();
+    if ($count > 0) {
+        return;
+    }
+
+    $defaults = [
+        ['Brust',     'Chest'],
+        ['Rücken',    'Back'],
+        ['Schultern', 'Shoulders'],
+        ['Bizeps',    'Biceps'],
+        ['Trizeps',   'Triceps'],
+        ['Beine',     'Legs'],
+        ['Waden',     'Calves'],
+        ['Bauch',     'Abs'],
+    ];
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO muscle_groups (name_de, name_en, sort_order) VALUES (?, ?, ?)'
+    );
+    $pdo->beginTransaction();
+    try {
+        foreach ($defaults as $i => [$de, $en]) {
+            $stmt->execute([$de, $en, ($i + 1) * 10]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Erzeugt den ersten Admin aus ADMIN_USER/ADMIN_PASSWORD (§3).
+ *
+ * Loest das Henne-Ei-Problem: es gibt kein Self-Signup, also muss der erste
+ * Benutzer aus der Umgebung kommen. Greift ausschliesslich, solange ueberhaupt
+ * kein Benutzer existiert -- danach sind die beiden Variablen wirkungslos, und
+ * eine Aenderung wirkt sich auf niemanden mehr aus.
+ *
+ * must_change_password = 1, weil ADMIN_PASSWORD in der Stack-Definition bzw.
+ * in Portainer dauerhaft im Klartext sichtbar bleibt.
+ */
+function bootstrap_first_admin(PDO $pdo): void {
+    $count = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    if ($count > 0) {
+        return;
+    }
+
+    $name     = trim((string)(getenv('ADMIN_USER') ?: ''));
+    $password = (string)(getenv('ADMIN_PASSWORD') ?: '');
+
+    if ($name === '' || $password === '') {
+        // Ohne Zugangsdaten laesst sich niemand anlegen. Kein Abbruch: die
+        // Startseite soll eine verstaendliche Meldung zeigen koennen, statt
+        // dass der Container in einer Neustartschleife haengt.
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO users (name, password_hash, is_admin, must_change_password, created_at)
+         VALUES (?, ?, 1, 1, ?)'
+    );
+    try {
+        $stmt->execute([$name, password_hash_app($password), now()]);
+    } catch (PDOException $e) {
+        // Zwei gleichzeitige erste Requests: der zweite laeuft in den
+        // UNIQUE-Index auf users.name. Das ist der gewuenschte Ausgang.
+        if (!str_contains($e->getMessage(), 'UNIQUE')) {
+            throw $e;
+        }
+    }
+}
+
+/**
+ * Fuehrt eine Closure in einer Transaktion aus und gibt deren Rueckgabe weiter.
+ * Verschachtelte Aufrufe laufen in der aeusseren Transaktion mit.
+ */
+function db_transaction(callable $fn): mixed {
+    $pdo = db();
+    if ($pdo->inTransaction()) {
+        return $fn($pdo);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $result = $fn($pdo);
+        $pdo->commit();
+        return $result;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}

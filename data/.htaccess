@@ -1,0 +1,6 @@
+# Hier liegt die SQLite-Datenbank. Ein direkter Download waere der komplette
+# Datenbestand samt Passwort-Hashes.
+#
+# Wirkt nur, solange AllowOverride gesetzt ist. Im Container steht dieselbe
+# Sperre zusaetzlich als <Directory>-Block in apache-app.conf.
+Require all denied

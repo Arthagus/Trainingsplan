@@ -1,0 +1,21 @@
+.git
+.gitignore
+.dockerignore
+.claude
+.env
+.env.example
+data
+# Die Sperre muss ins Image: von dort uebernimmt Docker sie beim ersten
+# Befuellen in das Volume.
+!data/.htaccess
+uploads
+doku
+deploy
+CLAUDE.md
+LASTENHEFT.md
+docker-compose.yml
+Dockerfile
+training-jadefalke-net.txt
+*.db
+*.db-wal
+*.db-shm

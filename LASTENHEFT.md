@@ -12,6 +12,32 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 > **Nachtrag:** Muskelgruppen hängen nicht mehr als einzelner Fremdschlüssel an der Übung,
 > sondern als n:m-Zuordnung mit Primär-Kennzeichnung (§4 `exercise_muscle_groups`,
 > §6.3 Checkbox-Auswahl, §7.5 Tauschlogik).
+>
+> **Nachtrag 2026-08-07 (Trainingshistorie):** Die Auswertung war in §9 ausdrücklich aus v1
+> ausgenommen und in §10 vorgemerkt. Sie kommt auf Wunsch des Benutzers doch hinein — die
+> Daten lagen ohnehin vollständig vor, es fehlte nur die Ansicht. Neu: §7.8, `history.php`.
+>
+> **Nachtrag 2026-08-07 (nach dem ersten Studio-Training):** Vier Änderungen aus dem
+> Praxistest — (1) **Wiederholungen entfallen ersatzlos**, Feld und Spalte
+> `workout_log.reps`: Ein Wert je Einheit kann 12/10/9 über drei Sätze nicht abbilden (§4,
+> §7.3, §7.4). (2) Das Gewichtsfeld ist nach dem Abhaken **schreibgeschützt**; geändert wird
+> über Häkchen entfernen → korrigieren → neu abhaken (§7.4). (3) Eine Einheit lässt sich
+> **ausdrücklich starten** — vorher hielt der Zeitstempel das Ende der ersten Übung fest
+> statt des Trainingsbeginns (§7.6). (4) Hauptgruppen mit Untergruppen sind in der
+> Übungsmaske **nicht mehr wählbar** (§6.3). Einzelheiten in
+> `doku/rueckmeldungen_praxistest.md`.
+>
+> **Nachtrag 2026-08-06 (Pläne):** Die Obergrenze von zwei Plänen je Benutzer entfällt
+> (§6.4). Aus der Plan-*Alternation* wird damit eine Plan-*Rotation* entlang der
+> Sortierreihenfolge (§7.6); bei zwei Plänen verhält sie sich unverändert. Anlass ist eine
+> mögliche Umstellung auf Push/Pull/Legs. Die Planpflege bleibt ausdrücklich Adminsache —
+> Benutzer stellen sich keine eigenen Pläne zusammen.
+>
+> **Nachtrag 2026-08-06:** Die Zielumgebung steht und ist eingerichtet — Subdomain,
+> Proxy-Ziel und Volume-Pfade sind in §3.1 als verbindliche Werte nachgetragen. Die
+> Erstfassung ging von einem allgemeinen Setting aus; wo ihre Annahmen dem widersprechen,
+> wurden sie gestrichen. Betroffen: das Port-Binding (`127.0.0.1` → LXC-IP `10.10.10.2:8066`)
+> und die Beschreibung der internen Strecke (nicht `localhost`, sondern Proxmox-Internetz).
 
 ---
 
@@ -41,7 +67,15 @@ Self-Signup — Benutzer werden ausschließlich vom Administrator angelegt.
 
 **Service-Worker-Regel (zwingend):** Der Service Worker cacht **ausschließlich** statische
 Assets — `assets/*.css`, `assets/*.js`, `manifest.json` und die Icons — mit Strategie
-`cache-first`. **Kein einziges HTML-Dokument und keine API-Antwort** darf gecacht werden
+**`stale-while-revalidate`**: Die Antwort kommt sofort aus dem Cache, parallel wird die
+frische Fassung geholt und abgelegt.
+
+> Ursprünglich stand hier `cache-first`. Das hat sich am 2026-08-07 als Falle erwiesen: Ein
+> Service Worker wird nur neu installiert, wenn sich **seine eigene Datei** ändert. Bleibt
+> `sw.js` unverändert, läuft `install()` nie wieder — und `caches.match()` liefert bis in
+> alle Ewigkeit die Fassung vom ersten Besuch. `style.css` und `app.js` waren dadurch in
+> jedem Browser eingefroren, über mehrere Versionen hinweg. Zusätzlich trägt der Cache eine
+> Versionsnummer im Namen, die beim Ändern der Assets hochgezählt wird. **Kein einziges HTML-Dokument und keine API-Antwort** darf gecacht werden
 (`network-only`). Andernfalls liefert die App nach dem Logout eingeloggten Zustand aus dem
 Cache und veraltete CSRF-Tokens, die jeden POST mit 403 abweisen lassen.
 
@@ -87,7 +121,7 @@ Fehlerquelle. Stattdessen zwei Partials `lib/view_header.php` und `lib/view_foot
 ```
 Trainingsplan/
 ├── index.php  index.js          # Handy-Ansicht: aktive Einheit / Planvorschlag
-├── login.php  logout.php  password.php  devices.php
+├── login.php  logout.php  password.php  devices.php  history.php
 ├── admin_users.php  admin_exercises.php  admin_plans.php
 ├── admin_muscle_groups.php  maintenance.php  download_backup.php
 ├── image.php                    # Bild-Ausliefer-Endpoint mit Path-Jail
@@ -98,8 +132,9 @@ Trainingsplan/
 ├── assets/ style.css  app.js  sw.js  manifest.json  icon-192.png  icon-512.png
 ├── data/     trainingsplan.db          ← Volume, .htaccess gesperrt
 ├── uploads/  <zufallsname>.jpg         ← Volume, kein PHP-Handler
-├── schema.sql  Dockerfile  docker-compose.yml  .env.example
+├── schema.sql  Dockerfile  apache-app.conf  docker-compose.yml  .env.example
 ├── CLAUDE.md  README.md  LASTENHEFT.md
+├── deploy/ stack.yml  env-vorlage.txt  paket_bauen.sh   # Ausrollen ueber Portainer
 └── doku/   nginx-vhost.conf  deployment.md
 ```
 
@@ -111,31 +146,84 @@ Die App läuft als **Docker-Container** auf einem Hetzner-Rootserver, erreichbar
 eigene **Subdomain mit Let's-Encrypt-Zertifikat**. Ein Reverse-Proxy (Nginx auf dem Host)
 leitet auf den veröffentlichten Container-Port weiter.
 
+### 3.1 Zielumgebung (verbindlich)
+
+Der Rootserver betreibt **Proxmox** mit mehreren LXC-Containern auf den Adressen
+`10.10.10.2`, `10.10.10.3` usw. Dieser Dienst läuft im LXC **`10.10.10.2`**; Docker läuft
+innerhalb dieses LXC. Die folgenden Werte sind keine Beispiele, sondern der eingerichtete
+und funktionierende Ist-Zustand:
+
+| | |
+|---|---|
+| Subdomain | `training.jadefalke.net`, im Browser erreichbar |
+| TLS | Let's Encrypt via Certbot, terminiert am Host-Nginx |
+| Host-Nginx | leitet weiter auf `http://10.10.10.2:8066` (`proxy_pass`) |
+| Weitergereichte Header | `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` |
+| Port 80 | `301` auf HTTPS, sonst `404` |
+| Docker-Port-Binding | `10.10.10.2:8066` → Container-Port `80` |
+| Verwaltung | **Portainer**, zentral für alle LXC; jeder LXC ist dort ein eigenes Environment |
+| Persistenz | Named Volumes `trainingsplan-data`, `trainingsplan-uploads` — **keine** Host-Pfade |
+
+Auf demselben LXC laufen bereits andere Docker-Projekte (u. a. `solarwatch`). Deren
+Konventionen gelten auch hier: Image in Portainer bauen, Stack ohne `build:`, Named Volumes.
+
+Die aktive Nginx-Konfiguration liegt wortgetreu in `doku/nginx-vhost.conf`, die
+Betriebsanleitung in `doku/deployment.md`. **Bei Widerspruch zwischen diesem Lastenheft und
+`doku/nginx-vhost.conf` gilt die Nginx-Datei** — sie bildet den Server ab.
+
+Wo in diesem Dokument sonst noch Adressen, Ports oder Pfade auftauchen, sind sie
+Platzhalter aus der Erstfassung und den Werten dieser Tabelle nachgeordnet.
+
 **Container-Anforderungen:**
 
 - Basis-Image `php:8.3-apache`
 - Zusätzlich installiert: PHP-Extensions `pdo_sqlite` und `gd` (Bildverarbeitung),
-  Apache-Modul `rewrite`
-- Beispiel-Dockerfile-Kern:
+  Apache-Module `rewrite`, `headers` und **`remoteip`**
+- Dockerfile-Kern:
   ```dockerfile
   FROM php:8.3-apache
-  RUN apt-get update && apt-get install -y libpng-dev libjpeg-dev \
+  RUN apt-get update && apt-get install -y libsqlite3-dev libpng-dev libjpeg-dev \
    && docker-php-ext-configure gd --with-jpeg \
    && docker-php-ext-install pdo_sqlite gd \
-   && a2enmod rewrite
-  COPY ./app /var/www/html
+   && a2enmod rewrite headers remoteip
+  COPY . /var/www/html
   ```
+  **`libsqlite3-dev` ist zwingend** und fehlte in der Erstfassung dieses Beispiels: Das
+  Basis-Image bringt SQLite zur Laufzeit mit, aber nicht die Header und die
+  pkg-config-Datei. Ohne das Paket bricht `docker-php-ext-install pdo_sqlite` mit
+  *„Package 'sqlite3', required by 'virtual:world', not found"* ab — beim ersten
+  Image-Bau am 2026-08-06 genau so passiert.
+  Der Repo-Wurzelordner **ist** das Anwendungsverzeichnis (`index.php` liegt im Root, siehe
+  §2.2) — es gibt kein Unterverzeichnis `app/`. Was nicht ins Image gehört, steht in
+  `.dockerignore`.
+- **`mod_remoteip` ist keine Kür.** Ohne das Modul steht in `REMOTE_ADDR` bei jedem Request
+  die Adresse des Nginx statt die des Clients. Die Brute-Force-Bremse aus §5 zählt dann alle
+  Fehlversuche auf dieselbe IP und sperrt nach fünf Versuchen **alle** Benutzer gemeinsam
+  aus. Konfiguration: `RemoteIPHeader X-Forwarded-For`, `RemoteIPTrustedProxy 10.10.10.0/24`.
 
 **Persistenz (zwingend):** Zwei Pfade müssen als Volume/Bind-Mount außerhalb des Images
 liegen, sonst gehen bei jedem Rebuild alle Daten verloren:
 
-- `/var/www/html/data` — die SQLite-Datenbankdatei
-- `/var/www/html/uploads` — die hochgeladenen Übungsbilder
+- `/var/www/html/data` → Named Volume `trainingsplan-data` — die SQLite-Datenbankdatei
+- `/var/www/html/uploads` → Named Volume `trainingsplan-uploads` — die Übungsbilder
 
-**Port-Binding:** Der Container-Port wird ausschließlich an `127.0.0.1` gebunden, nie an
-`0.0.0.0`. Das ist die Voraussetzung dafür, dass dem `X-Forwarded-Proto`-Header vertraut werden
-darf (siehe §5) — er ist nur dann fälschungssicher, wenn der Container nicht direkt von außen
-erreichbar ist.
+**Named Volumes, keine Bind-Mounts.** Das ist keine Geschmacksfrage: Der Apache im Container
+läuft als `www-data` (UID 33). Ein Bind-Mount auf ein Host-Verzeichnis entsteht als
+`root:root`, und die App könnte weder die Datenbank anlegen noch Bilder speichern — es
+brauchte ein `chown -R 33:33` von Hand auf der LXC-Shell, an Portainer vorbei. Ein neu
+angelegtes Named Volume befüllt Docker dagegen aus dem Image und übernimmt dabei Eigentümer
+und Rechte; der `chown` im `Dockerfile` genügt damit, und auf dem Host ist **nichts**
+anzulegen.
+
+**Port-Binding:** Der Container-Port wird an die **LXC-interne Adresse** `10.10.10.2:8066`
+gebunden — weder an `0.0.0.0` noch an `127.0.0.1`. Loopback wäre hier falsch: der Nginx läuft
+auf dem Proxmox-Host, also außerhalb des LXC, und käme an einen Loopback-Port nicht heran.
+Entscheidend für die Sicherheit ist ohnehin nicht das Interface, sondern dass
+**ausschließlich der vorgelagerte Nginx** den Port erreicht: `10.10.10.0/24` ist ein reines
+Proxmox-Internetz ohne Route oder Port-Forwarding von außen. Genau das ist die Voraussetzung
+dafür, dass dem `X-Forwarded-Proto`-Header vertraut werden darf (siehe §5) — er ist nur
+fälschungssicher, solange der Container nicht direkt von außen erreichbar ist. Bekäme der LXC
+je ein zweites, öffentliches Interface, fiele diese Annahme und mit ihr die Header-Prüfung.
 
 **Konfiguration** über Umgebungsvariablen, keine Secrets im Image/Repository:
 
@@ -170,9 +258,10 @@ Spalte.
 **HTTPS & Reverse-Proxy:** HTTPS ist Voraussetzung — die sicheren Cookie-Flags (siehe §5)
 funktionieren nur über eine verschlüsselte Verbindung. Wichtig für die Implementierung:
 **TLS terminiert am vorgelagerten Host-Nginx**; zwischen Nginx und Container läuft die
-Verbindung intern **unverschlüsselt über HTTP** auf `localhost`. Der Nginx reicht das
+Verbindung intern **unverschlüsselt über HTTP** — nicht über `localhost`, sondern über das
+Proxmox-Internetz von der Nginx-Maschine zu `10.10.10.2:8066`. Der Nginx reicht das
 ursprüngliche Protokoll über den Header `X-Forwarded-Proto` (sowie `X-Forwarded-For`,
-`X-Real-IP`, `Host`) weiter. Die App darf sich zur Protokoll-Erkennung deshalb **nicht** auf
+`X-Real-IP`, `Host`) weiter; alle vier Header sind in der aktiven Konfiguration gesetzt. Die App darf sich zur Protokoll-Erkennung deshalb **nicht** auf
 `$_SERVER['HTTPS']` verlassen (intern leer/`off`), sondern muss `X-Forwarded-Proto`
 auswerten — siehe §5.
 
@@ -185,8 +274,17 @@ SQLite-Tabellen (Feldnamen als Vorschlag, Typen sinngemäß).
 **Fremdschlüssel:** `PRAGMA foreign_keys = ON` ist gesetzt, das `ON DELETE`-Verhalten ist
 deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
-**muscle_groups** — kontrolliertes Vokabular für Muskelpartien
-- `id`, `name_de`, `name_en`, `sort_order`
+**muscle_groups** — kontrolliertes Vokabular für Muskelpartien, **zweistufig**
+- `id`, `name_de`, `name_en`, `parent_id` (FK → muscle_groups, nullable), `sort_order`
+- **Genau zwei Ebenen:** Hauptgruppen haben `parent_id IS NULL`, Untergruppen zeigen auf
+  ihre Hauptgruppe. Eine Untergruppe darf selbst keine Kinder haben.
+- **Der Übungstausch (§7.5) vergleicht auf Hauptgruppen-Ebene.** Das ist der ganze Zweck
+  der zweiten Stufe: Die Unterteilung darf beliebig fein werden (`Brust (oben)`,
+  `Brust (mitte)`, `Brust (unten)`), ohne dass die Vorschlagslisten leer laufen — für eine
+  Übung an `Brust (oben)` kommt alles unter `Brust` als Ersatz infrage.
+- Ohne die zweite Stufe müsste man zwischen zwei Übeln wählen: grobe Gruppen, bei denen
+  Gegenspieler einander vorgeschlagen werden, oder feine, bei denen fast jede Übung allein
+  in ihrer Klasse steht.
 - Standardwerte geseedet: Brust, Rücken, Schultern, Bizeps, Trizeps, Beine, Waden, Bauch
   (im Admin erweiterbar, §6.2). Muskelgruppen sind Voraussetzung für das Anlegen von Übungen —
   sie werden vorab im Adminbereich gepflegt, nicht nebenbei beim Übungsanlegen erfasst.
@@ -215,8 +313,13 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   zurücksetzen, dann neu setzen — beides in einer Transaktion.
 
 **exercises** — Übungen
-- `id`, `name_de`, `name_en`, `description`, `image_path`, `archived` (bool, Default 0),
-  `archived_at` (datetime, nullable), `created_at`
+- `id`, `name_de`, `name_en`, `description`, `focus` (text, nullable), `image_path`,
+  `archived` (bool, Default 0), `archived_at` (datetime, nullable), `created_at`
+- **`focus`** ist der Schwerpunkt *innerhalb* der Primärgruppe — „oben" bei Brust, „stehend"
+  bei Waden. Reine Anzeige-Information: Die Tauschlogik (§7.5) zieht ausschließlich die
+  Primärgruppe heran und ignoriert dieses Feld. Genau deshalb ist es ein Textfeld und keine
+  weitere Muskelgruppe — sonst zersplitterten die Tauschklassen so weit, dass keine Übung
+  mehr eine Alternative hätte.
 - Die Muskelgruppen hängen **nicht** als Fremdschlüssel an der Übung, sondern an der
   Zuordnungstabelle `exercise_muscle_groups` (n:m, siehe unten).
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
@@ -251,8 +354,12 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
 **workout_log** — Protokoll je Planposition innerhalb einer Einheit (Basis für „letztes Gewicht")
 - `id`, `session_id` (FK), `plan_exercise_id` (FK), `user_id` (FK), `exercise_id` (FK),
-  `plan_id` (FK), `weight` (decimal, **nullable**), `reps` (int, nullable),
-  `performed_at` (datetime)
+  `plan_id` (FK), `weight` (decimal, **nullable**), `performed_at` (datetime)
+- **Keine Wiederholungen.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich
+  passiert — bei drei Sätzen etwa 12, dann 10, dann 9. Ein solches Feld täuscht eine
+  Genauigkeit vor, die es nicht hat. Beim Gewicht stellt sich die Frage nicht, das bleibt
+  über die Sätze meist gleich. Satzgenaues Protokollieren ist als Erweiterung vorgemerkt
+  (§10) und bekäme dann eine eigene Tabelle statt einer Spalte hier.
 - **Eindeutig ist `(session_id, plan_exercise_id)`** — genau ein Eintrag pro Einheit und
   Planposition (Upsert beim Abhaken, Löschen beim Ab-wählen).
 - `plan_exercise_id` ist zwingend: Nach einem Tausch (§7.5) steht in `exercise_id` die
@@ -263,8 +370,10 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - Das vorbelegte „letzte Gewicht" einer Übung ist der jüngste `workout_log.weight` dieses
   Benutzers für diese Übung **über alle Einheiten hinweg**, wobei **leere Werte übersprungen
   werden**: `WHERE user_id = ? AND exercise_id = ? AND weight IS NOT NULL
-  ORDER BY performed_at DESC LIMIT 1`. So geht ein Gewicht nicht verloren, nur weil es einmal
-  nicht eingetragen wurde. `reps` wird nach derselben Regel vorbelegt.
+  ORDER BY performed_at DESC, id DESC LIMIT 1`. So geht ein Gewicht nicht verloren, nur weil
+  es einmal nicht eingetragen wurde. Das `id DESC` ist Pflicht: Zeitstempel haben
+  Sekundenauflösung, zwei Einträge derselben Sekunde hätten sonst keine definierte
+  Reihenfolge.
 
 **exercise_swaps** — einmaliger Übungstausch, an die Einheit gebunden (siehe §7.5)
 - `id`, `session_id` (FK), `plan_exercise_id` (FK), `replacement_exercise_id` (FK)
@@ -345,9 +454,20 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 Nur für Benutzer mit `is_admin`.
 
 **6.1 Benutzerverwaltung**
-- Benutzer anlegen (Name, Passwort, Admin-Flag), Passwort zurücksetzen, Benutzer löschen
-  (Löschverhalten siehe §4.1). Ein zurückgesetztes Passwort setzt `must_change_password = 1`.
+- Benutzer anlegen (Name, Passwort, Admin-Flag), **umbenennen**, Passwort zurücksetzen,
+  Benutzer löschen (Löschverhalten siehe §4.1). Ein zurückgesetztes Passwort setzt
+  `must_change_password = 1`.
 - Der letzte verbliebene Admin kann weder gelöscht noch degradiert werden.
+- **Benutzernamen sind unabhängig von der Groß-/Kleinschreibung eindeutig.** `Oliver` und
+  `oliver` sind derselbe Name; die Anmeldung fragt ebenfalls nicht nach der Schreibweise.
+  Ohne das ließen sich zwei Konten anlegen, die in keiner Liste auseinanderzuhalten sind,
+  und die Handytastatur mit ihrer selbsttätigen Großschreibung wäre die häufigste
+  Anmelde-Fehlerquelle. Technisch: `UNIQUE INDEX ... COLLATE NOCASE` plus `COLLATE NOCASE`
+  in der Anmeldeabfrage. Grenze: Das faltet nur ASCII, `Müller`/`müller` bleiben getrennt.
+- **Umbenennen kennt keine dieser Ausnahmen** — auch das eigene Konto und der letzte Admin
+  sind umbenennbar. Ein Name ändert an den Rechten nichts, und wer umbenennt, kennt den neuen
+  Namen und sperrt sich damit nicht aus. Der Benutzer meldet sich danach mit dem neuen Namen
+  an; angemeldete Geräte bleiben angemeldet, weil die Tokens an der `user_id` hängen.
 
 **6.2 Muskelgruppen**
 - Liste einsehen, erweitern, umbenennen und sortieren (Standardwerte vorgeseedet).
@@ -364,12 +484,22 @@ Nur für Benutzer mit `is_admin`.
   definierten Gruppen als Checkbox-Liste in deren `sort_order`. Kein Dropdown — bei
   Mehrfachauswahl ist eine Checkbox-Liste die passende Bedienform, und alle verfügbaren
   Gruppen sind auf einen Blick sichtbar.
-  - **Mindestens eine** Gruppe muss angehakt sein; das Formular lehnt sonst ab.
-  - Zusätzlich wird **eine** der angehakten Gruppen als **primär** markiert (Radiobutton
-    neben der jeweiligen Checkbox, aktivierbar nur für angehakte Zeilen); alle übrigen
-    angehakten gelten als **sekundär**. Bei genau einer Auswahl wird sie automatisch primär.
-    Wird die primäre Gruppe abgewählt, rückt die oberste verbleibende nach — das Formular
-    darf nie ohne Primärgruppe abgeschickt werden können.
+  - **Zwei getrennte Spalten:** links ein **Radiobutton „primär"**, daneben eine
+    **Checkbox „sekundär"**, dahinter der Name. Beide Spalten sind direkt anklickbar.
+  - **Hauptgruppen mit Untergruppen sind nicht wählbar.** Sie erscheinen als
+    Gliederungsüberschrift ohne Bedienelemente, die Untergruppen eingerückt darunter.
+    Sonst gäbe es zwei Wege für dieselbe Aussage (`Arme` oder `Trizeps`) und eine
+    uneindeutige Datenlage — und der Zusammenhang zur Tauschregel bliebe unsichtbar. Eine
+    Hauptgruppe **ohne** Untergruppen bleibt wählbar, sonst ließe sich für sie überhaupt
+    keine Übung anlegen.
+  - **An der Maske steht, wie der Tausch funktioniert:** „Getauscht wird innerhalb der
+    Hauptgruppe — für eine Übung an *Trizeps* kommt alles unter *Arme* infrage." Ohne diesen
+    Satz überrascht das Verhalten, weil man in der Maske nur die Untergruppe sieht.
+  - Die Primärgruppe ist **Pflicht** und durch den Radiobutton von selbst eindeutig — eine
+    neue Wahl hebt die alte auf.
+  - Sekundär sind beliebig viele. Die Zeile, die gerade primär ist, hat ihre
+    Sekundär-Checkbox **gesperrt und geleert**: Eine Gruppe kann nicht zugleich primär und
+    sekundär sein. Der Server entfernt eine trotzdem mitgeschickte Doppelung.
   - Die Spaltenüberschriften heißen entsprechend „primär" und „sekundär", damit beim Anlegen
     klar ist, dass primär die Gruppe meint, **wegen der** man die Übung macht — nicht bloß
     die am stärksten beteiligte.
@@ -377,6 +507,10 @@ Nur für Benutzer mit `is_admin`.
     Bizeps sekundär.
   - Neue Gruppen lassen sich hier **nicht** anlegen; dafür gibt es §6.2. Ein Link dorthin
     steht neben der Liste.
+- **Schwerpunkt (optional):** ein kurzes Textfeld für den Teilbereich innerhalb der
+  Primärgruppe („oben", „mitte/unten", „stehend"). Wird als Abzeichen neben der Primärgruppe
+  angezeigt — in der Übungsliste, in der Handy-Ansicht und in den Tauschvorschlägen. Bewusst
+  optisch von den Muskelgruppen unterschieden, weil er **keine** Tauschklasse ist.
 - Die Übungsliste zeigt je Übung die Primärgruppe hervorgehoben und die weiteren Gruppen
   dahinter, und lässt sich nach Muskelgruppe filtern (trifft Primär- **und** Sekundärgruppen).
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
@@ -410,8 +544,12 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Tooltip. Beim Löschen wird auch die Bilddatei samt Thumbnail aus `uploads/` entfernt.
 
 **6.4 Planverwaltung**
-- Pro Benutzer **einen oder zwei** Pläne anlegen (Maximum 2 erzwingen — die Alternation in
-  §7.6 ist für den Zwei-Plan-Fall definiert).
+- Pro Benutzer **beliebig viele** Pläne anlegen — mindestens einer, nach oben ohne feste
+  Grenze. Zwei Pläne (Ober-/Unterkörper) und drei (Push/Pull/Legs) sind die erwarteten
+  Fälle; die Rotation in §7.6 ist für jede Anzahl definiert.
+- **Die Reihenfolge der Pläne ist fachlich bedeutsam**, nicht bloß Anzeigesache: Sie legt
+  die Rotationsreihenfolge fest (§7.6). Push → Pull → Legs muss sich deshalb sortieren
+  lassen, mit denselben Mitteln wie die Übungen innerhalb eines Plans.
 - Übungen zu einem Plan hinzufügen/entfernen und **in Reihenfolge sortieren**.
 - **Sperre bei offener Einheit:** Hat der betroffene Benutzer eine offene Einheit, ist die
   Planbearbeitung blockiert (Hinweis anzeigen). Sonst würde sich `n` in der laufenden
@@ -423,10 +561,27 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 - Aktionen: `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`,
   `optimize`, `checkpoint`.
 - Backup als ZIP in zwei Varianten: **vollständig** (DB + Bilder) und **ohne Bilder**.
-- Ein Restore prüft `PRAGMA integrity_check` erst auf einer Kopie, bevor die Live-DB ersetzt
-  wird.
-- Download über `download_backup.php` mit `basename()`-Filter und Extension-Whitelist
-  (`zip`, `db`).
+- **Die Datenbankkopie entsteht über `VACUUM INTO`, nie als Dateikopie.** Im WAL-Modus ist
+  ein `cp` der `.db` ohne die `-wal`/`-shm`-Dateien im besten Fall veraltet, im schlechteren
+  unbrauchbar. `VACUUM INTO` liefert eine in sich geschlossene, bereits kompaktierte Kopie,
+  während die App weiterläuft — kein Anhalten nötig.
+- Ein Restore prüft, **bevor** irgendetwas überschrieben wird: Die Sicherung wandert in einen
+  Zwischenordner, dort laufen `PRAGMA integrity_check` **und** ein Abgleich der erwarteten
+  Tabellen (sonst ließe sich eine fremde, in sich gesunde SQLite-Datei einspielen). Erst
+  danach wird der aktuelle Stand als Rückfallkopie beiseitegelegt und ersetzt; lässt sich die
+  neue Datenbank nicht öffnen, kommt der alte Stand automatisch zurück.
+- Ein Upload wird nach denselben Regeln geprüft, aber **nicht eingespielt** — das bleibt ein
+  zweiter, bewusster Schritt.
+- Download über `download_backup.php` mit `basename()`-Filter, Extension-Whitelist
+  (`zip`, `db`) und `realpath`-Path-Jail. Nur für Admins: Im Archiv steckt der komplette
+  Datenbestand samt Passwort-Hashes.
+- Es werden höchstens 20 Sicherungen behalten; ältere entfallen beim Erstellen einer neuen.
+- Die Seite zeigt oben den Zustand (Größen von Datenbank, WAL und Bildern, Zeilenzahlen,
+  SQLite-Version) und **warnt sichtbar, wenn es keine Sicherung gibt oder die letzte älter
+  als 14 Tage ist**. Das ist die wichtigste Aussage der Seite und gehört nicht in eine Liste
+  versteckt.
+- **Voraussetzung im Image:** PHP-Erweiterung `zip` (`libzip-dev`). Fehlt sie, entfällt die
+  Bildersicherung und die Seite sagt das ausdrücklich.
 
 ---
 
@@ -450,7 +605,7 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   - **Gewichts-Eingabefeld, vorbelegt mit dem zuletzt protokollierten Gewicht** nach der
     Regel in §4 (leere Werte werden übersprungen; leer, falls noch nie ein Gewicht
     protokolliert wurde). Das Feld **darf leer bleiben** (z. B. Bauch/Dips ohne
-    Zusatzgewicht), optional Wiederholungen (gleiche Vorbelegungsregel),
+    Zusatzgewicht). **Wiederholungen werden nicht erfasst** — siehe §4.
   - **„Erledigt"-Häkchen**,
   - Aktion **„Übung tauschen"** (§7.5).
 - Fortschrittsanzeige „x/n erledigt" und der **„Training beendet"-Button** (§7.6) sind während
@@ -462,10 +617,15 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   der Benutzer passt es nur bei Änderung an. „Erledigt" funktioniert **auch ohne Gewichtswert**.
 - Beim Setzen von „Erledigt" wird ein `workout_log`-Eintrag für die **aktive Einheit** +
   Planposition geschrieben bzw. aktualisiert (`session_id`, `plan_exercise_id`, `exercise_id`,
-  Gewicht, optional Wiederholungen, `performed_at`). Ein Eintrag pro Einheit + Planposition.
-- Wird das Gewicht **nach** dem Abhaken korrigiert, speichert die Änderung per `onchange`
-  sofort (Upsert auf denselben Eintrag). Es geht kein Wert dadurch verloren, dass der Benutzer
-  die Seite verlässt, ohne erneut abzuhaken.
+  Gewicht, `performed_at`). Ein Eintrag pro Einheit + Planposition.
+- **Nach dem Abhaken ist das Gewichtsfeld schreibgeschützt.** Wer den Wert korrigieren will,
+  entfernt das Häkchen, ändert ihn und hakt neu ab. Damit gibt es **einen** Mechanismus
+  statt zweier — genau so ist der Übungstausch geregelt (§7.5).
+
+  Der Preis: Wer abwählt, ändert und dann vergisst, wieder abzuhaken, hat für diese Position
+  nichts protokolliert. Das ist aber sichtbar — das Häkchen fehlt und „x/n" steht niedriger.
+  Kein stiller Verlust. Eine eigene „Wert nachträglich speichern"-Aktion gibt es
+  dementsprechend **nicht**.
 - **Ab-wählen** von „Erledigt" (versehentliches Häkchen) löscht den zugehörigen
   `workout_log`-Eintrag dieser Einheit wieder.
 - **Wiederherstellung des Erledigt-Status:** Beim Laden gilt eine Planposition als erledigt,
@@ -473,6 +633,42 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   geht also nicht verloren, wenn das Handy zwischendurch geschlossen wird.
 - **Fehlerfall:** Schlägt ein Speichern fehl, bleibt das Häkchen sichtbar unbestätigt und ein
   Wiederholen-Button erscheint (§2).
+
+- **Schlechtes Netz.** Der Regelfall im Studio ist nicht *kein* Empfang, sondern *schwacher*.
+  Drei Vorkehrungen, gestaffelt:
+
+  1. **Zeitlimit auf jedem Aufruf** (12 s; 120 s, wenn eine Datei mitgeht). `fetch` kennt von
+     sich aus keines — ohne Limit bliebe das Häkchen bei einem Balken Empfang bis zu zwei
+     Minuten deaktiviert stehen, ohne Meldung und ohne Wiederholen-Knopf.
+  2. **Bis zu zwei automatische Wiederversuche** (nach 2 s und 5 s) bei Netzfehlern und 5xx.
+     Nur dort, wo der Endpunkt es verträgt, und **ausdrücklich pro Aufruf** angefordert —
+     nicht als Standard. `api/session.php → end` verträgt es ausdrücklich **nicht**.
+  3. **Warteschlange für das Abhaken**, siehe unten.
+
+- **Warteschlange (`assets/app.js`, `index.js`).** Ein Häkchen springt bei Netzproblemen
+  nicht mehr zurück. Es bleibt gesetzt, die Zeile trägt sichtbar den Vorbehalt „noch nicht
+  gespeichert", und der Eintrag wird nachgeholt, sobald das Netz wieder da ist.
+
+  - **Nur innerhalb einer bereits laufenden Einheit.** Ohne offene Einheit bleibt es beim
+    direkten Aufruf. Sonst müsste die Anzeige eine Einheit zeigen, die es serverseitig nicht
+    gibt — ohne Startzeit, ohne `session_id`, mit einem „x/n" ohne Bezugsgröße. Und beim
+    Nachholen wäre nicht mehr entscheidbar, in welche Einheit die Einträge gehören.
+  - **Nur `api/log.php`** (`check`/`uncheck`). Tausch, Start und Ende bleiben online-only.
+  - **Ablage in `localStorage`**, geschlüsselt auf `user_id` **und** `session_id`. Beide sind
+    zwingend: `localStorage` gehört der Herkunft und nicht der Sitzung, und ein Häkchen gehört
+    zu genau einer Einheit. Passt eines nicht, wird die Ablage verworfen — nachgeholt würde
+    es sonst über `einheit_sicherstellen()` eine **neue** Einheit eröffnen.
+  - **Ein Eintrag je Planposition**, der neueste gewinnt. Die Schlange kann damit nie länger
+    werden als der Plan.
+  - **Endgültige Ablehnungen (4xx) fliegen aus der Schlange** und erscheinen als Zeilenfehler
+    mit Wiederholen-Knopf. Bliebe der Eintrag liegen, blockierte er alle folgenden dauerhaft.
+  - **Beenden ist gesperrt, solange etwas aussteht** — eine geschlossene Einheit nähme die
+    nachgeholten Einträge nicht mehr an.
+
+- **Verbindungsleiste.** Eine Leiste am oberen Rand nennt den Zustand und die Zahl der
+  wartenden Eingaben. Maßgeblich ist dabei, was tatsächlich gescheitert ist, **nicht**
+  `navigator.onLine`: Das steht im Studio-WLAN ohne Internet und bei einem Balken Mobilfunk
+  durchgehend auf `true`.
 
 **7.5 Übungstausch (Alternativen)**
 - „Übung tauschen" schlägt alternative Übungen **derselben primären Muskelgruppe** vor: alle
@@ -482,10 +678,15 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   ```sql
   SELECT e.* FROM exercises e
     JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id AND emg.is_primary = 1
-   WHERE emg.muscle_group_id = :primary_group_of_current
+    JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+   WHERE COALESCE(mg.parent_id, mg.id) = CAST(:hauptgruppe AS INTEGER)
      AND e.id != :current_exercise_id
      AND e.archived = 0
   ```
+  Verglichen wird die **Hauptgruppe** (§4), nicht die genaue Untergruppe. Das `CAST` ist
+  zwingend: `COALESCE()` liefert einen Wert ohne Spaltenaffinität, und PDO bindet Werte aus
+  `execute([...])` als Text — ohne Cast vergleicht SQLite Integer gegen Text, was nie
+  zutrifft und die Liste stumm leer lässt.
 
   **Bewusst nur die Primärgruppe, nicht jede Überschneidung.** Der Vergleich läuft
   primär-gegen-primär; Sekundärgruppen werden zum Matching **gar nicht** herangezogen. Das
@@ -499,7 +700,14 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   viele Sekundärgruppen sie mitbringen.
 - Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
   erkennbar ist, was man sich zusätzlich einhandelt.
-- Gibt es keine Alternative, wird das als Hinweis ausgegeben, nicht als leere Liste.
+- **Übungen, die in diesem Plan ohnehin anstehen, erscheinen nicht als Vorschlag.** Sie sind
+  kein Ersatz — man macht sie an diesem Tag sowieso. Maßgeblich ist die *angezeigte* Übung je
+  Position: Wurde eine Position bereits getauscht, ist die verdrängte Original-Übung heute
+  nicht im Programm und darf anderswo als Alternative auftauchen.
+- Gibt es keine Alternative, wird das als Hinweis ausgegeben, nicht als leere Liste — und
+  zwar unterschieden nach Ursache: „es gibt keine" gegenüber „alle stehen schon in diesem
+  Plan (n)". Für den Benutzer sind das zwei verschiedene Sachverhalte; der zweite sagt ihm,
+  dass sich das Anlegen weiterer Übungen lohnt.
 - Nach Auswahl fragt die App den Modus:
   - **Nur diese Einheit (einmalig einstreuen):** `exercise_swaps`-Eintrag für die aktive
     Einheit + das betreffende `plan_exercise`. Die Ansicht zeigt die Ersatzübung; wird
@@ -509,22 +717,36 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
     **Existiert noch keine offene Einheit, startet dieser Tausch die Einheit** (siehe §7.6).
   - **Dauerhaft (neue Default-Übung):** Der `plan_exercises`-Eintrag wird geändert
     (`exercise_id` = Ersatzübung). Ab sofort fester Bestandteil des Plans.
-    Für Positionen, die in der laufenden Einheit **bereits abgehakt** sind, ist dieser Modus
-    gesperrt (Hinweis anzeigen) — sonst zeigte der Log auf die alte, die Ansicht auf die neue
-    Übung.
+
+- **Bereits abgehakte Positionen lassen sich gar nicht tauschen** — weder dauerhaft noch für
+  diese Einheit. Der Tausch-Button ist dann deaktiviert, mit Begründung; wer doch tauschen
+  will, entfernt erst das Häkchen, tauscht, und hakt neu ab.
+
+  Der Grund: Ein Protokolleintrag dokumentiert eine tatsächlich ausgeführte Übung. Würde der
+  Tausch ihn auf die Ersatzübung umschreiben, wanderte das erreichte Gewicht auf eine Übung,
+  die gar nicht gemacht wurde — und verschwände aus der Historie der Übung, die man wirklich
+  gemacht hat. Bliebe der Eintrag dagegen auf der alten Übung stehen, zeigten Log und Ansicht
+  auf Verschiedenes. Beide Auswege sind schlechter als der eine zusätzliche Handgriff.
+  Das Ab-wählen ist ohnehin verlustfrei (§7.4) und macht die Absicht explizit.
 - Besteht für eine Position sowohl ein `exercise_swaps`-Eintrag der offenen Einheit als auch
   ein geänderter Plan, **gewinnt der Swap** für die Dauer dieser Einheit.
 - Das vorbelegte Gewicht folgt immer der tatsächlich angezeigten Übung (Historie ist pro
   Übung geführt).
 
 **7.6 Trainingseinheit (Session) & Plan-Alternation**
-- **Start:** Sobald in einer Situation ohne offene Einheit die **erste zustandsändernde
-  Trainingsaktion** stattfindet, wird eine neue `sessions`-Zeile angelegt (`started_at` =
-  jetzt, `plan_id` = aktueller Plan). Zustandsändernd sind:
-  1. eine Übung als „erledigt" markieren, **oder**
-  2. eine Übung „nur für diese Einheit" tauschen (§7.5).
+- **Start — auf drei Wegen:**
+  1. **Ausdrücklich über den Knopf „Training starten"** auf der Vorschlagsseite. Das ist der
+     Regelfall und der einzige Weg, bei dem `started_at` wirklich den *Beginn* des Trainings
+     festhält.
+  2. eine Übung als „erledigt" markieren, **oder**
+  3. eine Übung „nur für diese Einheit" tauschen (§7.5).
 
-  Bloßes Anschauen startet **keine** Einheit. Punkt 2 ist notwendig, weil ein
+  **Warum es Weg 1 gibt:** Ohne ihn entstand die Einheit frühestens beim Abhaken der ersten
+  Übung — der Zeitstempel hielt damit deren *Ende* fest. Bei drei Sätzen sind das leicht zehn
+  Minuten, und jede Auswertung der Trainingsdauer (§10) wäre systematisch zu kurz.
+
+  Die Wege 2 und 3 bleiben bestehen, damit niemand feststeckt, der den Knopf übersieht.
+  Bloßes Anschauen startet weiterhin **keine** Einheit. Punkt 2 ist notwendig, weil ein
   `exercise_swaps`-Eintrag eine `session_id` benötigt — und der reale Ablauf im Studio lautet:
   Plan öffnen, Gerät besetzt vorfinden, tauschen, *dann* trainieren.
 - **Mitternachts-Robustheit:** Die Einheit ist die Einheit der Logik, nicht der Kalendertag.
@@ -546,18 +768,76 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   zeigt die App beim Start ein Banner „Deine Einheit läuft seit … — fortsetzen oder beenden?"
   mit beiden Buttons. Es gibt **kein** automatisches Schließen (das würde §7.2 aushebeln), aber
   ohne diesen Hinweis blockiert eine einmal vergessene Einheit dauerhaft die Plan-Alternation.
-- **Plan-Alternation:** Bei nur einem Plan wird immer dieser genommen. Bei zwei Plänen (und
-  keiner offenen Einheit) schlägt die App den Plan vor, der **nicht** `users.last_plan_id`
-  entspricht. Der Vorschlag ist vor dem Start manuell auf den anderen Plan umschaltbar.
+- **Plan-Rotation:** Liegt keine offene Einheit vor, schlägt die App den Plan vor, der in
+  der Sortierreihenfolge (§6.4) **auf `users.last_plan_id` folgt** — zyklisch, nach dem
+  letzten kommt wieder der erste.
+  - Bei **einem** Plan ist das immer derselbe.
+  - Bei **zwei** Plänen ergibt die Regel exakt die frühere Alternation: vorgeschlagen wird
+    der jeweils andere.
+  - Bei **drei und mehr** (Push/Pull/Legs) läuft die Rotation der Reihe nach durch.
+  - Ist `last_plan_id` leer (noch nie trainiert) oder zeigt auf einen gelöschten Plan, wird
+    der **erste** Plan der Sortierung vorgeschlagen.
+
+  `users.last_plan_id` genügt dafür — es braucht keinen Rotationszähler, weil die Position
+  in der Reihenfolge den Nachfolger eindeutig bestimmt.
+- Der Vorschlag ist vor dem Start **manuell auf jeden anderen Plan umschaltbar**. Bei mehr
+  als zwei Plänen ist dafür eine Auswahl nötig, kein bloßes Umschalten.
 
 **7.7 Konto & Geräte**
+
+Die Seite heißt `password.php` und trägt im Menü **„Konto"** — sie hat zwei Aufgaben.
+
 - **Passwort ändern** (`password.php`): Der Benutzer ändert sein eigenes Passwort. Das alte
   Passwort wird per `password_verify()` geprüft, danach `session_regenerate_id(true)`.
   Bei gesetztem `must_change_password` ist diese Seite die einzige erreichbare (§3, §7.1).
+- **Benutzernamen ändern** (`password.php`, `api/auth.php → change_name`): Der Benutzer ändert
+  seinen eigenen Namen; Admins ändern über §6.1 jeden.
+  - **Das aktuelle Passwort wird verlangt**, obwohl der Benutzer angemeldet ist. Der
+    Benutzername *ist* die Anmeldekennung: Wer ein kurz unbeaufsichtigtes, entsperrtes Handy
+    in die Hand bekäme, könnte den Besitzer sonst mit zwei Tipps aussperren — der kennt den
+    neuen Namen nicht.
+  - **`require_passwort_gesetzt_api()` gehört ausdrücklich in diese Aktion.** `api/auth.php`
+    ist der einzige Endpunkt ohne die Sperre am Dateikopf; ohne sie könnte jemand mit dem vom
+    Admin vergebenen Startpasswort seinen Namen ändern, ohne je ein eigenes gesetzt zu haben.
+  - Solange ein Passwortwechsel erzwungen ist, wird der Abschnitt **gar nicht angezeigt**.
+  - Kein Abmelden anderer Geräte, kein `session_regenerate_id()`: Es ändert sich keine
+    Berechtigung, und Sitzung wie Tokens hängen an der `user_id`. Der Name liegt
+    ausschließlich in `users.name` — das Umbenennen ist ein einziges `UPDATE`.
+  - Kollisionen werden über den `UNIQUE`-Index abgefangen, nicht über ein `SELECT` davor:
+    Dazwischen läge sonst ein Zeitfenster, in dem sich derselbe Name zweimal vergeben ließe.
 - **Geräte** (`devices.php`): Liste der aktiven `remember_tokens` des Benutzers (angelegt am,
   zuletzt genutzt, Gerätekennung aus `user_agent`, das aktuelle Gerät markiert), einzeln
   abmeldbar, plus **„Auf allen Geräten abmelden"**. Das ist die Oberfläche zu der in §5
   zugesagten serverseitigen Widerrufbarkeit.
+- **Einheiten löschen** (in `history.php`, §7.8): Eine abgeschlossene Einheit lässt sich
+  samt Protokoll entfernen — für versehentlich gestartete Einheiten, abgebrochene Trainings
+  oder Testdaten. Nur die **eigenen**; die offene Einheit ist ausgenommen, die wird beendet.
+  Ohne diesen Weg blieben Fehleingaben dauerhaft stehen und blockierten über ihre
+  `workout_log`-Einträge sogar das endgültige Löschen von Übungen (§6.3).
+
+**7.8 Trainingshistorie (`history.php`)**
+
+Die Antwort auf „wann habe ich was trainiert" und „werde ich stärker". Zwei Ansichten, über
+eine Filterleiste umschaltbar:
+
+- **Einheiten** (Standard): abgeschlossene Trainingseinheiten, neueste zuerst, mit Datum,
+  Plan, Dauer und „x/n Übungen". Aufklappbar mit den protokollierten Übungen und Gewichten;
+  eine getauschte Position ist als „statt …" gekennzeichnet.
+- **Übungen**: je Übung der Gewichtsverlauf — als kleine Kurve in der Kopfzeile, aufgeklappt
+  als Tabelle mit Datum und Gewicht, dazu die Veränderung gegenüber dem ersten Eintrag und
+  der Bestwert. Übungen ohne Gewichtsangabe erscheinen nicht.
+
+**Jeder sieht ausschließlich seine eigenen Daten — auch Admins.** Trainingsdaten sind
+persönlich. Es gibt hier bewusst keine Benutzerauswahl; die `user_id` stammt durchgehend aus
+der Sitzung und nie aus einem Parameter. Damit ist der IDOR-Schutz (§5) keine Prüfung, die
+sich vergessen ließe, sondern Bestandteil jeder Abfrage.
+
+Die Kurve ist **Inline-SVG ohne Bibliothek** — das hält die Regel „kein Build-Step, keine
+Abhängigkeiten" (§2) ein. Bei weniger als zwei Messpunkten entfällt sie; es gäbe nichts zu
+verbinden.
+
+Eine laufende Einheit erscheint nicht in der Liste, sondern als Hinweis mit Verweis auf die
+Trainingsansicht: Sie hat noch keine Dauer.
 
 ---
 
@@ -577,23 +857,39 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 ## 9. Nicht im Umfang von v1
 
 - Native Apps, Push-Benachrichtigungen.
-- Offline-Betrieb / Sync-Queue (§2: das Netz im Studio ist stabil).
+- **Vollständiger Offline-Betrieb.** Die App bleibt online-only: Seiten, Pläne, der Verlauf
+  und die Verwaltung brauchen eine Verbindung.
+
+  Die ursprüngliche Annahme „das Netz im Studio ist stabil" hat sich allerdings nicht
+  gehalten. Fällt das WLAN vor Ort aus, hängt das Handy am Mobilfunk, und dort ist der
+  Regelfall nicht *kein* Empfang, sondern *schlechter* — Anfragen, die weder ankommen noch
+  fehlschlagen, sondern hängen. Deshalb sind zwei Dinge **doch** im Umfang, siehe §7.4:
+
+  - **Zeitlimit und Wiederversuche** auf jedem Serveraufruf (`apiFetch`).
+  - **Eine Warteschlange ausschließlich für das Abhaken** innerhalb einer bereits laufenden
+    Einheit. Nicht für Start, Ende, Tausch, Verlauf oder Verwaltung — die bleiben online-only.
+
+  Das ist bewusst die kleinstmögliche Ausnahme: Das Abhaken ist die einzige Handlung, die
+  minütlich am Gerät stehend passiert, und die einzige, deren Endpunkt beliebig oft
+  wiederholt werden darf (`api/log.php` schreibt per Upsert über
+  `(session_id, plan_exercise_id)`).
 - Getrennte Erfassung mehrerer Sätze pro Übung (v1: ein Gewicht/Wiederholungen pro Übung
   und Einheit).
-- Fortschritts-Charts/Statistik-Auswertungen.
 - Passwort-Reset per E-Mail (Reset erfolgt durch den Admin; der Benutzer kann sein Passwort
   aber selbst ändern, §7.7).
-- Mehr als zwei Pläne pro Benutzer / kalenderbasierte Wochenpläne.
+- Kalenderbasierte Wochenpläne (fester Plan je Wochentag). Die Anzahl der Pläne ist
+  dagegen **nicht** begrenzt — siehe §6.4.
 
 ---
 
 ## 10. Spätere Erweiterungen (vorgemerkt)
 
-- Fortschritts-Charts je Übung (Gewichtsverlauf über die Zeit) — die Daten liegen durch
-  `workout_log` bereits vor.
+- ~~Fortschritts-Charts je Übung~~ — **umgesetzt am 2026-08-07** als `history.php`, siehe
+  §7.8.
 - Satz-genaues Logging (mehrere Sätze pro Übung).
-- Mehr als zwei Pläne bzw. Wochentags-/Kalenderplanung.
-- Trainingshistorie/Kalenderansicht abgeschlossener Einheiten.
+- Wochentags-/Kalenderplanung (welcher Plan an welchem Tag).
+- Kalenderansicht der Einheiten (Monatsraster) — die Listenansicht in §7.8 deckt den
+  Alltag ab; ein Kalender wäre Zierde.
 - Offline-Queue, falls sich die Netzsituation im Studio ändert (§2: der Schreibpfad ist
   über `apiFetch()` dafür bereits gekapselt).
 
@@ -604,7 +900,7 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 Manuell am echten Handy über die Subdomain zu prüfen — `Secure`-Cookies, Remember-Me und die
 PWA-Installation lassen sich lokal nicht sinnvoll testen.
 
-1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und 2 Pläne an. Mindestens eine Übung
+1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und mindestens 2 Pläne an. Mindestens eine Übung
    bekommt **zwei** Muskelgruppen (z. B. Bankdrücken → Brust als Primärgruppe + Trizeps); ein
    Speichern **ohne** angehakte Gruppe wird abgelehnt. Der Versuch, eine noch zugeordnete
    Muskelgruppe zu löschen, wird mit Nennung der betroffenen Übungen verweigert.
@@ -623,7 +919,9 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
 8. Alle Übungen abhaken → **Abschluss-Bestätigung** erscheint; „Noch nicht" lässt die Einheit
    offen, ein Häkchen ist danach weiterhin ab-wählbar.
 9. „Training beendet" → `ended_at` gesetzt, `last_plan_id` aktualisiert.
-10. App neu starten → **der andere Plan** wird vorgeschlagen (Alternation).
+10. App neu starten → **der nächste Plan der Reihenfolge** wird vorgeschlagen (Rotation).
+    Gegenprobe mit drei Plänen (Push/Pull/Legs): Nach Push wird Pull vorgeschlagen, nach
+    Legs wieder Push — und nicht etwa der zuletzt nicht benutzte.
 11. Nächste Einheit: die getauschte Position zeigt wieder die **Original**-Übung; die
     vorbelegten Gewichte entsprechen dem letzten Mal.
 12. Als Benutzer A per manipulierter ID einen Plan/Log von Benutzer B aufrufen → **403**.

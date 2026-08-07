@@ -1,0 +1,29 @@
+Vorlage fuer das Feld "Environment variables" im Portainer-Stack.
+Nicht in die Stack-Definition schreiben - dort waeren die Werte im Klartext
+Teil der gespeicherten YAML.
+
+In Portainer je Zeile ein Paar ueber "Add an environment variable" eintragen
+(Name links, Wert rechts) oder ueber "Advanced mode" als Block einfuegen:
+
+APP_SECRET=<64 Hex-Zeichen>
+ADMIN_USER=admin
+ADMIN_PASSWORD=<Startpasswort>
+TZ=Europe/Vienna
+
+
+APP_SECRET erzeugen:
+
+    openssl rand -hex 32
+
+Wird APP_SECRET spaeter geaendert, sind alle "Angemeldet bleiben"-Tokens
+ungueltig - jedes Geraet muss sich einmal neu anmelden. Die Passwoerter selbst
+bleiben davon unberuehrt, sie werden ohne Pepper gehasht (§5).
+
+ADMIN_PASSWORD wird nur beim allerersten Start ausgewertet, solange noch kein
+Benutzer existiert. Der Erst-Admin wird mit must_change_password = 1 angelegt
+und muss das Passwort beim ersten Login aendern; danach ist der Wert wertlos.
+Spaetere Aenderungen hier wirken sich auf niemanden mehr aus.
+
+Achtung bei Sonderzeichen: Ein $ im Passwort interpretiert Portainer je nach
+Version als Variablenbezug. Im Zweifel verdoppeln ($$) oder ein Passwort ohne
+$ waehlen.

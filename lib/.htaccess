@@ -1,0 +1,7 @@
+# Die Dateien hier werden ausschliesslich per require_once eingebunden und
+# duerfen nie direkt aufrufbar sein.
+#
+# Wirkt nur, solange AllowOverride gesetzt ist. Im Container steht dieselbe
+# Sperre zusaetzlich als <Directory>-Block in apache-app.conf -- diese Datei
+# ist die Absicherung fuer den Fall, dass die App einmal woanders liegt.
+Require all denied

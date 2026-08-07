@@ -1,0 +1,53 @@
+# Stack-Datei fuer Portainer, Environment 10.10.10.2.
+#
+# Diesen Inhalt in Portainer unter Stacks -> Add stack -> Web editor einfuegen.
+# Die Werte kommen NICHT hierher, sondern in das Feld "Environment variables"
+# darunter - so steht kein Passwort in der Stack-Definition.
+#
+# Wichtig: Hier steht bewusst kein "build:". Portainer sieht den Quelltext
+# nicht; das Image wird vorher unter Images -> Build a new image gebaut
+# (Schritt 2 in doku/deployment.md).
+
+services:
+  trainingsplan:
+    image: trainingsplan:1.0.8
+    container_name: trainingsplan
+    restart: unless-stopped
+
+    # Bindung an die LXC-IP im Proxmox-Internetz, NICHT an 0.0.0.0 und auch
+    # nicht an 127.0.0.1: der Nginx laeuft auf dem Proxmox-Host und muss den
+    # Port ueber das interne Netz erreichen koennen.
+    ports:
+      - "10.10.10.2:8066:80"
+
+    environment:
+      # --- Secrets (in Portainer eintragen, siehe env-vorlage.txt) ---
+      # Nur fuer den Hash des Remember-Me-Validators, KEIN Passwort-Pepper.
+      APP_SECRET: ${APP_SECRET:?APP_SECRET muss gesetzt sein}
+
+      # Erst-Admin, nur beim allerersten Start ausgewertet. Der Benutzer wird
+      # mit must_change_password = 1 angelegt.
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD muss gesetzt sein}
+
+      # --- Betrieb ---
+      DB_PATH: /var/www/html/data/trainingsplan.db
+      TZ: ${TZ:-Europe/Vienna}
+
+    # Named Volumes, keine Bind-Mounts: Docker uebernimmt beim ersten Befuellen
+    # Eigentuemer und Rechte aus dem Image (www-data, UID 33). Auf dem Host ist
+    # nichts anzulegen. Ohne diese beiden Volumes waeren Datenbank und Bilder
+    # nach jedem Image-Update weg.
+    volumes:
+      - trainingsplan-data:/var/www/html/data
+      - trainingsplan-uploads:/var/www/html/uploads
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  trainingsplan-data:
+  trainingsplan-uploads:

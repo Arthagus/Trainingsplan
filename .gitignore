@@ -1,6 +1,11 @@
-# Laufzeitdaten — liegen im Docker-Volume, gehoeren nie ins Repo
-/data/
-/uploads/
+# Laufzeitdaten — liegen im Docker-Volume, gehoeren nie ins Repo.
+# Die .htaccess-Dateien sind Code und muessen mit: /data/ als Verzeichnis
+# auszuschliessen ginge nicht, weil git eine Datei nicht wieder aufnehmen kann,
+# deren Elternverzeichnis ausgeschlossen ist — daher /data/* statt /data/.
+/data/*
+!/data/.htaccess
+/uploads/*
+!/uploads/.gitkeep
 
 # SQLite-Nebendateien
 *.db
@@ -10,6 +15,37 @@
 
 # Konfiguration mit Secrets
 .env
+.env.*
+!.env.example
 
-# Claude Code, maschinenspezifisch
-.claude/settings.local.json
+# Claude Code, maschinenspezifisch.
+#
+# Der Stern ist Absicht und kein Schlamperei-Platzhalter: Beim Speichern legt
+# Claude Code kurzzeitig "settings.local.json.tmp.<pid>.<hash>" daneben. Der
+# exakte Dateiname allein liess diese Tempdatei durch -- bei einem
+# "git add -A" im falschen Moment waere sie mitgegangen.
+/.claude/settings.local.json*
+
+# Gebaute Pakete. Entstehen jederzeit neu aus dem Quelltext
+# (bash deploy/paket_bauen.sh) und verdoppeln nur, was ohnehin im Repo steht.
+/deploy/*.tar.gz
+
+# Sicherungen der Wartungsseite, falls jemand sie hierher legt
+*.zip
+
+# Ausgangsmaterial und Bildschirmfotos, die im Wurzelverzeichnis landen.
+# Bewusst nur die WURZEL (fuehrender Schraegstrich): assets/icon-*.png sind
+# Bestandteil der App und muessen mit.
+/*.pdf
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+
+# Reste von Betriebssystem und Editor
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.bak
+*.orig
