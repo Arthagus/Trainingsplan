@@ -7,25 +7,31 @@ was offen ist. Dauerhaftes Wissen — Architektur, Konventionen, Fallstricke —
 **Diese Datei nach jedem Rollout nachziehen.** Sie ist die einzige Stelle mit
 Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends sonst falsch.
 
-*Letzte Aktualisierung: 2026-08-07*
+*Letzte Aktualisierung: 2026-08-08*
 
 ---
 
 ## Ausgerollt
 
-**`trainingsplan:1.0.8`** auf `training.jadefalke.net`, eingespielt am 2026-08-07.
-Der Arbeitsstand im Repo entspricht dem laufenden Image; es liegt nichts Gebautes bereit.
+**`trainingsplan:1.0.9`** auf `training.jadefalke.net`, eingespielt am 2026-08-08.
+Der Arbeitsstand im Repo entspricht dem laufenden Image.
 
-`1.0.5` bis `1.0.8` liefen am selben Tag. Vier Nummern an einem Tag sind kein Versehen:
-Ein bereits gebauter Tag wird nie erneut gebaut, sonst trügen zwei verschiedene Stände
-denselben Namen.
+`1.0.5` bis `1.0.8` liefen am 2026-08-07, alle am selben Tag. Vier Nummern an einem Tag
+sind kein Versehen: Ein bereits gebauter Tag wird nie erneut gebaut, sonst trügen zwei
+verschiedene Stände denselben Namen.
 
-**Gegen die laufende Instanz geprüft** (2026-08-07, per `curl`): ausgelieferte Assets
-byteweise gleich dem Repo, `sw.js` auf `v6`, alle Zugriffssperren, beide Wege der
-Umbenennung samt sämtlicher Ablehnungen, `must_change_password` sperrt die neuen Aktionen.
+**Gegen die laufende Instanz geprüft**, per `curl`:
 
-**Noch nicht gegengeprüft:** die Darstellung von `1.0.7`/`1.0.8` und — das Wichtigste —
-Warteschlange und Verbindungsleiste. Beides geht nur am Handy, siehe *Offen*.
+- *2026-08-08, `1.0.9`:* Anmeldung als `CLAUDE` statt `claude` funktioniert — `COLLATE
+  NOCASE` greift. Umbenennen auf `oliver` und auf `NELE` wird mit 409 abgelehnt — der
+  Index `idx_users_name_nocase` ist da. Dass der Container überhaupt hochkam, belegt
+  zugleich, dass die Migration keine Dubletten vorfand.
+- *2026-08-07, `1.0.8`:* ausgelieferte Assets byteweise gleich dem Repo, `sw.js` auf `v6`,
+  alle Zugriffssperren, beide Wege der Umbenennung samt sämtlicher Ablehnungen,
+  `must_change_password` sperrt die neuen Aktionen.
+
+**Noch nicht gegengeprüft:** die Darstellung und — das Wichtigste — Warteschlange und
+Verbindungsleiste aus `1.0.8`. Beides geht nur am Handy, siehe *Offen*.
 
 ## Datenstand
 
@@ -46,25 +52,18 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
    Punkt, und gegen den Dev-Server grundsätzlich nicht prüfbar: `curl` hat weder
    Funkloch noch `localStorage`. Was zu sehen sein muss, steht unten unter *Gegenprobe
    schwaches Netz*.
-2. **`1.0.9` steht im Repo, ist aber weder gebaut noch ausgerollt.** Enthält die
-   schreibweisenunabhängigen Benutzernamen (§6.1). **Achtung, Schema-Änderung:** Beim ersten
-   Start legt `apply_migrations()` den Index `idx_users_name_nocase` an. Auf dem aktuellen
-   Bestand (`Oliver`, `claude`, `Nele`) läuft das durch — die drei unterscheiden sich auch
-   ohne Schreibweise. Gäbe es Dubletten, **bräche der Start ab**, mit einer Meldung, die die
-   Namen nennt; dann zuerst über die Benutzerverwaltung umbenennen. Vor dem Ausrollen eine
-   Sicherung ziehen.
-3. **Menüpunkt heißt jetzt „Konto"** statt „Passwort" — beim nächsten Blick aufs Handy
+2. **Menüpunkt heißt jetzt „Konto"** statt „Passwort" — beim nächsten Blick aufs Handy
    mitprüfen, ob die Kopfzeile damit noch umbricht wie gewollt.
-4. **Darstellung von `1.0.7` am Handy gegenprüfen** — gegen den Dev-Server ist sie nicht
+3. **Darstellung am Handy gegenprüfen** — gegen den Dev-Server ist sie nicht
    prüfbar: Aktionszeile *Tauschen — Gewicht — Erledigt* mit mittigem Feld, größere Bilder
    im Training, Planpositionen mit Bild über beide Zeilen, Pfeile mittig, Kopfzeile mit
    Namen, großes Bild schließt den Dialog. Ob die **Bilder in den Tauschvorschlägen**
    tatsächlich ankommen, ließ sich lokal gar nicht prüfen: Dem CLI-PHP hier fehlt GD, es gab
    kein echtes Bild zum Hochladen — nur der erzeugte Pfad ist geprüft.
-5. **Sicherung außer Haus schaffen.** Sie liegt im Datenvolume, also *neben* dem Original —
+4. **Sicherung außer Haus schaffen.** Sie liegt im Datenvolume, also *neben* dem Original —
    bei einem Volume-Verlust wäre beides weg. Einmal über *Wartung → Herunterladen* holen und
    anderswo ablegen.
-6. **Vier Abnahmekriterien am Handy**, siehe unten.
+5. **Vier Abnahmekriterien am Handy**, siehe unten.
 
 Weitergehende Wünsche stehen als Erweiterungen in `LASTENHEFT.md` §10 — allen voran
 satzgenaues Protokollieren, falls sich die Frage nach den Wiederholungen erneut stellt.
@@ -134,7 +133,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
-| `1.0.9` | Benutzernamen unabhängig von der Groß-/Kleinschreibung (Index `idx_users_name_nocase` + `COLLATE NOCASE` in der Anmeldung); `.gitignore` gehärtet — *noch nicht gebaut* |
+| `1.0.9` | Benutzernamen unabhängig von der Groß-/Kleinschreibung (Index `idx_users_name_nocase` + `COLLATE NOCASE` in der Anmeldung); `.gitignore` gehärtet; Quelltext auf GitHub gesichert |
 | `1.0.8` | Zeitlimit und Wiederversuche in `apiFetch`, Warteschlange fürs Abhaken, Verbindungsleiste (§7.4); Benutzername änderbar — selbst und durch Admins, Menüpunkt „Konto" (§6.1, §7.7) |
 | `1.0.7` | Planposition mit großem Bild über beide Zeilen, Pfeile mittig, Bilder in den Tauschvorschlägen, Abstand in der Kopfzeile, großes Bild schließt den Dialog |
 | `1.0.6` | Ausführung eigene Zeile, kompakte Aktionszeile, Gruppenfilter über Untergruppen und primär-zuerst sortiert, Tauschvorschläge sortiert, Name in der Kopfzeile, Tauschen auch in der Planverwaltung |
