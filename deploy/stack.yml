@@ -10,7 +10,7 @@
 
 services:
   trainingsplan:
-    image: trainingsplan:1.0.8
+    image: trainingsplan:1.0.9
     container_name: trainingsplan
     restart: unless-stopped
 

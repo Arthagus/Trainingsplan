@@ -40,6 +40,32 @@ php -S 127.0.0.1:8100 -t "$(pwd)"      # Dev-Server, im Hintergrund starten
 Kein Build-Step, kein Paketmanager, kein Composer, kein npm, kein Migrationstool.
 Port 8100, weil 8765 (Body-Fat-Tracker) und 8090 (Speisekarte) belegt sind.
 
+**Ein frischer Checkout hat keine Datenbank und kommt ohne Zutun auch zu keiner, in die
+man sich anmelden könnte.** `data/` enthält nur die `.htaccess`; `db()` legt beim ersten
+Aufruf Schema und Muskelgruppen an, aber `bootstrap_first_admin()` steigt ohne
+`ADMIN_USER`/`ADMIN_PASSWORD` still wieder aus — Ergebnis ist eine Datenbank mit **null**
+Benutzern und eine Anmeldeseite, an der niemand vorbeikommt. Im Container kommen die
+Werte aus dem Stack; lokal muss man sie selbst setzen:
+
+```bash
+php -r 'putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
+        require "lib/db.php"; db();
+        db()->prepare("UPDATE users SET must_change_password = 0")->execute();'
+```
+
+Das `UPDATE` ist kein Schönheitsfehler, sondern nötig: Ohne es sperrt
+`require_passwort_gesetzt_api()` **jeden** Endpunkt außer `api/auth.php` (Fallstrick 3),
+und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht.
+
+Danach `data/trainingsplan.db*` wieder löschen — die Datei gehört nicht in den
+Arbeitsstand, und ein liegengebliebener Testbestand verfälscht die nächste Prüfung.
+
+**Dem PHP auf diesem Rechner fehlen `zip` und `gd`** (im Container sind beide da, siehe
+`Dockerfile`). Lokal **nicht** prüfbar sind deshalb: Bild-Upload und Thumbnails (§6.3),
+Sicherungen *mit Bildern* als ZIP und deren Wiederherstellung (§6.5). Die reine
+`.db`-Sicherung läuft lokal durch. Wer hier „getestet" meldet, ohne das zu erwähnen, meldet
+zu viel.
+
 **Es gibt kein Test-Framework** — wie in beiden Vorlagen-Repos wird gelintet:
 
 ```bash
@@ -151,6 +177,14 @@ $pdo->exec('PRAGMA busy_timeout = 5000');
 - **Sicherungen über `VACUUM INTO`, nie als Dateikopie** (`lib/backup.php`). Im WAL-Modus ist
   ein `cp` der `.db` ohne `-wal`/`-shm` im besten Fall veraltet, im schlechteren unbrauchbar.
   Gilt auch für Portainers Dateibrowser und Volume-Backup-Werkzeuge.
+- **Die PDO-Verbindung nie in einer Variablen über einen `db_close()` hinweg festhalten.**
+  Überall im Code steht `db()->prepare(...)` verkettet, und das ist kein Stil, sondern
+  Notwendigkeit: `db_close()` setzt nur die Singleton-Referenz auf `null`. Hält daneben noch
+  ein `$pdo = db()` die Verbindung, gibt PHP sie nicht frei, SQLite behält die Dateisperre —
+  und das anschließende `PRAGMA journal_mode = WAL` scheitert mit `database is locked`.
+  Betrifft alles, was die Datei unter der laufenden Verbindung austauscht, allen voran
+  `backup_wiederherstellen()`. Das hat schon einmal einen falschen Alarm erzeugt, der Restore
+  sei kaputt — er war es nicht, das Prüfskript hielt die Referenz.
 
 ## Sicherheit — nicht verhandelbar
 
@@ -360,7 +394,27 @@ einmal zugeschlagen hat.
     Leiste aus dem, was **tatsächlich gescheitert** ist, und deshalb braucht das Nachholen
     einen **eigenen Zeitgeber**: Das `online`-Ereignis feuert in genau diesem Fall nie.
 
-14. **`history.php` zeigt ausschließlich eigene Daten** (§7.8) — auch Admins sehen nichts
+14. **Ein Restore ersetzt die Datenbankdatei, er mischt nicht** (`lib/backup.php`, §6.5) —
+    und daraus folgt mehr, als man zunächst sieht:
+
+    - Der Erst-Admin des leeren Systems ist danach **weg**, mitsamt den Muskelgruppen aus
+      dem Seed. Das ist richtig so: `seed_muscle_groups()` und `bootstrap_first_admin()`
+      steigen bei nicht leerer Tabelle aus, es entstehen also keine Dubletten.
+    - **`ADMIN_USER`/`ADMIN_PASSWORD` sind keine Schlüssel zu den Daten**, sondern eine
+      Starthilfe für die leere Benutzertabelle. Beim Wiederaufbau darf man sie frei neu
+      wählen; nach dem Einspielen gelten wieder die Passwörter aus der Sicherung.
+      Ebenso ist ein verlorenes `APP_SECRET` harmlos — es hängt allein am
+      Remember-Me-HMAC (`remember_validator_hash()`), Passwörter werden ohne Pepper
+      gehasht.
+    - **Die offene Sitzung überlebt den Restore und zeigt danach die falsche Person.** In
+      `$_SESSION` steht nur die `user_id`, und die gehört in der eingespielten Datenbank
+      jemand anderem. Kein Rechteproblem — einen Restore kann ohnehin nur ein Admin
+      auslösen —, aber verwirrend. Nach dem Einspielen ab- und neu anmelden.
+
+    Der ganze Weg ist durchgespielt: Klon → leeres System → Sicherung einspielen →
+    Zustand identisch, Anmeldung mit den alten Passwörtern.
+
+15. **`history.php` zeigt ausschließlich eigene Daten** (§7.8) — auch Admins sehen nichts
     Fremdes. Die `user_id` kommt in jeder Abfrage aus der Sitzung, nie aus einem Parameter;
     es gibt bewusst keine Benutzerauswahl. Wer das ändert, öffnet fremde Trainingsdaten.
 
@@ -431,4 +485,31 @@ Beide sind Vorlage, nicht Vorschrift. Wo sie sich widersprechen, gilt der Body-F
 - Am Ende einer Sitzung die **geänderten Dateien auflisten** (`Geänderte Dateien:` +
   Aufzählung) — das Deployment ist manuell.
 - **`doku/stand.md` nachziehen**, sobald sich Version oder Datenstand ändern.
-- Git ist Quellcode-Sicherung; `data/`, `uploads/` und `.env` gehören nie ins Repo.
+- **Version anheben heißt: an zwei Stellen.** `deploy/stack.yml` (`image:`) und
+  `deploy/ANLEITUNG.md` Schritt 2, wo der Name wörtlich zum Eintippen steht. Stimmen sie
+  nicht überein, findet der Stack sein Image nicht.
+
+## Git
+
+Das Repo liegt **privat** auf `git@github.com:Arthagus/Trainingsplan.git`, Branch `main`.
+Es sichert **ausschließlich Quelltext** — keine Datenbank, auch keine leere, keine
+Übungsbilder, keine `.env`. Die Datenbank entsteht beim ersten Aufruf aus `schema.sql` und
+`apply_migrations()`; eine mitgelieferte leere `.db` würde bei jeder Schemaänderung
+veralten, und die Ausnahme in der `.gitignore` wäre genau die Lücke, durch die irgendwann
+die echte Datenbank rutscht.
+
+**Nicht ungefragt committen** — Zeitpunkt und Umfang bestimmt der Benutzer. Wenn er es
+verlangt, vorher prüfen, dass nichts davon im Index steht:
+
+```bash
+git diff --cached --name-only | grep -iE '\.(db|zip|tar\.gz)$|^uploads/[^.]|^\.env$|settings\.local'
+```
+
+Die `.gitignore` ist eine **Positivliste-Denkweise**: Was neu dazukommt und nicht in ein
+öffentliches Verzeichnis gehört, wird dort ergänzt. Schon einmal durchgerutscht wäre
+`.claude/settings.local.json.tmp.<pid>.<hash>` — die Regel traf nur den exakten Dateinamen,
+nicht die Tempdatei daneben. Deshalb steht dort jetzt ein Stern.
+
+**Git ersetzt die Datensicherung nicht.** Die Daten liegen im Docker-Volume und werden
+über die Wartungsseite gesichert (§6.5, ZIP mit Bildern). Aus dem Repo allein entsteht ein
+lauffähiges, leeres System — nicht mehr.

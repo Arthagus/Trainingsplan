@@ -74,7 +74,7 @@ müssen sich alle Geräte einmal neu anmelden, mehr passiert nicht.
 2. Links auf **Images**.
 3. Oben auf **Build a new image**.
 4. **Naming**: den Namen aus der `image:`-Zeile von `stack.yml` eintragen,
-   derzeit **`trainingsplan:1.0.8`**.
+   derzeit **`trainingsplan:1.0.9`**.
    Genau diese Schreibweise — die Stack-Datei sucht nach diesem Namen.
 5. **Build method**: **Upload** wählen.
 6. **Select file**: die Datei `trainingsplan-build.tar.gz` aus diesem Ordner
