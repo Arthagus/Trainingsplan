@@ -198,6 +198,18 @@
 
         const peId = Number(position.dataset.pe);
 
+        // Bild groß — derselbe Dialog wie im Training (assets/app.js).
+        if (knopf.classList.contains('bild-knopf')) {
+            const bild = qs('.position-bild', position);
+            const beschreibung = qs('.beschreibung', position);
+            bildGrossZeigen(
+                qs('.position-titel', position).textContent.trim(),
+                bild ? bild.getAttribute('src') : '',
+                beschreibung ? beschreibung.textContent : ''
+            );
+            return;
+        }
+
         if (knopf.classList.contains('pos-tauschen')) {
             tauschOeffnen(position);
             return;

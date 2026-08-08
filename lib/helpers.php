@@ -147,6 +147,38 @@ function base_path(): string {
 }
 
 /**
+ * Die Version dieses Anwendungsstands, aus der Datei VERSION im Wurzelverzeichnis.
+ *
+ * Die Datei ist die EINZIGE Stelle, an der die Nummer gepflegt wird; sie wandert
+ * mit "COPY . /var/www/html" ins Image und faehrt damit im Container mit. Was
+ * die Wartungsseite anzeigt, ist deshalb die Version des laufenden Images und
+ * nicht die des Arbeitsstands auf irgendeinem Rechner.
+ *
+ * deploy/paket_bauen.sh prueft vor dem Packen, dass deploy/stack.yml und
+ * deploy/ANLEITUNG.md dieselbe Nummer nennen, und bricht sonst ab. Ohne diese
+ * Pruefung wuerde die Anzeige irgendwann eine Version behaupten, die gar nicht
+ * laeuft -- und eine falsche Zahl ist schlechter als gar keine, weil man sich
+ * auf sie verlaesst.
+ *
+ * Faellt die Datei aus, steht dort 'unbekannt': Ein fehlender Versionshinweis
+ * darf die Wartungsseite nicht lahmlegen -- sie ist die Seite, auf der man im
+ * Fehlerfall landet.
+ */
+function app_version(): string {
+    static $version = null;
+    if ($version !== null) {
+        return $version;
+    }
+
+    $datei = dirname(__DIR__) . '/VERSION';
+    $inhalt = is_file($datei) ? (string)file_get_contents($datei) : '';
+    $inhalt = trim($inhalt);
+
+    $version = $inhalt === '' ? 'unbekannt' : $inhalt;
+    return $version;
+}
+
+/**
  * Leitet auf eine Seite der App um und beendet das Skript.
  */
 function redirect(string $page): never {

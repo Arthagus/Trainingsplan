@@ -74,8 +74,10 @@ müssen sich alle Geräte einmal neu anmelden, mehr passiert nicht.
 2. Links auf **Images**.
 3. Oben auf **Build a new image**.
 4. **Naming**: den Namen aus der `image:`-Zeile von `stack.yml` eintragen,
-   derzeit **`trainingsplan:1.0.9`**.
+   derzeit **`trainingsplan:1.0.12`**.
    Genau diese Schreibweise — die Stack-Datei sucht nach diesem Namen.
+   `paket_bauen.sh` hat ihn beim Packen als letzte Zeile ausgegeben und vorher
+   geprüft, dass er zur Datei `VERSION` passt; abtippen genügt.
 5. **Build method**: **Upload** wählen.
 6. **Select file**: die Datei `trainingsplan-build.tar.gz` aus diesem Ordner
    hochladen.
@@ -172,20 +174,32 @@ in aller Regel direkt, woran es lag.
 
 Nach Änderungen am Code:
 
-1. Auf dem Entwicklungsrechner im Projektverzeichnis:
+1. Auf dem Entwicklungsrechner die **neue Versionsnummer in die Datei `VERSION`**
+   schreiben — eine Stelle höher als die zuletzt ausgerollte, die in
+   `doku/stand.md` steht. Feste Nummern statt `:latest`, damit ein Rückschritt
+   möglich bleibt und damit nie zwei verschiedene Stände denselben Namen tragen.
+
+   Dieselbe Nummer in `deploy/stack.yml` (Zeile `image:`) und oben in Schritt 2
+   dieser Anleitung eintragen.
+
+2. Im Projektverzeichnis:
    ```bash
    bash deploy/paket_bauen.sh
    ```
-   Das Skript prüft die Syntax aller Dateien, packt sie neu und bricht ab, falls
-   versehentlich Zugangsdaten oder die Datenbank im Paket landen würden.
+   Das Skript gleicht die drei Stellen ab und **bricht ab, wenn sie sich
+   unterscheiden** — sonst zeigte die Wartungsseite später eine Version an, die
+   gar nicht läuft. Danach prüft es die Syntax aller Dateien, packt sie neu und
+   bricht ebenfalls ab, falls versehentlich Zugangsdaten oder die Datenbank im
+   Paket landen würden. Die letzte Zeile nennt den Image-Namen zum Abtippen.
 
-2. In Portainer ein Image mit **neuer Versionsnummer** bauen (Schritt 2) — eine
-   Stelle höher als die zuletzt ausgerollte, die in `doku/stand.md` steht. Feste
-   Nummern statt `:latest`, damit ein Rückschritt möglich bleibt — und damit nie
-   zwei verschiedene Stände denselben Namen tragen.
+3. In Portainer das Image mit dieser Nummer bauen (Schritt 2).
 
-3. **Stacks → trainingsplan → Editor**: in der Zeile `image:` die neue Nummer
+4. **Stacks → trainingsplan → Editor**: in der Zeile `image:` die neue Nummer
    eintragen, dann **Update the stack**.
+
+5. Zur Kontrolle in der App **Wartung & Sicherung** öffnen: Die Kachel
+   *Version* ganz oben muss die neue Nummer zeigen. Steht dort noch die alte,
+   läuft der alte Container weiter — dann hat das Stack-Update nicht gegriffen.
 
 > ### „Re-pull image" ausgeschaltet lassen
 >

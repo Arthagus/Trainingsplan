@@ -133,6 +133,18 @@
         const id = Number(zeile.dataset.id);
         const name = qs('.uebung-text strong', zeile).textContent.trim();
 
+        // Bild groß — derselbe Dialog wie im Training (assets/app.js).
+        if (knopf.classList.contains('bild-knopf')) {
+            const bild = qs('.uebung-bild', zeile);
+            const beschreibung = qs('.beschreibung', zeile);
+            bildGrossZeigen(
+                name,
+                bild ? bild.getAttribute('src') : '',
+                beschreibung ? beschreibung.textContent : ''
+            );
+            return;
+        }
+
         if (knopf.classList.contains('bearbeiten')) {
             const formular = qs('.bearbeiten-formular', zeile);
             const offen = !formular.hidden;

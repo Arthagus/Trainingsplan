@@ -447,10 +447,17 @@ bash deploy/paket_bauen.sh    # Positivliste packen, lintet vorher
 - **Pflicht im `Dockerfile`:** `mod_remoteip` (ohne echte Client-IP sperrt die
   Brute-Force-Bremse alle Benutzer gemeinsam), `libsqlite3-dev` (Header für `pdo_sqlite`),
   `libzip-dev` + `zip` (Sicherung mit Bildern), `libwebp-dev` (WebP-Upload).
-- **`COPY . /var/www/html` legt auch `Dockerfile`, `apache-app.conf` und `schema.sql` ins
-  Webroot.** Ein `<FilesMatch>` in `apache-app.conf` sperrt sie für HTTP; PHP liest
-  `schema.sql` weiterhin über das Dateisystem. Nicht entfernen — `schema.sql` verrät sonst
-  die komplette Datenstruktur.
+- **`COPY . /var/www/html` legt auch `Dockerfile`, `apache-app.conf`, `schema.sql` und
+  `VERSION` ins Webroot.** Ein `<FilesMatch>` in `apache-app.conf` sperrt sie für HTTP; PHP
+  liest `schema.sql` und `VERSION` weiterhin über das Dateisystem. Nicht entfernen —
+  `schema.sql` verrät sonst die komplette Datenstruktur.
+
+  **Wer eine Datei ohne Endung ins Wurzelverzeichnis legt, muss sie dort namentlich
+  eintragen.** Das Muster passt auf Endungen (`.sql`, `.conf`, `.md`, …) und auf eine
+  Handvoll fester Namen; alles ohne Punkt im Namen fällt sonst durch. Genau so lieferte
+  der Server `VERSION` von `1.0.10` bis `1.0.11` an jeden aus, der danach fragte —
+  aufgefallen erst beim Abgleich gegen die laufende Instanz, nicht lokal. Preisgegeben
+  war nur die Versionsnummer, aber die Datei hat im Web nichts verloren.
 - **Keine Secrets im Repo.** Konfiguration über `.env` (gitignored), Vorlage `.env.example`.
 - **Datentransfer Test ↔ Live** ausschließlich über Backup/Restore in `maintenance.php`, nie
   per Filecopy der laufenden `.db`.
@@ -485,9 +492,17 @@ Beide sind Vorlage, nicht Vorschrift. Wo sie sich widersprechen, gilt der Body-F
 - Am Ende einer Sitzung die **geänderten Dateien auflisten** (`Geänderte Dateien:` +
   Aufzählung) — das Deployment ist manuell.
 - **`doku/stand.md` nachziehen**, sobald sich Version oder Datenstand ändern.
-- **Version anheben heißt: an zwei Stellen.** `deploy/stack.yml` (`image:`) und
-  `deploy/ANLEITUNG.md` Schritt 2, wo der Name wörtlich zum Eintippen steht. Stimmen sie
-  nicht überein, findet der Stack sein Image nicht.
+- **Version anheben heißt: an drei Stellen, und `deploy/paket_bauen.sh` erzwingt es.**
+  Die Datei **`VERSION`** im Wurzelverzeichnis ist die Quelle — `app_version()` liest sie,
+  die Wartungsseite zeigt sie als erste Kachel an, und damit weiß man ohne Portainer,
+  welcher Stand live läuft. Dieselbe Nummer gehört in `deploy/stack.yml` (`image:`) und in
+  `deploy/ANLEITUNG.md` Schritt 2, wo der Name wörtlich zum Eintippen steht. Weichen die
+  drei voneinander ab, packt das Skript nicht — der Abgleich läuft vor allem anderen.
+
+  Der Grund für die Sperre ist nicht Ordnungsliebe: Eine angezeigte Version, die nicht zum
+  laufenden Image gehört, ist **schlechter als gar keine**, weil man sich auf sie verlässt.
+  Der Rest ergibt sich von selbst — stimmen `VERSION` und `image:` nicht überein, findet
+  der Stack sein Image ohnehin nicht.
 
 ## Git
 

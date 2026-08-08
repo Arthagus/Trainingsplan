@@ -13,15 +13,39 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-**`trainingsplan:1.0.9`** auf `training.jadefalke.net`, eingespielt am 2026-08-08.
+**`trainingsplan:1.0.12`** auf `training.jadefalke.net`, eingespielt am 2026-08-08.
 Der Arbeitsstand im Repo entspricht dem laufenden Image.
 
-`1.0.5` bis `1.0.8` liefen am 2026-08-07, alle am selben Tag. Vier Nummern an einem Tag
-sind kein Versehen: Ein bereits gebauter Tag wird nie erneut gebaut, sonst trügen zwei
-verschiedene Stände denselben Namen.
+**Seit `1.0.10` beantwortet die App diese Frage selbst:** Die Wartungsseite zeigt als erste
+Kachel die Version des laufenden Images, gelesen aus der Datei `VERSION`. Bleibt sie nach
+einem Stack-Update auf der alten Nummer stehen, läuft noch der alte Container. Diese Datei
+hier bleibt trotzdem die Stelle, an der steht, *was* in einer Version drin ist.
+
+`1.0.9` bis `1.0.12` liefen am 2026-08-08, `1.0.5` bis `1.0.8` am 2026-08-07 — jeweils
+mehrere Nummern an einem Tag. Das ist kein Versehen: Ein bereits gebauter Tag wird nie
+erneut gebaut, sonst trügen zwei verschiedene Stände denselben Namen.
 
 **Gegen die laufende Instanz geprüft**, per `curl`:
 
+- *2026-08-08, `1.0.12`:* `VERSION` liefert jetzt **403** statt der Versionsnummer — die
+  Lücke aus `1.0.10` ist zu, nachgeprüft am laufenden System. `schema.sql` und
+  `Dockerfile` weiterhin 403, Startseite leitet auf `login.php`, `style.css`, `app.js`
+  und `sw.js` byteweise gleich dem Repo.
+- *2026-08-08, `1.0.11`:* `assets/style.css`, `app.js`, `sw.js` und `manifest.json`
+  byteweise gleich dem Repo, `sw.js` auf `v8`, die Merkmale aus `1.0.10`/`1.0.11` im
+  ausgelieferten CSS nachgewiesen (`counter-increment`, der 32rem-Umschaltpunkt,
+  `.uebung-raster`). Zugriffssperren stichprobenhaft: `schema.sql`, `Dockerfile`,
+  `apache-app.conf`, `lib/*`, `data/*.db` allesamt 403.
+
+  **Dabei gefunden:** `VERSION` wurde **ohne Anmeldung ausgeliefert** (200 statt 403).
+  Die Datei kam mit `1.0.10` neu ins Wurzelverzeichnis und fiel durch den
+  `<FilesMatch>`-Filter in `apache-app.conf`, weil der auf Endungen und feste Namen
+  passt — `VERSION` hat keine Endung. Behoben in `1.0.12`, wirksam erst nach dem
+  Rollout. Preisgegeben wurde nur die Versionsnummer, und die ließ sich ohnehin aus
+  dem öffentlichen CSS ablesen; trotzdem hat die Datei im Web nichts verloren.
+- *2026-08-08, `1.0.10`:* nicht einzeln gegen die Instanz geprüft — reine
+  Darstellungsversion, vom Benutzer als laufend bestätigt, vor dem Rollout lokal
+  per `curl` gegen den Dev-Server und im Browser gerendert.
 - *2026-08-08, `1.0.9`:* Anmeldung als `CLAUDE` statt `claude` funktioniert — `COLLATE
   NOCASE` greift. Umbenennen auf `oliver` und auf `NELE` wird mit 409 abgelehnt — der
   Index `idx_users_name_nocase` ist da. Dass der Container überhaupt hochkam, belegt
@@ -30,8 +54,9 @@ verschiedene Stände denselben Namen.
   alle Zugriffssperren, beide Wege der Umbenennung samt sämtlicher Ablehnungen,
   `must_change_password` sperrt die neuen Aktionen.
 
-**Noch nicht gegengeprüft:** die Darstellung und — das Wichtigste — Warteschlange und
-Verbindungsleiste aus `1.0.8`. Beides geht nur am Handy, siehe *Offen*.
+**Noch nicht gegengeprüft** — alles nur am Handy prüfbar, Einzelheiten unter *Offen*:
+Warteschlange und Verbindungsleiste aus `1.0.8` (das Wichtigste), dazu die Darstellung
+aus `1.0.10` bis `1.0.12`.
 
 ## Datenstand
 
@@ -60,6 +85,16 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
    Namen, großes Bild schließt den Dialog. Ob die **Bilder in den Tauschvorschlägen**
    tatsächlich ankommen, ließ sich lokal gar nicht prüfen: Dem CLI-PHP hier fehlt GD, es gab
    kein echtes Bild zum Hochladen — nur der erzeugte Pfad ist geprüft.
+
+   Dazu aus `1.0.10` bis `1.0.12`: das **große Bild** durch Antippen in Übungs- und
+   Planverwaltung, die **Übungszeile** mit Bild über beide Zeilen und rotem „Archivieren"
+   rechts, die **Positionsnummern** in der Planverwaltung und deren **Textblock** mit
+   Muskelgruppen und Ausführung.
+
+   Der wichtigste Punkt davon ist der **Umbruch der Knopfzeile** in der Planverwaltung:
+   Er greift erst unterhalb von 32rem, am Desktop schaltet die Zeile ins alte Raster
+   zurück. Genau deshalb lief „Entfernen" seit `1.0.7` unbemerkt aus der Karte heraus —
+   ein Fehler, den nur der Blick aufs Handy findet.
 4. **Sicherung außer Haus schaffen.** Sie liegt im Datenvolume, also *neben* dem Original —
    bei einem Volume-Verlust wäre beides weg. Einmal über *Wartung → Herunterladen* holen und
    anderswo ablegen.
@@ -133,6 +168,9 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
+| `1.0.12` | Planpositionen zeigen denselben Textblock wie Training und Übungsverwaltung — Name, englischer Name, **alle** Muskelgruppen (primär vorn) und die Ausführung, über die geteilte Klasse `.uebung-text` statt einer eigenen Regel; `VERSION` wird nicht mehr über HTTP ausgeliefert — die Datei hat keine Endung und fiel deshalb durch den `<FilesMatch>`-Filter in `apache-app.conf` (offen seit `1.0.10`, gefunden beim Abgleich gegen die laufende Instanz) |
+| `1.0.11` | Positionsnummern in der Planverwaltung vertikal zentriert — CSS-Zähler statt Listenpunkt, weil der Marker an der Textgrundlinie hängt und deshalb am unteren Rand stand; Knopfzeile der Position bricht am Handy um, statt „Entfernen" rechts aus der Karte laufen zu lassen (Fehler seit `1.0.7`, am Desktop unsichtbar) |
+| `1.0.10` | Bild groß ansehen auch in Übungs- und Planverwaltung (Dialog als Partial `lib/view_bild_dialog.php` + `bildGrossZeigen()`); Übungszeile als Raster — Bild über beide Zeilen, „Bearbeiten" in der Textspalte, „Archivieren" rot und rechtsbündig; Versionsnummer in der Datei `VERSION`, sichtbar auf der Wartungsseite |
 | `1.0.9` | Benutzernamen unabhängig von der Groß-/Kleinschreibung (Index `idx_users_name_nocase` + `COLLATE NOCASE` in der Anmeldung); `.gitignore` gehärtet; Quelltext auf GitHub gesichert |
 | `1.0.8` | Zeitlimit und Wiederversuche in `apiFetch`, Warteschlange fürs Abhaken, Verbindungsleiste (§7.4); Benutzername änderbar — selbst und durch Admins, Menüpunkt „Konto" (§6.1, §7.7) |
 | `1.0.7` | Planposition mit großem Bild über beide Zeilen, Pfeile mittig, Bilder in den Tauschvorschlägen, Abstand in der Kopfzeile, großes Bild schließt den Dialog |

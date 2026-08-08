@@ -26,6 +26,7 @@ PFADE=(
     .dockerignore       # haelt Dockerfile und apache-app.conf aus dem Webroot
     apache-app.conf     # wird darin nach conf-available kopiert
     schema.sql          # wird bei jedem Start ausgefuehrt
+    VERSION             # Versionsnummer; die Wartungsseite zeigt sie an
     api                 # JSON-Endpunkte
     lib                 # Bausteine (enthaelt seine eigene .htaccess)
     assets              # CSS, JS, Service Worker, Manifest, Icons
@@ -52,6 +53,49 @@ for pflicht in index.php login.php schema.sql; do
         exit 1
     fi
 done
+
+# --- Versionsnummer abgleichen -----------------------------------------------
+# Die Datei VERSION ist die einzige Stelle, an der die Nummer gepflegt wird. Sie
+# faehrt im Image mit und wird auf der Wartungsseite angezeigt -- damit man ohne
+# Portainer weiss, welcher Stand live laeuft.
+#
+# Genau deshalb wird hier abgeglichen: Zeigt die App eine Nummer an, die nicht
+# zum tatsaechlich gebauten Image gehoert, ist die Anzeige schlechter als keine
+# -- man verlaesst sich auf sie. stack.yml und ANLEITUNG.md muessen dieselbe
+# Version nennen, sonst wird gar nicht erst gepackt.
+VERSION="$(tr -d '[:space:]' < VERSION)"
+
+if [[ -z "$VERSION" ]]; then
+    echo "FEHLER: VERSION ist leer." >&2
+    exit 1
+fi
+
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "FEHLER: VERSION ist '$VERSION', erwartet wird die Form 1.2.3." >&2
+    exit 1
+fi
+
+STACK_VERSION="$(sed -n 's/^[[:space:]]*image:[[:space:]]*trainingsplan:\([^[:space:]]*\).*/\1/p' \
+                 deploy/stack.yml | head -1)"
+
+if [[ "$STACK_VERSION" != "$VERSION" ]]; then
+    echo "FEHLER: VERSION sagt $VERSION, deploy/stack.yml sagt ${STACK_VERSION:-nichts}." >&2
+    echo "        Die image:-Zeile in deploy/stack.yml nachziehen." >&2
+    exit 1
+fi
+
+# In der Anleitung steht die Nummer woertlich zum Eintippen. Geprueft wird jede
+# konkrete Nennung; Platzhalter wie "trainingsplan:<Ihre Nummer>" passen nicht
+# auf das Muster und bleiben unbeachtet.
+while IFS= read -r gefunden; do
+    if [[ "$gefunden" != "$VERSION" ]]; then
+        echo "FEHLER: VERSION sagt $VERSION, deploy/ANLEITUNG.md nennt $gefunden." >&2
+        echo "        Schritt 2 in deploy/ANLEITUNG.md nachziehen." >&2
+        exit 1
+    fi
+done < <(grep -oE 'trainingsplan:[0-9]+\.[0-9]+\.[0-9]+' deploy/ANLEITUNG.md | cut -d: -f2)
+
+echo "Version: $VERSION (stack.yml und ANLEITUNG.md stimmen ueberein)"
 
 # --- Syntax pruefen ----------------------------------------------------------
 # Ein Tippfehler faellt sonst erst im laufenden Container auf, und dort ist die
@@ -103,4 +147,4 @@ echo "Geprueft: keine .env, keine Datenbank, keine Uploads, kein .git enthalten.
 echo
 echo "Naechster Schritt in Portainer (Environment 10.10.10.2):"
 echo "  Images -> Build a new image -> Upload -> ${ZIEL##*/}"
-echo "  Name z. B. trainingsplan:1.0.0, danach in deploy/stack.yml eintragen."
+echo "  Name (genau so eintippen): trainingsplan:$VERSION"

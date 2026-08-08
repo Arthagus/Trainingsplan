@@ -438,19 +438,6 @@
         abarbeiten();
     });
 
-    // --- Bild und Beschreibung --------------------------------------------
-
-    const infoDialog = qs('#info-dialog');
-    qs('#info-schliessen').addEventListener('click', () => infoDialog.close());
-
-    // Ein Tipp auf das große Bild schließt wieder — man hat es ohnehin gerade
-    // unter dem Finger, und der Knopf steht am unteren Ende eines womöglich
-    // gescrollten Dialogs. Der Knopf bleibt: Er ist der Weg mit der Tastatur.
-    qs('#info-bild').addEventListener('click', () => infoDialog.close());
-
-    // Zählt die Bildwechsel im Info-Dialog mit — siehe unten beim Nachladen.
-    let infoBildLauf = 0;
-
     // --- Übungstausch ------------------------------------------------------
 
     const tauschDialog = qs('#tausch-dialog');
@@ -557,40 +544,11 @@
             const bild = qs('.uebung-bild', karte);
             const beschreibung = qs('.beschreibung', karte);
 
-            qs('#info-titel').textContent = qs('.uebung-text strong', karte).textContent.trim();
-            qs('#info-text').textContent = beschreibung
-                ? beschreibung.textContent
-                : 'Keine Beschreibung hinterlegt.';
-
-            const gross = qs('#info-bild');
-            if (bild) {
-                // Erst das Thumbnail: Es liegt bereits geladen in der Zeile und
-                // erscheint deshalb verzögerungsfrei.
-                //
-                // Ein <img> behält nämlich sein altes Bild, bis das neue
-                // VOLLSTÄNDIG geladen ist — ein bloßes Setzen von src blendet
-                // nichts aus. Über Mobilfunk stand deshalb ein bis zwei
-                // Sekunden lang das zuletzt angesehene Motiv im Dialog.
-                const klein = bild.getAttribute('src');
-                gross.src = klein;
-                gross.hidden = false;
-
-                // Das große Bild im Hintergrund nachladen und erst austauschen,
-                // wenn es da ist. Der Zähler verhindert, dass ein spät
-                // eintreffendes Bild eine inzwischen andere Übung überschreibt
-                // — beim schnellen Durchtippen sonst genau derselbe Fehler.
-                const lauf = ++infoBildLauf;
-                const voll = new Image();
-                voll.onload = () => {
-                    if (lauf === infoBildLauf) gross.src = voll.src;
-                };
-                voll.src = klein.replace('_thumb.jpg', '.jpg');
-            } else {
-                gross.hidden = true;
-                gross.removeAttribute('src');
-                infoBildLauf++;
-            }
-            infoDialog.showModal();
+            bildGrossZeigen(
+                qs('.uebung-text strong', karte).textContent.trim(),
+                bild ? bild.getAttribute('src') : '',
+                beschreibung ? beschreibung.textContent : ''
+            );
         }
     });
 

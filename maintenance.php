@@ -73,6 +73,14 @@ require __DIR__ . '/lib/view_header.php';
 <h2>Zustand</h2>
 
 <div class="status-gitter">
+    <?php // Steht bewusst an erster Stelle: Sie ist die Antwort auf die Frage,
+          // die man sonst nur in Portainer beantwortet bekommt -- welcher Stand
+          // laeuft hier gerade. Die Nummer kommt aus der Datei VERSION im Image,
+          // nicht aus der Datenbank; ein Restore aendert sie also nicht. ?>
+    <div class="status-karte">
+        <span class="status-wert"><?= h(app_version()) ?></span>
+        <span class="matt">Version</span>
+    </div>
     <div class="status-karte">
         <span class="status-wert"><?= h(bytes_lesbar($dbGross)) ?></span>
         <span class="matt">Datenbank</span>

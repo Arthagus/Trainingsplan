@@ -300,13 +300,6 @@ require __DIR__ . '/lib/view_header.php';
     <p><button type="button" id="tausch-schliessen" class="leise">Abbrechen</button></p>
 </dialog>
 
-<dialog id="info-dialog">
-    <h2 id="info-titel"></h2>
-    <?php // title als Hinweis auf den Klick zum Schliessen -- der Knopf unten
-          // bleibt der Weg mit der Tastatur. ?>
-    <img id="info-bild" alt="" title="Zum Schließen antippen" hidden>
-    <p id="info-text"></p>
-    <p><button type="button" id="info-schliessen" class="leise">Schließen</button></p>
-</dialog>
+<?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>

@@ -496,6 +496,75 @@ function thumbUrl(imagePath) {
 }
 
 /**
+ * Zeigt ein Uebungsbild gross, dazu Name und Beschreibung.
+ *
+ * Geteilt zwischen Training (§7.4), Uebungs- und Planverwaltung: Ueberall ist
+ * es dasselbe Motiv aus derselben Quelle, und ueberall gilt derselbe Kniff mit
+ * dem Nachladen. Dreimal gepflegt waeren die drei irgendwann verschieden.
+ *
+ * Die Seite muss dazu lib/view_bild_dialog.php eingebunden haben. Fehlt der
+ * Dialog, passiert nichts -- das ist kein Fehler, sondern eine Seite ohne
+ * Bilder.
+ *
+ * @param {string} titel        Ueberschrift, in aller Regel der Uebungsname
+ * @param {string} thumbSrc     URL des Vorschaubilds, leer wenn es keins gibt
+ * @param {string} beschreibung Beschreibungstext, darf leer sein
+ */
+let bildDialogVerdrahtet = false;
+let bildDialogLauf = 0;
+
+function bildGrossZeigen(titel, thumbSrc, beschreibung) {
+    const dialog = qs('#info-dialog');
+    if (!dialog) return;
+
+    if (!bildDialogVerdrahtet) {
+        bildDialogVerdrahtet = true;
+        qs('#info-schliessen').addEventListener('click', () => dialog.close());
+
+        // Ein Tipp auf das grosse Bild schliesst wieder — man hat es ohnehin
+        // gerade unter dem Finger, und der Knopf steht am unteren Ende eines
+        // womoeglich gescrollten Dialogs. Der Knopf bleibt: Er ist der Weg
+        // mit der Tastatur.
+        qs('#info-bild').addEventListener('click', () => dialog.close());
+    }
+
+    qs('#info-titel').textContent = titel;
+    qs('#info-text').textContent = String(beschreibung ?? '').trim() !== ''
+        ? beschreibung
+        : 'Keine Beschreibung hinterlegt.';
+
+    const gross = qs('#info-bild');
+    if (thumbSrc) {
+        // Erst das Thumbnail: Es liegt bereits geladen in der Zeile und
+        // erscheint deshalb verzoegerungsfrei.
+        //
+        // Ein <img> behaelt naemlich sein altes Bild, bis das neue
+        // VOLLSTAENDIG geladen ist — ein blosses Setzen von src blendet nichts
+        // aus. Ueber Mobilfunk stand deshalb ein bis zwei Sekunden lang das
+        // zuletzt angesehene Motiv im Dialog.
+        gross.src = thumbSrc;
+        gross.hidden = false;
+
+        // Das grosse Bild im Hintergrund nachladen und erst austauschen, wenn
+        // es da ist. Der Zaehler verhindert, dass ein spaet eintreffendes Bild
+        // eine inzwischen andere Uebung ueberschreibt — beim schnellen
+        // Durchtippen sonst genau derselbe Fehler.
+        const lauf = ++bildDialogLauf;
+        const voll = new Image();
+        voll.onload = () => {
+            if (lauf === bildDialogLauf) gross.src = voll.src;
+        };
+        voll.src = thumbSrc.replace('_thumb.jpg', '.jpg');
+    } else {
+        gross.hidden = true;
+        gross.removeAttribute('src');
+        bildDialogLauf++;
+    }
+
+    dialog.showModal();
+}
+
+/**
  * Ein Tauschvorschlag als Markup.
  *
  * Geteilt zwischen Trainings- und Planseite (§7.5): Beide zeigen dieselbe

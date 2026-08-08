@@ -362,15 +362,31 @@ require __DIR__ . '/lib/view_header.php';
                 }
             }
             ?>
+            <?php // Das Bild links ueber BEIDE Zeilen -- Text oben, Knoepfe darunter.
+                  // Dadurch beginnen die Knoepfe auf derselben Hoehe wie der Text und
+                  // stehen nicht mehr unter dem Bild. Gleiche Anordnung wie in der
+                  // Planverwaltung (.position-raster). ?>
             <li class="karte uebung <?= $archiviert ? 'ist-archiviert' : '' ?>" data-id="<?= $id ?>">
-                <div class="uebung-kopf">
+                <div class="uebung-raster">
                     <?php if (!empty($u['image_path'])): ?>
                         <?php $thumb = substr((string)$u['image_path'], 0, 32) . '_thumb.jpg'; ?>
-                        <img class="uebung-bild"
-                             src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
-                             alt="" loading="lazy" width="80" height="80">
+                        <?php // Antippbar wie im Training: dasselbe Bild gross, mit
+                              // Name und Beschreibung (assets/app.js, bildGrossZeigen). ?>
+                        <button type="button" class="bild-knopf" aria-label="Bild und Beschreibung anzeigen">
+                            <img class="uebung-bild"
+                                 src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
+                                 alt="" loading="lazy" width="80" height="80">
+                        </button>
                     <?php else: ?>
                         <span class="uebung-bild uebung-bild-leer" aria-hidden="true">–</span>
+                    <?php endif; ?>
+
+                    <?php // Die Beschreibung steht nur im Bearbeiten-Formular; fuer den
+                          // Bilddialog braucht sie eine Stelle ausserhalb davon, sonst
+                          // liest er sie beim eingeklappten Formular zwar mit, beim
+                          // Tippen des Benutzers aber den halbfertigen Entwurf. ?>
+                    <?php if (!empty($u['description'])): ?>
+                        <p class="beschreibung" hidden><?= h((string)$u['description']) ?></p>
                     <?php endif; ?>
 
                     <div class="uebung-text">
@@ -424,28 +440,33 @@ require __DIR__ . '/lib/view_header.php';
                             </p>
                         <?php endif; ?>
                     </div>
-                </div>
 
-                <div class="uebung-knoepfe">
-                    <button type="button" class="leise bearbeiten"
-                            aria-expanded="false">Bearbeiten</button>
+                    <?php // Bearbeiten links, die gefaehrliche Aktion rechts aussen --
+                          // dieselbe Anordnung wie bei den Positionen in der
+                          // Planverwaltung. Rot ist sie, weil sie die Uebung aus allen
+                          // Auswahllisten nimmt; rueckgaengig zu machen ist sie nur ueber
+                          // den Filter "Archiviert". ?>
+                    <div class="uebung-knoepfe">
+                        <button type="button" class="leise bearbeiten"
+                                aria-expanded="false">Bearbeiten</button>
 
-                    <?php if ($archiviert): ?>
-                        <button type="button" class="reaktivieren">Reaktivieren</button>
-                        <button type="button" class="gefahr loeschen"
-                                data-plaene="<?= count($plaene) ?>" data-logs="<?= $logAnzahl ?>"
-                                <?= $loeschbar ? '' : 'disabled title="' . h(
-                                    'Nicht löschbar: ' . count($plaene) . ' Planreferenz(en), '
-                                    . $logAnzahl . ' Protokolleintrag/-einträge'
-                                ) . '"' ?>>
-                            Endgültig löschen
-                        </button>
-                    <?php else: ?>
-                        <button type="button" class="leise archivieren"
-                                data-plaene="<?= h(implode(', ', array_map(
-                                    static fn(array $p): string => (string)$p['plan_name'], $plaene
-                                ))) ?>">Archivieren</button>
-                    <?php endif; ?>
+                        <?php if ($archiviert): ?>
+                            <button type="button" class="reaktivieren">Reaktivieren</button>
+                            <button type="button" class="gefahr loeschen"
+                                    data-plaene="<?= count($plaene) ?>" data-logs="<?= $logAnzahl ?>"
+                                    <?= $loeschbar ? '' : 'disabled title="' . h(
+                                        'Nicht löschbar: ' . count($plaene) . ' Planreferenz(en), '
+                                        . $logAnzahl . ' Protokolleintrag/-einträge'
+                                    ) . '"' ?>>
+                                Endgültig löschen
+                            </button>
+                        <?php else: ?>
+                            <button type="button" class="gefahr archivieren"
+                                    data-plaene="<?= h(implode(', ', array_map(
+                                        static fn(array $p): string => (string)$p['plan_name'], $plaene
+                                    ))) ?>">Archivieren</button>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
@@ -502,5 +523,7 @@ require __DIR__ . '/lib/view_header.php';
 <?php endif; ?>
 
 <?php endif; ?>
+
+<?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>

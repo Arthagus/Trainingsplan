@@ -360,6 +360,27 @@ button.gefahr { background: var(--fehler); }
     align-items: flex-start;
 }
 
+/* Übungsverwaltung: Text oben, Knöpfe darunter, das Bild links über beide
+   Zeilen. Dadurch beginnen die Knöpfe bündig mit dem Text statt unter dem
+   Bild. Dieselbe Anordnung wie bei den Positionen in der Planverwaltung. */
+.uebung-raster {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.75rem;
+    align-items: center;
+}
+
+/* Mit Bild ist das erste Rasterelement der Knopf, ohne Bild der leere
+   Platzhalter — beide tragen die volle Höhe. */
+.uebung-raster > .bild-knopf,
+.uebung-raster > .uebung-bild {
+    grid-row: 1 / span 2;
+    align-self: center;
+}
+
+.uebung-raster > .uebung-text,
+.uebung-raster > .uebung-knoepfe { grid-column: 2; }
+
 .uebung-bild {
     width: 80px;
     height: 80px;
@@ -427,6 +448,13 @@ button.gefahr { background: var(--fehler); }
     margin-top: 0.6rem;
 }
 
+/* Die abschließende Aktion steht rechts außen, abgesetzt vom Bearbeiten —
+   dieselbe Trennung wie zwischen „Tauschen" und „Entfernen" in der
+   Planverwaltung. Auf schmalen Geräten rutscht sie in die nächste Zeile und
+   bleibt auch dort rechtsbündig. */
+.uebung-knoepfe .archivieren,
+.uebung-knoepfe .loeschen { margin-left: auto; }
+
 /* Archiviert heißt sichtbar abgesetzt, nicht unsichtbar. */
 .ist-archiviert { opacity: 0.75; border-left: 4px solid var(--schrift-matt); }
 .ist-archiviert .uebung-bild { filter: grayscale(1); }
@@ -487,16 +515,44 @@ button.gefahr { background: var(--fehler); }
 
 .plan-kopf { margin-bottom: 0.5rem; }
 
+/* Die Nummerierung macht ein CSS-Zähler, nicht der Listenpunkt des Browsers.
+   Grund: Der Marker eines <li> hängt an der Textgrundlinie im Inhalt. Weil der
+   Inhalt hier ein Raster ist und keine Textzeile, setzte der Browser die Zahl
+   an den unteren Rand der Position — bei einer zweizeiligen Zeile mit 72px-Bild
+   stand sie sichtbar zu tief. Als Zähler ist sie ein Rasterelement wie jedes
+   andere und lässt sich mittig setzen.
+
+   Beim Umsortieren (admin_plans.js schiebt die <li> im DOM) zählt der Zähler
+   von selbst neu — genauso wie es der Marker tat. */
 .positions-liste {
+    list-style: none;
+    counter-reset: position;
     margin: 0.5rem 0;
-    padding-left: 1.5rem;
+    padding-left: 0;
 }
 
 /* Zweizeilig: oben Bild und Name, darunter die Knöpfe. Alles in einer Zeile
-   ließ dem Namen bei vier Knöpfen kaum Platz. */
+   ließ dem Namen bei vier Knöpfen kaum Platz. Die Nummer steht links daneben
+   und trägt die volle Höhe der Position. */
 .position {
+    counter-increment: position;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.4rem;
+    align-items: center;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--linie);
+}
+
+/* Zahlenspalte plus Abstand bleiben zusammen unter den 1.5rem, die die Liste
+   vorher als Einrückung hatte — die Zeile daneben wird also nicht schmaler.
+   Ziffern gleicher Laufweite, damit ab der zehnten Übung nichts springt. */
+.position::before {
+    content: counter(position) ".";
+    color: var(--schrift-matt);
+    min-width: 1.2rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .position:last-child { border-bottom: 0; }
@@ -510,38 +566,65 @@ button.gefahr { background: var(--fehler); }
     align-items: center;
 }
 
+/* Mit Bild ist das erste Rasterelement der Knopf, ohne Bild der leere
+   Platzhalter — beide tragen die volle Höhe. */
+.position-raster > .bild-knopf,
 .position-raster > .position-bild {
     grid-row: 1 / span 2;
     align-self: center;
 }
 
-.position-name {
+/* Der Textblock einer Planposition ist derselbe wie im Training und in der
+   Übungsverwaltung (.uebung-text): Name, englischer Name daneben, darunter die
+   Muskelgruppen, darunter die Ausführung. Hier steht nur, wo er im Raster
+   sitzt — wie er aussieht, steht einmal weiter oben und gilt für alle drei
+   Seiten. Bis 1.0.11 hatte die Planseite dafür ein eigenes .position-name mit
+   nur der Primärgruppe in einer Zeile; das war die Abweichung. */
+.position-raster > .uebung-text { grid-column: 2; }
+
+/* Grundzustand ist ein umbrechender Flex-Fluss: Passen die drei nicht
+   nebeneinander, rutscht „Entfernen" in eine eigene Zeile und bleibt dort über
+   das auto-Margin rechtsbündig.
+
+   Ein Grid bricht NICHT um. Als eines ohne Umschaltpunkt lief die Zeile am
+   Handy rechts aus der Karte heraus — „Entfernen" war halb abgeschnitten, und
+   zwar auf jedem üblichen Telefon im Hochformat. Am Desktop sieht man davon
+   nichts, deshalb blieb es bis 1.0.10 unbemerkt. Gleiche Bauweise und gleicher
+   Grund wie bei .position-aktionen im Training. */
+.position-knoepfe {
     grid-column: 2;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-/* Tauschen links, Pfeile in der Mitte, Entfernen rechts: Die beiden äußeren
-   Spalten sind gleich breit, dadurch sitzen die Pfeile mittig — dieselbe
-   Anordnung wie in der Aktionszeile im Training. */
-.position-knoepfe {
-    grid-column: 2;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
     gap: 0.3rem;
     align-items: center;
     margin-top: 0.4rem;
 }
 
-.position-knoepfe .pos-tauschen  { justify-self: start; }
-.position-knoepfe .pos-entfernen { justify-self: end; }
+.position-knoepfe .pos-entfernen { margin-left: auto; }
 
 .pos-pfeile {
     display: flex;
     gap: 0.3rem;
-    justify-self: center;
+}
+
+/* Ab hier ist Platz für alle drei nebeneinander: Tauschen links, Pfeile in der
+   Mitte, Entfernen rechts. Die beiden äußeren Spalten sind gleich breit,
+   dadurch sitzen die Pfeile exakt mittig — dieselbe Anordnung wie in der
+   Aktionszeile im Training.
+
+   Der Umschaltpunkt liegt höher als die 24rem dort: Links stehen hier noch die
+   Positionsnummer und das 72px-Bild, die rund 110px vom Platz nehmen. */
+@media (min-width: 32rem) {
+    .position-knoepfe {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+    }
+
+    .position-knoepfe .pos-tauschen  { justify-self: start; }
+    .pos-pfeile                      { justify-self: center; }
+
+    /* Das auto-Margin von oben würde sonst gegen justify-self arbeiten. */
+    .position-knoepfe .pos-entfernen { justify-self: end; margin-left: 0; }
 }
 
 .position-knoepfe .pos-hoch,
@@ -659,12 +742,17 @@ button.gefahr { background: var(--fehler); }
     font-weight: 600;
 }
 
-/* Das Bild ist antippbar — der Knopf darf aber nicht wie einer aussehen. */
+/* Das Bild ist antippbar — der Knopf darf aber nicht wie einer aussehen.
+   Gilt auf allen drei Seiten mit Übungsbildern: Training, Übungs- und
+   Planverwaltung. */
 .bild-knopf {
     padding: 0;
     background: none;
     border: 0;
     min-height: 0;
+    /* Der Zeiger kündigt an, was der Klick tut — Gegenstück zum zoom-out auf
+       dem großen Bild im Dialog. */
+    cursor: zoom-in;
 }
 
 .bild-knopf:hover { background: none; }

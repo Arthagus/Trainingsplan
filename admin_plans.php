@@ -40,11 +40,12 @@ if ($aktuellerBenutzer === null && $benutzer !== []) {
     $gewaehlt = (int)$aktuellerBenutzer['id'];
 }
 
-$plaene         = [];
-$positionen     = [];
-$offeneEinheit  = null;
-$vorschlag      = null;
-$freieUebungen  = [];
+$plaene            = [];
+$positionen        = [];
+$gruppenZuPosition = [];
+$offeneEinheit     = null;
+$vorschlag         = null;
+$freieUebungen     = [];
 
 if ($aktuellerBenutzer !== null) {
     $plaene        = plaene_von($gewaehlt);
@@ -61,11 +62,7 @@ if ($aktuellerBenutzer !== null) {
 
         $stmt = db()->prepare(
             "SELECT pe.id, pe.plan_id, pe.sort_order, e.id AS exercise_id,
-                    e.name_de, e.archived, e.image_path,
-                    (SELECT mg.name_de
-                       FROM exercise_muscle_groups emg
-                       JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
-                      WHERE emg.exercise_id = e.id AND emg.is_primary = 1) AS primaergruppe
+                    e.name_de, e.name_en, e.focus, e.archived, e.image_path, e.description
                FROM plan_exercises pe
                JOIN exercises e ON e.id = pe.exercise_id
               WHERE pe.plan_id IN ($platzhalter)
@@ -74,6 +71,21 @@ if ($aktuellerBenutzer !== null) {
         $stmt->execute($planIds);
         foreach ($stmt->fetchAll() as $z) {
             $positionen[(int)$z['plan_id']][] = $z;
+        }
+
+        // Muskelgruppen in EINER Abfrage nachschlagen, nicht je Position --
+        // dieselbe Ueberlegung wie in admin_exercises.php. Sortiert wie dort:
+        // primaer zuerst, danach die sekundaeren. Die Anzeige zeigt seit 1.0.12
+        // alle Gruppen und nicht mehr nur die primaere, damit die Planseite
+        // dasselbe Bild einer Uebung zeigt wie Training und Uebungsverwaltung.
+        $gruppenZuPosition = [];
+        foreach (db()->query(
+            'SELECT emg.exercise_id, emg.is_primary, mg.name_de
+               FROM exercise_muscle_groups emg
+               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+              ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de'
+        ) as $g) {
+            $gruppenZuPosition[(int)$g['exercise_id']][] = $g;
         }
     }
 
@@ -195,36 +207,74 @@ require __DIR__ . '/lib/view_header.php';
             <?php else: ?>
                 <ol class="positions-liste">
                     <?php foreach ($eintr as $z): ?>
-                        <?php // Zweizeilig: oben Bild und Name, darunter die Knoepfe.
-                              // Nebeneinander blieb fuer den Namen bei vier Knoepfen
-                              // kaum Platz, und genau der ist hier die Hauptinformation. ?>
                         <?php // Zweizeilig: rechts oben der Name, darunter die Knoepfe,
-                              // links das Bild ueber beide Zeilen. Das Raster steckt in
-                              // einem eigenen Element und nicht im <li> selbst, damit die
-                              // Nummer der Position sichtbar bleibt -- ein <li> mit
-                              // display:grid verliert seinen Zaehler. ?>
+                              // links das Bild ueber beide Zeilen. Nebeneinander blieb
+                              // fuer den Namen bei vier Knoepfen kaum Platz, und genau
+                              // der ist hier die Hauptinformation.
+                              //
+                              // Das <li> traegt sein eigenes Raster: links die Nummer,
+                              // rechts dieses zweizeilige. Die Nummer ist ein
+                              // CSS-Zaehler (.positions-liste im Stylesheet) und nicht
+                              // der Listenpunkt des Browsers -- der haengt an einer
+                              // Textgrundlinie und stand deshalb am unteren Rand. ?>
                         <li class="position" data-pe="<?= (int)$z['id'] ?>">
                             <div class="position-raster">
                                 <?php if (!empty($z['image_path'])): ?>
                                     <?php $thumb = substr((string)$z['image_path'], 0, 32) . '_thumb.jpg'; ?>
-                                    <img class="position-bild"
-                                         src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
-                                         alt="" loading="lazy" width="72" height="72">
+                                    <?php // Antippbar wie im Training: dasselbe Bild gross, mit
+                                          // Name und Beschreibung (assets/app.js, bildGrossZeigen). ?>
+                                    <button type="button" class="bild-knopf"
+                                            aria-label="Bild und Beschreibung anzeigen">
+                                        <img class="position-bild"
+                                             src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
+                                             alt="" loading="lazy" width="72" height="72">
+                                    </button>
                                 <?php else: ?>
                                     <span class="position-bild position-bild-leer" aria-hidden="true">–</span>
                                 <?php endif; ?>
-                                <span class="position-name">
-                                    <?php // Eigenes Element um den Namen: Sonst laesen
-                                          // Dialogtitel und Rueckfrage das Gruppen-Abzeichen
-                                          // als Teil des Uebungsnamens mit. ?>
-                                    <span class="position-titel"><?= h((string)$z['name_de']) ?></span>
-                                    <?php if (!empty($z['primaergruppe'])): ?>
-                                        <span class="gruppe-primaer"><?= h((string)$z['primaergruppe']) ?></span>
+
+                                <?php // Nur fuer den Bilddialog. Als display:none-Element ist es
+                                      // kein Rasterelement und verschiebt die Spalten nicht. ?>
+                                <?php if (!empty($z['description'])): ?>
+                                    <p class="beschreibung" hidden><?= h((string)$z['description']) ?></p>
+                                <?php endif; ?>
+                                <?php // Gleicher Aufbau wie im Training und in der
+                                      // Uebungsverwaltung: Name, englischer Name daneben,
+                                      // darunter die Muskelgruppen (primaer vorn), die
+                                      // Ausfuehrung in einer eigenen Zeile darunter. Die
+                                      // Klasse .uebung-text ist dieselbe -- geteiltes
+                                      // Aussehen ueber eine geteilte Regel, nicht ueber
+                                      // eine zweite Kopie im Stylesheet. ?>
+                                <div class="uebung-text">
+                                    <?php // .position-titel bleibt am Namen: Dialogtitel und
+                                          // Rueckfrage in admin_plans.js lesen ihn darueber,
+                                          // und ohne eigenes Element laesen sie die
+                                          // Abzeichen als Teil des Uebungsnamens mit. ?>
+                                    <strong class="position-titel"><?= h((string)$z['name_de']) ?></strong>
+                                    <?php if (!empty($z['name_en'])): ?>
+                                        <span class="matt"><?= h((string)$z['name_en']) ?></span>
                                     <?php endif; ?>
                                     <?php if ((int)$z['archived'] === 1): ?>
                                         <span class="abzeichen abzeichen-archiv">archiviert</span>
                                     <?php endif; ?>
-                                </span>
+
+                                    <?php $gruppen = $gruppenZuPosition[(int)$z['exercise_id']] ?? []; ?>
+                                    <?php if ($gruppen !== []): ?>
+                                        <p class="gruppen-anzeige">
+                                            <?php foreach ($gruppen as $g): ?>
+                                                <span class="<?= (int)$g['is_primary'] === 1 ? 'gruppe-primaer' : 'gruppe-sekundaer' ?>">
+                                                    <?= h((string)$g['name_de']) ?>
+                                                </span>
+                                            <?php endforeach; ?>
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($z['focus'])): ?>
+                                        <p class="schwerpunkt-zeile">
+                                            <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
+                                        </p>
+                                    <?php endif; ?>
+                                </div>
                                 <span class="position-knoepfe">
                                     <button type="button" class="leise pos-tauschen"
                                             <?= $gesperrt ? 'disabled' : '' ?>>Tauschen</button>
@@ -288,5 +338,7 @@ require __DIR__ . '/lib/view_header.php';
     <p id="tausch-fehler" class="feld-fehler" role="alert" hidden></p>
     <p><button type="button" id="tausch-schliessen" class="leise">Abbrechen</button></p>
 </dialog>
+
+<?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>
