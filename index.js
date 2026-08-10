@@ -443,9 +443,25 @@
     const tauschDialog = qs('#tausch-dialog');
     const tauschListe = qs('#tausch-liste');
     const tauschFehler = qs('#tausch-fehler');
+    const tauschFilter = qs('.tausch-filter');
+    const tauschGeraet = qs('#tausch-geraet');
     let tauschKarte = null;
+    let tauschVorschlaege = [];
 
     qs('#tausch-schliessen').addEventListener('click', () => tauschDialog.close());
+
+    // Im Training gibt es beide Wege: nur heute oder dauerhaft.
+    const TAUSCH_KNOEPFE =
+        '<button type="button" class="waehlen" data-modus="session">'
+        + 'Nur diese Einheit</button>'
+        + '<button type="button" class="leise waehlen" data-modus="permanent">'
+        + 'Dauerhaft im Plan</button>';
+
+    /** Zeichnet die Vorschlagsliste, gefiltert auf das gewählte Gerät. */
+    function tauschZeichnen() {
+        tauschListe.innerHTML = geraetGefiltert(tauschVorschlaege, tauschGeraet.value)
+            .map((v) => vorschlagMarkup(v, TAUSCH_KNOEPFE)).join('');
+    }
 
     async function tauschOeffnen(karte) {
         // Solange fuer diese Zeile noch etwas aussteht, kennt der Server ihren
@@ -461,6 +477,11 @@
 
         tauschKarte = karte;
         tauschFehler.hidden = true;
+        // Der Filter der vorigen Übung darf nicht stehen bleiben — sonst zeigt
+        // der Dialog beim Öffnen eine schon eingeschränkte und scheinbar
+        // unvollständige Liste.
+        tauschVorschlaege = [];
+        tauschFilter.hidden = true;
         tauschListe.innerHTML = '<p class="matt">Wird geladen …</p>';
         qs('#tausch-titel').textContent =
             'Ersatz für ' + qs('.uebung-text strong', karte).textContent.trim();
@@ -488,15 +509,9 @@
                 return;
             }
 
-            // Im Training gibt es beide Wege: nur heute oder dauerhaft.
-            const knoepfe =
-                '<button type="button" class="waehlen" data-modus="session">'
-                + 'Nur diese Einheit</button>'
-                + '<button type="button" class="leise waehlen" data-modus="permanent">'
-                + 'Dauerhaft im Plan</button>';
-
-            tauschListe.innerHTML =
-                daten.suggestions.map((v) => vorschlagMarkup(v, knoepfe)).join('');
+            tauschVorschlaege = daten.suggestions;
+            tauschFilter.hidden = !geraetFilterFuellen(tauschGeraet, tauschVorschlaege);
+            tauschZeichnen();
         } catch (fehler) {
             tauschListe.innerHTML = '';
             tauschFehler.textContent = fehler.message;
@@ -504,11 +519,38 @@
         }
     }
 
+    tauschGeraet.addEventListener('change', tauschZeichnen);
+
     tauschListe.addEventListener('click', async (e) => {
         const knopf = e.target.closest('.waehlen');
         if (!knopf || !tauschKarte) return;
 
-        const exerciseId = Number(knopf.closest('.vorschlag').dataset.id);
+        const vorschlag = knopf.closest('.vorschlag');
+        const exerciseId = Number(vorschlag.dataset.id);
+
+        // Rückfrage NUR beim dauerhaften Tausch. Die beiden Knöpfe stehen
+        // nebeneinander und unterscheiden sich in der Tragweite erheblich: „Nur
+        // diese Einheit" ist für heute und morgen wieder weg, „Dauerhaft im
+        // Plan" ändert den Plan für alle künftigen Trainings. Ein Fehlgriff im
+        // Studio, mit feuchten Fingern auf einem kleinen Bildschirm, wäre sonst
+        // erst Wochen später aufgefallen — und der Weg zurück führt über die
+        // Planverwaltung.
+        //
+        // Für „Nur diese Einheit" bewusst KEINE Rückfrage: Sie gilt für ein
+        // Training, ist über einen zweiten Tausch sofort korrigierbar, und eine
+        // Rückfrage bei jedem Handgriff gewöhnt man sich an wegzuklicken —
+        // dann greift sie auch dort nicht mehr, wo sie zählt.
+        if (knopf.dataset.modus === 'permanent') {
+            const ersatz = qs('strong', vorschlag).textContent.trim();
+            const bisher = qs('.uebung-text strong', tauschKarte).textContent.trim();
+            const weiter = window.confirm(
+                'Im Plan dauerhaft „' + bisher + '" durch „' + ersatz + '" ersetzen?\n\n'
+                + 'Das gilt für alle künftigen Trainings, nicht nur für heute. '
+                + 'Bereits protokollierte Einheiten bleiben unverändert.'
+            );
+            if (!weiter) return;
+        }
+
         knopf.disabled = true;
         tauschFehler.hidden = true;
 

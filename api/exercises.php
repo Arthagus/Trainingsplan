@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/upload.php';
+require_once __DIR__ . '/../lib/geraete.php';
 
 bootstrap_session();
 require_login_api();
@@ -40,9 +41,10 @@ match (to_str($eingabe['action'] ?? '')) {
 };
 
 /**
- * Prueft Name, Beschreibung und Muskelgruppen-Auswahl.
+ * Prueft Name, Beschreibung, Trainingsgeraet und Muskelgruppen-Auswahl.
  *
- * @return array{name_de:string,name_en:?string,description:?string,groups:int[],primary:int}
+ * @return array{name_de:string,name_en:?string,description:?string,focus:?string,
+ *               equipment:string,groups:int[],primary:int}
  */
 function eingabe_pruefen(array $eingabe): array {
     $fehler = [];
@@ -65,6 +67,18 @@ function eingabe_pruefen(array $eingabe): array {
     }
     if (str_len_utf8($fokus) > EX_FOKUS_MAX) {
         $fehler['focus'] = 'Höchstens ' . EX_FOKUS_MAX . ' Zeichen.';
+    }
+
+    // Das Trainingsgeraet ist Pflicht -- auch beim Bearbeiten, und das ist
+    // Absicht: Uebungen aus der Zeit vor diesem Feld tragen keinen Wert, und die
+    // Pflicht am Bearbeiten-Formular ist der Weg, auf dem sie nachgepflegt
+    // werden. Geprueft wird gegen die Codeliste in lib/geraete.php, nicht gegen
+    // ein CHECK-Constraint (Begruendung dort).
+    $geraet = to_str($eingabe['equipment'] ?? '');
+    if ($geraet === '') {
+        $fehler['equipment'] = 'Bitte ein Trainingsgerät wählen.';
+    } elseif (!geraet_gueltig($geraet)) {
+        $fehler['equipment'] = 'Unbekanntes Trainingsgerät.';
     }
 
     // Zwei getrennte Spalten im Formular: genau eine Primaergruppe (Radiobutton)
@@ -105,6 +119,7 @@ function eingabe_pruefen(array $eingabe): array {
         'name_en'     => $en === '' ? null : $en,
         'description' => $beschreibung === '' ? null : $beschreibung,
         'focus'       => $fokus === '' ? null : $fokus,
+        'equipment'   => $geraet,
         'groups'      => $gruppen,
         'primary'     => (int)$primaer,
     ];
@@ -153,12 +168,13 @@ function aktion_anlegen(array $eingabe): never {
         $id = db_transaction(function (PDO $pdo) use ($daten, $bild): int {
             $stmt = $pdo->prepare(
                 'INSERT INTO exercises
-                     (name_de, name_en, description, focus, image_path, archived, created_at)
-                 VALUES (?, ?, ?, ?, ?, 0, ?)'
+                     (name_de, name_en, description, focus, equipment, image_path,
+                      archived, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 0, ?)'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $bild, now(),
+                $daten['focus'], $daten['equipment'], $bild, now(),
             ]);
             $neu = (int)$pdo->lastInsertId();
             gruppen_schreiben($pdo, $neu, $daten['groups'], $daten['primary']);
@@ -198,12 +214,13 @@ function aktion_bearbeiten(array $eingabe): never {
         db_transaction(function (PDO $pdo) use ($id, $daten, $bildSpalte): void {
             $stmt = $pdo->prepare(
                 'UPDATE exercises
-                    SET name_de = ?, name_en = ?, description = ?, focus = ?, image_path = ?
+                    SET name_de = ?, name_en = ?, description = ?, focus = ?,
+                        equipment = ?, image_path = ?
                   WHERE id = ?'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $bildSpalte, $id,
+                $daten['focus'], $daten['equipment'], $bildSpalte, $id,
             ]);
             gruppen_schreiben($pdo, $id, $daten['groups'], $daten['primary']);
         });

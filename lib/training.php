@@ -108,7 +108,8 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
                 pe.exercise_id   AS plan_uebung_id,
                 COALESCE(sw.replacement_exercise_id, pe.exercise_id) AS exercise_id,
                 sw.replacement_exercise_id IS NOT NULL AS getauscht,
-                e.name_de, e.name_en, e.description, e.focus, e.image_path, e.archived,
+                e.name_de, e.name_en, e.description, e.focus, e.equipment,
+                e.image_path, e.archived,
                 orig.name_de     AS plan_uebung_name,
                 wl.id            AS log_id,
                 wl.weight, wl.performed_at
@@ -150,6 +151,7 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
             'name_en'          => $z['name_en'],
             'description'      => $z['description'],
             'focus'            => $z['focus'],
+            'equipment'        => $z['equipment'],
             'image_path'       => $z['image_path'],
             'archived'         => (int)$z['archived'] === 1,
             'getauscht'        => (int)$z['getauscht'] === 1,
@@ -323,8 +325,13 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     // werden -- man will an dem Tag die Brust trainieren, nicht exakt diese
     // Fasern. Genau deshalb darf die Unterteilung beliebig fein sein, ohne
     // dass die Vorschlagsliste leer laeuft.
+    //
+    // Das Trainingsgeraet spielt hier ausdruecklich KEINE Rolle -- es wird nur
+    // mitgeliefert und angezeigt. Der haeufigste Grund zu tauschen ist eine
+    // besetzte Maschine; ein Filter auf dasselbe Geraet verhinderte genau den
+    // Ausweg, den man in dem Moment sucht.
     $stmt = db()->prepare(
-        "SELECT e.id, e.name_de, e.name_en, e.focus, e.image_path,
+        "SELECT e.id, e.name_de, e.name_en, e.focus, e.equipment, e.image_path,
                 mg.name_de AS gruppe
            FROM exercises e
            JOIN exercise_muscle_groups emg

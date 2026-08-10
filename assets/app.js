@@ -565,6 +565,89 @@ function bildGrossZeigen(titel, thumbSrc, beschreibung) {
 }
 
 /**
+ * Das Abzeichen eines Trainingsgeräts — das Gegenstück zu geraet_abzeichen()
+ * aus lib/geraete.php.
+ *
+ * Beschriftungen und Symbole kommen aus derselben Quelle wie serverseitig:
+ * lib/view_geraet_symbole.php legt beides ins Dokument, den Symbolvorrat als
+ * <symbol> und die Beschriftungen als JSON. Eine zweite Liste hier im JS wäre
+ * eine Kopie, die beim achten Gerätetyp still veraltet.
+ */
+let geraeteTabelle = null;
+
+/** Die Beschriftung zu einem Gerätecode, oder '' für leer und unbekannt. */
+function geraetName(code) {
+    if (geraeteTabelle === null) {
+        const quelle = qs('#geraete-daten');
+        // Ohne den Vorrat im Dokument bleibt die Tabelle leer statt zu werfen —
+        // dieselbe Nachsicht wie bei bildGrossZeigen().
+        try {
+            geraeteTabelle = quelle ? JSON.parse(quelle.textContent) : {};
+        } catch {
+            geraeteTabelle = {};
+        }
+    }
+    return (code && geraeteTabelle[code]) || '';
+}
+
+function geraetAbzeichen(code) {
+    const label = geraetName(code);
+    if (!label) {
+        return '<span class="abzeichen geraet-fehlt">Gerät fehlt</span>';
+    }
+
+    return '<span class="abzeichen geraet">'
+        + '<svg class="geraet-symbol" aria-hidden="true" focusable="false">'
+        + '<use href="#geraet-' + escapeHtml(code) + '"></use></svg>'
+        + escapeHtml(label) + '</span>';
+}
+
+/**
+ * Rüstet ein <select> als Gerätefilter über einer Vorschlagsliste aus.
+ *
+ * Geteilt zwischen Training und Planverwaltung — beide Tauschdialoge sollen sich
+ * gleich verhalten, und zweimal gepflegt wären sie irgendwann verschieden. Die
+ * erste Option („alle Trainingsgeräte") steht im Markup und bleibt stehen; alles
+ * dahinter kommt von hier.
+ *
+ * Angeboten wird nur, was in der Liste auch **vorkommt**. Ein Eintrag, der
+ * zuverlässig eine leere Liste erzeugt, ist schlechter als kein Eintrag — und
+ * bei weniger als zwei Geräten ist die Auswahl bedeutungslos, dann sagt der
+ * Rückgabewert dem Aufrufer, dass er sie ausblenden soll.
+ *
+ * @param {HTMLSelectElement} feld
+ * @param {object[]} vorschlaege
+ * @returns {boolean} ob der Filter überhaupt eine Wahl lässt
+ */
+function geraetFilterFuellen(feld, vorschlaege) {
+    const vorhanden = [];
+    vorschlaege.forEach((v) => {
+        if (v.equipment && !vorhanden.includes(v.equipment)) {
+            vorhanden.push(v.equipment);
+        }
+    });
+
+    feld.length = 1;
+    feld.value = '';
+    vorhanden.forEach((code) => feld.add(new Option(geraetName(code), code)));
+
+    return vorhanden.length >= 2;
+}
+
+/**
+ * Die Vorschläge zum gewählten Gerät — leere Wahl heißt alle.
+ *
+ * Rein im Browser und ohne zweiten Abruf: Die Liste liegt nach dem ersten Abruf
+ * vollständig vor, und man steht damit im Studio vor einem belegten Gerät, wo
+ * das Netz schwach ist. Der Server bleibt die einzige Quelle dafür, WAS
+ * überhaupt als Ersatz taugt (§7.5, dieselbe Hauptgruppe); gefiltert wird hier
+ * nur innerhalb dieser Antwort.
+ */
+function geraetGefiltert(vorschlaege, code) {
+    return code ? vorschlaege.filter((v) => v.equipment === code) : vorschlaege;
+}
+
+/**
  * Ein Tauschvorschlag als Markup.
  *
  * Geteilt zwischen Trainings- und Planseite (§7.5): Beide zeigen dieselbe
@@ -572,6 +655,11 @@ function bildGrossZeigen(titel, thumbSrc, beschreibung) {
  * darunter -- im Training "nur diese Einheit" oder "dauerhaft", in der
  * Planverwaltung nur dauerhaft. Zweimal gepflegt waeren sie irgendwann
  * verschieden.
+ *
+ * Dieselbe Form nutzt die Uebungsauswahl beim Hinzufuegen zu einem Plan (§6.4):
+ * Ein Treffer dort ist inhaltlich dasselbe wie ein Vorschlag hier, nur mit
+ * einem anderen Knopf. Deshalb liefert api/plans.php -> exercise_picker
+ * ausdruecklich dieselben Felder.
  *
  * @param {object} v        Vorschlag vom Server
  * @param {string} knoepfe  Fertiges Markup der Auswahlknoepfe
@@ -582,11 +670,13 @@ function vorschlagMarkup(v, knoepfe) {
         + '">' + escapeHtml(g.name_de) + '</span>').join(' ');
 
     // Gleiche Anordnung wie in der Uebungszeile: erst die Muskelgruppen
-    // (primaer vorn), die Ausfuehrung darunter.
-    const schwerpunkt = v.focus
-        ? '<p class="schwerpunkt-zeile"><span class="schwerpunkt">'
-          + escapeHtml(v.focus) + '</span></p>'
-        : '';
+    // (primaer vorn), darunter Trainingsgeraet und Ausfuehrung. Das Geraet steht
+    // auch hier immer -- beim Tausch ist es sogar die entscheidende Angabe, weil
+    // man meist ausweicht, WEIL ein Geraet besetzt ist.
+    const schwerpunkt = '<p class="schwerpunkt-zeile">'
+        + geraetAbzeichen(v.equipment)
+        + (v.focus ? '<span class="schwerpunkt">' + escapeHtml(v.focus) + '</span>' : '')
+        + '</p>';
 
     // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als
     // am Namen -- und genau dort wird getauscht.

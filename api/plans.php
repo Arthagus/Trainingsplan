@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/training.php';
+require_once __DIR__ . '/../lib/geraete.php';
 
 bootstrap_session();
 require_login_api();
@@ -33,6 +34,7 @@ match (to_str($eingabe['action'] ?? '')) {
     'rename_plan'        => aktion_plan_umbenennen($eingabe),
     'delete_plan'        => aktion_plan_loeschen($eingabe),
     'reorder_plans'      => aktion_plaene_sortieren($eingabe),
+    'exercise_picker'    => aktion_uebungs_auswahl($eingabe),
     'add_exercise'       => aktion_uebung_hinzufuegen($eingabe),
     'remove_exercise'    => aktion_uebung_entfernen($eingabe),
     'reorder_exercises'  => aktion_uebungen_sortieren($eingabe),
@@ -199,6 +201,202 @@ function aktion_plaene_sortieren(array $eingabe): never {
     });
 
     json_ok(['count' => count($ids)]);
+}
+
+/**
+ * Die Uebungsauswahl beim Hinzufuegen zu einem Plan (§6.4).
+ *
+ * Ersetzt das frueher hier gerenderte Pulldown mit ALLEN aktiven Uebungen. Bei
+ * 17 Uebungen ging das; sobald der Bestand dreistellig wird, ist eine
+ * ungefilterte Liste am Handy unbedienbar. Gefiltert wird nach Muskelgruppe
+ * und Trainingsgeraet -- einzeln oder kombiniert.
+ *
+ * Geliefert wird genau die Form, die vorschlagMarkup() in assets/app.js
+ * erwartet: Ein Treffer hier ist inhaltlich dasselbe wie ein Tauschvorschlag,
+ * nur mit einem anderen Knopf darunter.
+ *
+ * Dazu kommen die FACETTEN: Welche Muskelgruppen und welche Geraete ueberhaupt
+ * noch zu etwas fuehren. Die beiden Auswahlfelder schraenken sich damit
+ * gegenseitig ein -- wer "Kurzhantel" waehlt, sieht nur noch Muskelgruppen mit
+ * Kurzhantel-Uebungen, und umgekehrt. Ein Filterwert, der zuverlaessig eine
+ * leere Liste erzeugt, ist schlechter als keiner.
+ *
+ * Massgeblich ist dabei, dass jede Facette OHNE ihren EIGENEN Filter gerechnet
+ * wird: Sonst bliebe nach der Wahl von "Kurzhantel" nur noch "Kurzhantel" im
+ * Geraetefeld stehen, und man kaeme nicht mehr davon weg, ohne erst die
+ * Muskelgruppe zurueckzusetzen.
+ */
+function aktion_uebungs_auswahl(array $eingabe): never {
+    $planId = to_int_or_null($eingabe['plan_id'] ?? null);
+    if ($planId === null) {
+        json_err('Kein Plan angegeben.', 422);
+    }
+    $plan = plan_laden($planId);
+
+    $gruppe = to_int_or_null($eingabe['group_id'] ?? null);
+    $geraet = to_str($eingabe['equipment'] ?? '');
+    if ($geraet !== '' && $geraet !== GERAET_LEER && !geraet_gueltig($geraet)) {
+        $geraet = '';
+    }
+
+    // Die beiden Bedingungen einzeln vorhalten: Die Trefferliste braucht beide,
+    // jede Facette dagegen nur die jeweils ANDERE.
+    $gruppeSql   = null;
+    $gruppeWerte = [];
+    if ($gruppe !== null) {
+        // Wortgleich zum Filter in admin_exercises.php: Eine Hauptgruppe steht
+        // fuer sich UND fuer alle ihre Untergruppen. Die Hierarchie bleibt damit
+        // in SQL und wird nicht ein zweites Mal im JS nachgebaut.
+        $gruppeSql = 'EXISTS (SELECT 1 FROM exercise_muscle_groups emg
+                                JOIN muscle_groups fmg ON fmg.id = emg.muscle_group_id
+                               WHERE emg.exercise_id = e.id
+                                 AND (fmg.id = ? OR fmg.parent_id = ?))';
+        $gruppeWerte = [$gruppe, $gruppe];
+    }
+
+    $geraetSql   = null;
+    $geraetWerte = [];
+    if ($geraet === GERAET_LEER) {
+        $geraetSql = "(e.equipment IS NULL OR e.equipment = '')";
+    } elseif ($geraet !== '') {
+        $geraetSql   = 'e.equipment = ?';
+        $geraetWerte = [$geraet];
+    }
+
+    // Die Reihenfolge der Platzhalter ist die Reihenfolge im SQL-Text: erst der
+    // Wert aus der SELECT-Liste, dann WHERE, dann ORDER BY.
+    $werte = [$planId, ...$gruppeWerte, ...$geraetWerte];
+    $wo    = ['e.archived = 0'];
+    if ($gruppeSql !== null) { $wo[] = $gruppeSql; }
+    if ($geraetSql !== null) { $wo[] = $geraetSql; }
+
+    // Wie in der Uebungsverwaltung: Bei gesetztem Gruppenfilter zuerst die
+    // Uebungen, deren PRIMAERE Gruppe passt. Sonst stuende bei "Brust" eine
+    // Trizeps-Uebung obenan, die Brust nur mittrainiert.
+    $sortSql = 'e.name_de';
+    if ($gruppe !== null) {
+        $sortSql = 'CASE WHEN EXISTS (SELECT 1 FROM exercise_muscle_groups emg
+                                        JOIN muscle_groups pmg ON pmg.id = emg.muscle_group_id
+                                       WHERE emg.exercise_id = e.id AND emg.is_primary = 1
+                                         AND (pmg.id = ? OR pmg.parent_id = ?))
+                         THEN 0 ELSE 1 END,
+                    e.name_de';
+        $werte[] = $gruppe;
+        $werte[] = $gruppe;
+    }
+
+    // Nur aktive Uebungen lassen sich in einen Plan aufnehmen (§6.3) -- was
+    // bereits drinsteht, bleibt aber sichtbar und wird nur gekennzeichnet.
+    // Herausgefiltert waere es verwirrend: Man sucht eine Uebung, findet sie
+    // nicht und weiss nicht, ob sie fehlt oder schon dabei ist.
+    $stmt = db()->prepare(
+        'SELECT e.id, e.name_de, e.name_en, e.focus, e.equipment, e.image_path,
+                EXISTS (SELECT 1 FROM plan_exercises pe
+                         WHERE pe.plan_id = ? AND pe.exercise_id = e.id) AS im_plan
+           FROM exercises e
+          WHERE ' . implode(' AND ', $wo) . '
+          ORDER BY ' . $sortSql
+    );
+    $stmt->execute($werte);
+    $treffer = $stmt->fetchAll();
+
+    // Die Muskelgruppen aller Treffer in EINER Abfrage -- anders als bei den
+    // Tauschvorschlaegen, wo je Vorschlag nachgeschlagen wird. Dort sind es eine
+    // Handvoll, hier kann es der ganze Bestand sein.
+    if ($treffer !== []) {
+        $ids = array_map(static fn(array $t): int => (int)$t['id'], $treffer);
+        $platzhalter = implode(',', array_fill(0, count($ids), '?'));
+
+        $gruppen = [];
+        $stmt = db()->prepare(
+            "SELECT emg.exercise_id, mg.name_de, emg.is_primary
+               FROM exercise_muscle_groups emg
+               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+              WHERE emg.exercise_id IN ($platzhalter)
+              ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de"
+        );
+        $stmt->execute($ids);
+        foreach ($stmt as $g) {
+            $gruppen[(int)$g['exercise_id']][] = [
+                'name_de'    => $g['name_de'],
+                'is_primary' => (int)$g['is_primary'],
+            ];
+        }
+
+        foreach ($treffer as &$t) {
+            $t['id']      = (int)$t['id'];
+            $t['im_plan'] = (int)$t['im_plan'];
+            $t['muskelgruppen'] = $gruppen[$t['id']] ?? [];
+        }
+        unset($t);
+    }
+
+    json_ok([
+        'exercises' => $treffer,
+        'facetten'  => auswahl_facetten($gruppeSql, $gruppeWerte, $geraetSql, $geraetWerte),
+        // Ein zweiter Tab kann den Dialog oeffnen, nachdem der Benutzer im
+        // ersten ein Training gestartet hat. add_exercise antwortet dann mit
+        // 409; die Auswahl sagt es vorher.
+        'gesperrt'  => hat_offene_einheit((int)$plan['user_id']),
+    ]);
+}
+
+/**
+ * Was in den beiden Auswahlfeldern der Uebungsauswahl noch zu etwas fuehrt.
+ *
+ * Jede Facette wird OHNE ihren eigenen Filter gerechnet, mit dem des anderen
+ * Feldes: Die Geraeteliste gilt fuer die gewaehlte Muskelgruppe, die
+ * Gruppenliste fuer das gewaehlte Geraet. Andersherum -- beide Filter auf beide
+ * Facetten -- bliebe nach jeder Wahl nur der gewaehlte Wert selbst uebrig, und
+ * man kaeme aus der Einschraenkung nicht mehr heraus.
+ *
+ * @return array{geraete:string[],gruppen:int[]}
+ */
+function auswahl_facetten(?string $gruppeSql, array $gruppeWerte,
+                          ?string $geraetSql, array $geraetWerte): array {
+    // --- Welche Geraete? Gilt der Muskelgruppen-Filter. ---
+    $wo = ['e.archived = 0', "e.equipment IS NOT NULL", "e.equipment != ''"];
+    if ($gruppeSql !== null) { $wo[] = $gruppeSql; }
+
+    $stmt = db()->prepare(
+        'SELECT DISTINCT e.equipment FROM exercises e WHERE ' . implode(' AND ', $wo)
+    );
+    $stmt->execute($gruppeWerte);
+    $vorhanden = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    // In der Reihenfolge der Codeliste ausgeben, nicht in der von SQLite --
+    // das Auswahlfeld soll immer dieselbe Ordnung haben.
+    $geraete = array_values(array_filter(
+        array_keys(GERAETE),
+        static fn(string $code): bool => in_array($code, $vorhanden, true)
+    ));
+
+    // --- Welche Muskelgruppen? Gilt der Geraete-Filter. ---
+    $wo = ['e.archived = 0'];
+    if ($geraetSql !== null) { $wo[] = $geraetSql; }
+
+    $stmt = db()->prepare(
+        'SELECT DISTINCT mg.id, mg.parent_id
+           FROM exercises e
+           JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id
+           JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+          WHERE ' . implode(' AND ', $wo)
+    );
+    $stmt->execute($geraetWerte);
+
+    // Die Elterngruppe gehoert dazu: Wer auf "Arme" filtert, bekommt die
+    // Bizeps-Uebungen mit (die Hauptgruppe schliesst ihre Untergruppen ein).
+    // Ohne diesen Schritt verschwaende "Arme" aus der Liste, obwohl die Wahl
+    // sehr wohl Treffer haette.
+    $gruppen = [];
+    foreach ($stmt as $g) {
+        $gruppen[(int)$g['id']] = true;
+        if ($g['parent_id'] !== null) {
+            $gruppen[(int)$g['parent_id']] = true;
+        }
+    }
+
+    return ['geraete' => $geraete, 'gruppen' => array_keys($gruppen)];
 }
 
 function aktion_uebung_hinzufuegen(array $eingabe): never {

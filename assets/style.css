@@ -216,6 +216,38 @@ button.gefahr { background: var(--fehler); }
     font-size: 0.8rem;
 }
 
+/* --- Trainingsgerät ------------------------------------------------------ */
+
+/* Der Symbolvorrat aus lib/view_geraet_symbole.php steht im Dokument, damit
+   <use href="#geraet-…"> greift — sichtbar sein darf er nicht. */
+.symbol-vorrat { display: none; }
+
+/* Symbol UND Text: Ein Piktogramm allein spart Platz, verlangt aber, dass man
+   sieben Zeichen auswendig kennt. inline-flex statt inline-block, damit das
+   Symbol auf der Textmitte sitzt und nicht auf der Grundlinie. */
+.geraet {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-color: var(--akzent);
+    color: var(--akzent-tief);
+}
+
+.geraet-symbol {
+    width: 1.05em;
+    height: 1.05em;
+    flex: none;
+}
+
+/* Fehlt die Angabe, sagt das Abzeichen es ausdrücklich — in der Warnfarbe wie
+   die Platzhaltermarke. Die Übungen aus der Zeit vor diesem Feld sollen ins
+   Auge fallen, damit sie nachgepflegt werden. */
+.geraet-fehlt {
+    border: 1px dashed var(--warnung);
+    background: transparent;
+    color: var(--warnung);
+}
+
 /* --- Verwaltungszeilen (Muskelgruppen, Übungen) -------------------------- */
 
 .gruppe-zeile {
@@ -286,7 +318,23 @@ button.gefahr { background: var(--fehler); }
     color: #fff;
 }
 
-.filter-form { margin-left: auto; }
+/* Die Filterleiste ist EINE Zeile: links die drei Zustände, rechts die beiden
+   Auswahlfelder nebeneinander. Das eigene Flex-Layout ist Pflicht — sonst erben
+   die <select> das `width: 100%` aus der Formularregel ganz oben, jedes belegt
+   eine eigene Zeile, und aus einer Filterleiste werden auf dem Desktop drei
+   Zeilen (so stand es in 1.0.15). max-width fängt lange Optionstexte am Handy
+   ab, wo `width: auto` sonst über den Rand hinausliefe. */
+.filter-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+.filter-form select {
+    width: auto;
+    max-width: 100%;
+}
 
 /* Beschriftung nur für Screenreader. */
 .nur-lesbar {
@@ -360,9 +408,13 @@ button.gefahr { background: var(--fehler); }
     align-items: flex-start;
 }
 
-/* Übungsverwaltung: Text oben, Knöpfe darunter, das Bild links über beide
-   Zeilen. Dadurch beginnen die Knöpfe bündig mit dem Text statt unter dem
-   Bild. Dieselbe Anordnung wie bei den Positionen in der Planverwaltung. */
+/* Übungsverwaltung: oben Bild und Text nebeneinander, darunter die Knöpfe über
+   die GANZE Breite — derselbe Aufbau wie im Training (.uebung-kopf über
+   .position-aktionen).
+
+   Bis 1.0.12 trug das Bild beide Zeilen, die Knopfzeile begann also erst
+   rechts daneben. Am Handy blieben davon rund 80px weniger übrig, und die
+   Zeile brach in zwei um. Die Knöpfe gehören unter das Bild, nicht neben es. */
 .uebung-raster {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -371,15 +423,17 @@ button.gefahr { background: var(--fehler); }
 }
 
 /* Mit Bild ist das erste Rasterelement der Knopf, ohne Bild der leere
-   Platzhalter — beide tragen die volle Höhe. */
+   Platzhalter — beide stehen in der oberen Zeile neben dem Text. */
 .uebung-raster > .bild-knopf,
 .uebung-raster > .uebung-bild {
-    grid-row: 1 / span 2;
+    grid-row: 1;
     align-self: center;
 }
 
-.uebung-raster > .uebung-text,
-.uebung-raster > .uebung-knoepfe { grid-column: 2; }
+.uebung-raster > .uebung-text { grid-column: 2; }
+
+/* Über beide Spalten, damit die Knöpfe die volle Breite der Karte haben. */
+.uebung-raster > .uebung-knoepfe { grid-column: 1 / -1; }
 
 .uebung-bild {
     width: 80px;
@@ -437,9 +491,17 @@ button.gefahr { background: var(--fehler); }
     font-size: 0.85rem;
 }
 
-/* Die Ausführung steht in einer eigenen Zeile UNTER den Muskelgruppen: Sie ist
-   keine Tauschklasse, und zwischen den Abzeichen war das nicht erkennbar. */
-.schwerpunkt-zeile { margin: 0.35rem 0 0; }
+/* Trainingsgerät und Ausführung stehen in einer eigenen Zeile UNTER den
+   Muskelgruppen: Beide sind keine Tauschklasse, und zwischen den Gruppen-
+   abzeichen war das nicht erkennbar. Flex statt Textfluss, damit die beiden
+   Marken am Handy sauber umbrechen statt an einer Grundlinie zu kleben. */
+.schwerpunkt-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.35rem 0 0;
+}
 
 .uebung-knoepfe {
     display: flex;
@@ -531,9 +593,10 @@ button.gefahr { background: var(--fehler); }
     padding-left: 0;
 }
 
-/* Zweizeilig: oben Bild und Name, darunter die Knöpfe. Alles in einer Zeile
-   ließ dem Namen bei vier Knöpfen kaum Platz. Die Nummer steht links daneben
-   und trägt die volle Höhe der Position. */
+/* Zweizeilig: oben die Nummer und daneben Bild und Name, darunter die Knöpfe
+   über beide Spalten. Alles in einer Zeile ließ dem Namen bei vier Knöpfen
+   kaum Platz. Die Nummer steht neben der oberen Zeile und ist zu ihr mittig —
+   nicht zur ganzen Position: Sie gehört zum Namen, nicht zu den Knöpfen. */
 .position {
     counter-increment: position;
     display: grid;
@@ -557,21 +620,17 @@ button.gefahr { background: var(--fehler); }
 
 .position:last-child { border-bottom: 0; }
 
-/* Zwei Zeilen rechts, das Bild links über beide — so trägt es die volle Höhe
-   der Position und darf entsprechend größer sein. */
+/* Nur noch die obere Zeile: Bild und Text nebeneinander. Die Knöpfe liegen
+   eine Ebene höher, direkt im <li> — siehe .position-knoepfe.
+
+   Bis 1.0.12 trug das Bild beide Zeilen; die Knopfzeile fing dadurch erst
+   hinter ihm an und war am Handy um Bild und Abstand (rund 82px) zu schmal —
+   „Entfernen" rutschte in eine zweite Zeile. */
 .position-raster {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     column-gap: 0.6rem;
     align-items: center;
-}
-
-/* Mit Bild ist das erste Rasterelement der Knopf, ohne Bild der leere
-   Platzhalter — beide tragen die volle Höhe. */
-.position-raster > .bild-knopf,
-.position-raster > .position-bild {
-    grid-row: 1 / span 2;
-    align-self: center;
 }
 
 /* Der Textblock einer Planposition ist derselbe wie im Training und in der
@@ -582,7 +641,13 @@ button.gefahr { background: var(--fehler); }
    nur der Primärgruppe in einer Zeile; das war die Abweichung. */
 .position-raster > .uebung-text { grid-column: 2; }
 
-/* Grundzustand ist ein umbrechender Flex-Fluss: Passen die drei nicht
+/* Die Knopfzeile ist ein Kind des <li> und spannt über BEIDE seiner Spalten,
+   die der Positionsnummer eingeschlossen: „Tauschen" beginnt damit am linken
+   Rand der Karte, so wie die Aktionszeile im Training. Läge sie im
+   .position-raster, finge sie erst hinter der Nummer an — sichtbar eingerückt
+   und rund 26px schmaler.
+
+   Grundzustand ist ein umbrechender Flex-Fluss: Passen die drei nicht
    nebeneinander, rutscht „Entfernen" in eine eigene Zeile und bleibt dort über
    das auto-Margin rechtsbündig.
 
@@ -592,7 +657,7 @@ button.gefahr { background: var(--fehler); }
    nichts, deshalb blieb es bis 1.0.10 unbemerkt. Gleiche Bauweise und gleicher
    Grund wie bei .position-aktionen im Training. */
 .position-knoepfe {
-    grid-column: 2;
+    grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
@@ -601,6 +666,15 @@ button.gefahr { background: var(--fehler); }
 }
 
 .position-knoepfe .pos-entfernen { margin-left: auto; }
+
+/* Schmaler als die Vorgabe — wie „Tauschen" im Training, nur noch etwas enger:
+   Hier stehen VIER Knöpfe in der Zeile. Gemessen brauchen sie mit dem üblichen
+   Innenabstand von 1rem 302px, mit 0.5rem sind es 289px; auf einem 360px-Gerät
+   stehen 296px zur Verfügung. Das entscheidet dort über eine oder zwei Zeilen.
+   Die Höhe bleibt unangetastet: Die Pfeile sind var(--tippziel) breit,
+   darunter geht es nicht. */
+.position-knoepfe .pos-tauschen,
+.position-knoepfe .pos-entfernen { padding: 0.5rem; }
 
 .pos-pfeile {
     display: flex;
@@ -612,9 +686,15 @@ button.gefahr { background: var(--fehler); }
    dadurch sitzen die Pfeile exakt mittig — dieselbe Anordnung wie in der
    Aktionszeile im Training.
 
-   Der Umschaltpunkt liegt höher als die 24rem dort: Links stehen hier noch die
-   Positionsnummer und das 72px-Bild, die rund 110px vom Platz nehmen. */
-@media (min-width: 32rem) {
+   Derselbe Umschaltpunkt wie im Training: Die Zeile hat dort wie hier die
+   ganze Kartenbreite. Bis 1.0.12 waren es 32rem — damals lagen in dieser Zeile
+   auch noch die Positionsnummer und das 72px-Bild.
+
+   Gemessen brauchen die vier Knöpfe 289px, ab 24rem (384px) sind 320px da.
+   Etwas Luft muss bleiben: Wie breit eine Beschriftung ausfällt, hängt an der
+   Schrift des Geräts, und ein Grid bricht nicht um — zu knapp bemessen liefe
+   die Zeile aus der Karte statt in eine zweite Zeile. */
+@media (min-width: 24rem) {
     .position-knoepfe {
         display: grid;
         grid-template-columns: 1fr auto 1fr;
@@ -856,6 +936,44 @@ dialog h2 { margin-top: 0; }
     /* Ein Tipp darauf schließt den Dialog (index.js) — der Zeiger sagt es an. */
     cursor: zoom-out;
 }
+
+/* --- Übungsauswahl (Planverwaltung) -------------------------------------- */
+
+/* Die Trefferliste kann den ganzen Bestand umfassen. Deshalb scrollt sie in
+   sich, statt den Dialog zu sprengen: Filterzeile und Schließen-Knopf bleiben
+   sichtbar, sonst müsste man erst ans Ende blättern, um weiterzufiltern.
+
+   Das [open] ist Pflicht und keine Zierde: Ein geschlossener <dialog> ist nur
+   über das Standard-Stylesheet unsichtbar, und ein Autoren-`display: flex`
+   schlägt das — der Dialog stünde dauerhaft offen in der Seite. Derselbe
+   Fallstrick wie bei [hidden] ganz oben. */
+#waehlen-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+#waehlen-liste {
+    overflow-y: auto;
+    /* Der Rest des Dialogs (Titel, Filter, Fußzeile) belegt den Vorrang; die
+       Liste bekommt, was übrig bleibt. */
+    min-height: 4rem;
+}
+
+.waehlen-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Am Handy untereinander über die volle Breite — zwei halbe Auswahlfelder
+   nebeneinander sind mit dem Daumen nicht zu treffen. */
+.waehlen-filter > span { flex: 1 1 12rem; }
+.waehlen-filter select { width: 100%; }
+
+/* Der Gerätefilter im Tauschdialog (Training). Volle Breite: Im Studio wird er
+   mit dem Daumen bedient, oft einhändig. */
+.tausch-filter { margin: 0 0 0.75rem; }
 
 .vorschlag {
     padding: 0.6rem 0;

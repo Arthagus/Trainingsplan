@@ -141,12 +141,27 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec('ALTER TABLE workout_log DROP COLUMN reps');
     }
 
-    // Der Index gehoert hierher und nicht in schema.sql: Dort liefe er vor
-    // dem ALTER oben und scheiterte auf einer Bestandsdatenbank an der noch
+    // 2026-08-10: Trainingsgeraet je Uebung (§6.3). Rein additiv.
+    //
+    // Bestehende Uebungen bekommen NULL und bleiben damit uneingeschraenkt
+    // nutzbar -- weder Plan noch Protokoll noch Tausch fragen nach dem Geraet.
+    // Sie tragen in der Uebungsliste aber ein sichtbares "Geraet fehlt" und
+    // sind ueber den Filter "ohne Gerät" auffindbar. Ein Vorgabewert waere
+    // bequemer und fuer die meisten schlicht falsch gewesen: ob eine Uebung an
+    // der Maschine oder mit Kurzhanteln laeuft, weiss die Migration nicht.
+    if (!column_exists($pdo, 'exercises', 'equipment')) {
+        $pdo->exec('ALTER TABLE exercises ADD COLUMN equipment TEXT');
+    }
+
+    // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
+    // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die
     // Spalte in jedem Fall bereits, bei frischer wie bei bestehender Datenbank.
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_muscle_groups_parent
                     ON muscle_groups(parent_id, sort_order)');
+
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_exercises_equipment
+                    ON exercises(equipment, name_de)');
 
     // 2026-08-07: Benutzernamen unterscheiden nicht mehr nach Schreibweise.
     //

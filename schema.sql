@@ -57,12 +57,21 @@ CREATE INDEX IF NOT EXISTS idx_muscle_groups_sort
 -- Welche Muskelpartie getroffen wird, gehoert dagegen als UNTERGRUPPE in
 -- muscle_groups (etwa "Brust (oben)"). Beides sauber zu trennen war die
 -- Lehre aus 2026-08-07: vorher stand die Partie mal hier, mal dort.
+--
+-- equipment traegt das WOMIT als Schluessel aus der Codeliste GERAETE in
+-- lib/geraete.php ("kurzhantel", "kabel", ...). Bewusst ohne CHECK-Constraint:
+-- SQLite kann eine CHECK-Klausel nur ueber einen Tabellen-Neuaufbau aendern,
+-- und ein achter Geraetetyp soll eine Zeile PHP kosten, keine Migration.
+-- Geprueft wird in api/exercises.php. In der Oberflaeche ist das Feld Pflicht;
+-- die Spalte laesst NULL zu, weil Uebungen aus der Zeit davor keinen Wert
+-- haben und in der Liste als "Geraet fehlt" angemahnt werden.
 CREATE TABLE IF NOT EXISTS exercises (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name_de     TEXT    NOT NULL,
     name_en     TEXT,
     description TEXT,
     focus       TEXT,
+    equipment   TEXT,
     image_path  TEXT,
     archived    INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
     archived_at TEXT,

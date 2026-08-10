@@ -113,9 +113,11 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse |
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Auffangnetz |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Verlauf |
+| `lib/geraete.php` | Codeliste der Trainingsgeräte, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
 | `lib/view_header.php` / `view_footer.php` | Layout als Partial |
+| `lib/view_geraet_symbole.php` | SVG-Symbolvorrat + Beschriftungen, aus dem Header eingebunden |
 
 **Pflicht-Boilerplate am Kopf jeder geschützten Seite:**
 
@@ -274,6 +276,11 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   *Standard*-Stylesheet aus — jede Autorenregel schlägt das, unabhängig von der Spezifität.
   Wegen `button { display: inline-flex }` stand der Wiederholen-Knopf sonst dauerhaft
   sichtbar in jeder Übungszeile.
+
+  **Dasselbe gilt für `<dialog>`:** Ein geschlossener Dialog ist ebenfalls nur über das
+  Standard-Stylesheet unsichtbar. Wer ihm ein Layout gibt, muss auf `[open]` einschränken —
+  `#waehlen-dialog[open] { display: flex }` —, sonst steht der Dialog dauerhaft offen in
+  der Seite.
 - **Mobile-first.** Die Handy-Ansicht ist der Hauptfall, nicht der Sonderfall.
 - **Fehler nie stillschweigend verschlucken:** Schlägt ein Speichern fehl, bleibt das Häkchen
   sichtbar unbestätigt und ein Wiederholen-Knopf erscheint.
@@ -418,6 +425,51 @@ einmal zugeschlagen hat.
     Fremdes. Die `user_id` kommt in jeder Abfrage aus der Sitzung, nie aus einem Parameter;
     es gibt bewusst keine Benutzerauswahl. Wer das ändert, öffnet fremde Trainingsdaten.
 
+16. **Das Trainingsgerät ist Anzeige und Filter — nicht Teil der Tauschlogik** (§6.3, §7.5).
+    `exercises.equipment` trägt einen Schlüssel aus der Codeliste `GERAETE` in
+    `lib/geraete.php`. Naheliegend und falsch wäre, den Tausch darauf einzuschränken: Der
+    häufigste Grund zu tauschen ist eine *besetzte Maschine*, und ein Filter auf dasselbe
+    Gerät verböte genau den Ausweg, den man in dem Moment sucht. `tausch_vorschlaege()`
+    liefert das Feld deshalb nur mit.
+
+    Der Gerätefilter **im** Tauschdialog ist davon unberührt: Er arbeitet auf der bereits
+    abgerufenen Antwort, rein im Browser, und bietet nur an, was darin vorkommt. Kein
+    zweiter Serverabruf — man steht damit im Studio, wo das Netz schwach ist, und die Liste
+    liegt vollständig vor. Beide Dialoge — Training und Planverwaltung — teilen sich dafür
+    `geraetFilterFuellen()` und `geraetGefiltert()` aus `assets/app.js`, aus demselben
+    Grund wie bei `vorschlagMarkup()`: zweimal gepflegt wären sie irgendwann verschieden.
+
+    **Die zwei Filter der Übungsauswahl (§6.4) schränken sich gegenseitig ein, und jede
+    Facette wird ohne ihren EIGENEN Filter gerechnet** (`auswahl_facetten()` in
+    `api/plans.php`). Beide Filter auf beide Listen anzuwenden ist der naheliegende Fehler:
+    Dann bliebe nach der Wahl von „Kurzhantel" nur noch „Kurzhantel" im Gerätefeld stehen,
+    und die Einschränkung wäre eine Sackgasse. Zur Gruppen-Facette gehören außerdem die
+    **Elterngruppen** der Treffer — eine Hauptgruppe schließt ihre Untergruppen ein und
+    hätte also Treffer, fiele aber sonst aus der Liste.
+
+    **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
+    Umbenennung ist deshalb eine Textänderung ohne Migration — so wurde `kabel` in `1.0.16`
+    von „Kabel" zu „Kabelzug". Wer den *Schlüssel* ändert, braucht dagegen ein `UPDATE`.
+
+    **Eine Codeliste, keine Tabelle, und kein `CHECK`.** Die Menge ist klein, geschlossen
+    und hängt nicht am Datenbestand — eine Tabelle bräuchte Verwaltungsseite, API und
+    Löschschutz. Ein `CHECK`-Constraint wiederum ließe sich in SQLite nur über einen
+    Tabellen-Neuaufbau ändern; ein achter Gerätetyp soll eine Zeile PHP kosten. Geprüft
+    wird in `api/exercises.php` gegen `GERAETE`.
+
+    **Das Feld ist auch beim Bearbeiten Pflicht.** Das ist kein Versehen, sondern der
+    Mechanismus, über den die Übungen aus der Zeit vor `1.0.15` ihren Wert bekommen: Die
+    Migration setzt nichts, die Liste mahnt „Gerät fehlt", der Filter `GERAET_LEER` findet
+    genau diese Zeilen. Ein Vorgabewert wäre bequemer und für die meisten falsch gewesen.
+
+    **Symbol und Beschriftung haben genau eine Quelle:** `lib/view_geraet_symbole.php`,
+    eingebunden aus `lib/view_header.php`. Es legt die `<symbol>`-Definitionen und die
+    Beschriftungen als JSON ins Dokument; `geraet_abzeichen()` (PHP) und `geraetAbzeichen()`
+    (`assets/app.js`) referenzieren beides nur. Das ist nötig, weil die Abzeichen an zwei
+    Stellen entstehen — server-gerendert in den Listen und clientseitig in
+    `vorschlagMarkup()`. **Wer einen Wert in `GERAETE` ergänzt, ergänzt dort das passende
+    `<symbol>`** — sonst bleibt das Abzeichen leer, und zwar ohne Fehlermeldung.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -433,8 +485,11 @@ bash deploy/paket_bauen.sh    # Positivliste packen, lintet vorher
   `deploy/stack.yml`, `deploy/env-vorlage.txt` und `deploy/paket_bauen.sh`). Portainer sieht
   den Quelltext nicht: erst Image aus einem hochgeladenen Tarball bauen, dann Stack **ohne**
   `build:` und mit fester Versionsnummer statt `:latest`.
-- **Immer eine neue Versionsnummer**, nie einen Tag erneut bauen — sonst tragen zwei
-  verschiedene Stände denselben Namen.
+- **Immer korrekt zur nächsten Versionsnummer weiterzählen.** Eine Nummer steht für genau
+  einen Stand — weder das Paket noch das Image werden unter einer schon vergebenen Nummer
+  ein zweites Mal gebaut, sonst trügen zwei verschiedene Stände denselben Namen. Wie viele
+  Nummern an einem Kalendertag anfallen, spielt keine Rolle: Mal sind es fünf, mal
+  wochenlang keine.
 - **„Re-pull image" beim Stack-Update ausgeschaltet lassen.** Das Image existiert nur lokal
   auf dem LXC; ein Pull-Versuch scheitert mit `manifest unknown`.
 - **Zwei Volumes zwingend:** `/var/www/html/data` und `/var/www/html/uploads`. **Named

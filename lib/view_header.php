@@ -65,6 +65,11 @@ function nav_item(
 </head>
 <body>
 
+<?php // Symbolvorrat und Beschriftungen der Trainingsgeraete. Steht hier und
+      // nicht je Seite, weil ihn drei Seiten brauchen und ein <use href="#...">
+      // nur innerhalb desselben Dokuments wirkt. ?>
+<?php require __DIR__ . '/view_geraet_symbole.php'; ?>
+
 <?php if ($showNav): ?>
 <header class="kopf">
     <?php // Der Benutzername steht in der Marke ganz links, nicht zwischen

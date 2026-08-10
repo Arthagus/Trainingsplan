@@ -313,13 +313,34 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   zurücksetzen, dann neu setzen — beides in einer Transaktion.
 
 **exercises** — Übungen
-- `id`, `name_de`, `name_en`, `description`, `focus` (text, nullable), `image_path`,
-  `archived` (bool, Default 0), `archived_at` (datetime, nullable), `created_at`
+- `id`, `name_de`, `name_en`, `description`, `focus` (text, nullable), `equipment`
+  (text, nullable), `image_path`, `archived` (bool, Default 0), `archived_at` (datetime,
+  nullable), `created_at`
 - **`focus`** ist der Schwerpunkt *innerhalb* der Primärgruppe — „oben" bei Brust, „stehend"
   bei Waden. Reine Anzeige-Information: Die Tauschlogik (§7.5) zieht ausschließlich die
   Primärgruppe heran und ignoriert dieses Feld. Genau deshalb ist es ein Textfeld und keine
   weitere Muskelgruppe — sonst zersplitterten die Tauschklassen so weit, dass keine Übung
   mehr eine Alternative hätte.
+- **`equipment`** ist das Trainingsgerät — das *Womit* neben dem *Was* (Muskelgruppen) und
+  dem *Wie* (`focus`). Es trägt einen Schlüssel aus einer **festen Codeliste** in
+  `lib/geraete.php`: `maschine`, `multipresse`, `kabel` (Kabelzug), `langhantel`,
+  `kurzhantel`, `kettlebell`, `koerper` (Körpergewicht). Der Schlüssel steht in der
+  Datenbank, die Beschriftung nur im Code — eine Umbenennung ist deshalb eine
+  Textänderung und keine Migration. Keine eigene Tabelle — die Menge ist klein und
+  geschlossen —, und bewusst **kein `CHECK`-Constraint**, weil SQLite es nur über einen
+  Tabellen-Neuaufbau ändern könnte; geprüft wird in `api/exercises.php`.
+
+  In der Oberfläche ist das Feld **Pflicht**, auch beim Bearbeiten. Die Spalte lässt
+  trotzdem `NULL` zu: Übungen aus der Zeit vor diesem Feld tragen keinen Wert und werden in
+  der Liste als „Gerät fehlt" angemahnt, statt mit einem geratenen Vorgabewert belegt zu
+  werden.
+
+  Wie `focus` ist es **Anzeige und Filter, kein Kriterium der Tauschlogik** (§7.5): Der
+  häufigste Grund zu tauschen ist ein besetztes Gerät, und eine Einschränkung auf dasselbe
+  Gerät verböte genau den gesuchten Ausweg.
+
+  Nicht als eigener Typ vorgesehen, weil es in `focus` gehört: SZ-Stange und Trap-Bar sind
+  Langhantel, Klimmzugstange und Dip-Barren sind Körpergewicht.
 - Die Muskelgruppen hängen **nicht** als Fremdschlüssel an der Übung, sondern an der
   Zuordnungstabelle `exercise_muscle_groups` (n:m, siehe unten).
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
@@ -479,7 +500,7 @@ Nur für Benutzer mit `is_admin`.
 
 **6.3 Übungsverwaltung**
 - CRUD für Übungen mit Feldern: Name (deutsch + englisch), Muskelgruppen (siehe unten),
-  Beschreibung, Bild.
+  Trainingsgerät, Schwerpunkt, Beschreibung, Bild.
 - **Muskelgruppen-Auswahl per Checkboxen, mehrfach möglich.** Die Maske zeigt alle in §6.2
   definierten Gruppen als Checkbox-Liste in deren `sort_order`. Kein Dropdown — bei
   Mehrfachauswahl ist eine Checkbox-Liste die passende Bedienform, und alle verfügbaren
@@ -507,12 +528,27 @@ Nur für Benutzer mit `is_admin`.
     Bizeps sekundär.
   - Neue Gruppen lassen sich hier **nicht** anlegen; dafür gibt es §6.2. Ein Link dorthin
     steht neben der Liste.
+- **Trainingsgerät (Pflicht):** ein Auswahlfeld mit den sieben Werten aus §4 — Maschine,
+  Multipresse, Kabel, Langhantel, Kurzhantel, Kettlebell, Körpergewicht. Kein Freitext, damit
+  der Filter darauf verlässlich ist; kein Checkbox-Fächer wie bei den Muskelgruppen, weil es
+  genau einen Wert aus sieben gibt. Angezeigt wird es als **Abzeichen mit Symbol und Text**
+  — überall dort, wo eine Übung erscheint: Übungsliste, Planverwaltung, Handy-Ansicht,
+  Tauschvorschläge und Übungsauswahl. Symbol *und* Text, weil ein Piktogramm allein
+  verlangte, dass man sieben Zeichen auswendig kennt.
+
+  Das Feld ist auch beim **Bearbeiten** Pflicht. Ein fehlender Wert kann dadurch nicht neu
+  entstehen; wo doch einer fehlt — etwa nach dem Einspielen einer alten Sicherung —, zeigt
+  die Zeile ein „Gerät fehlt"-Abzeichen.
 - **Schwerpunkt (optional):** ein kurzes Textfeld für den Teilbereich innerhalb der
   Primärgruppe („oben", „mitte/unten", „stehend"). Wird als Abzeichen neben der Primärgruppe
   angezeigt — in der Übungsliste, in der Handy-Ansicht und in den Tauschvorschlägen. Bewusst
   optisch von den Muskelgruppen unterschieden, weil er **keine** Tauschklasse ist.
 - Die Übungsliste zeigt je Übung die Primärgruppe hervorgehoben und die weiteren Gruppen
-  dahinter, und lässt sich nach Muskelgruppe filtern (trifft Primär- **und** Sekundärgruppen).
+  dahinter, und lässt sich nach **Muskelgruppe und Trainingsgerät** filtern — einzeln und
+  **kombiniert**, sodass „alle Kurzhantel-Übungen für den Bizeps" eine Abfrage ist. Der
+  Gruppenfilter trifft Primär- **und** Sekundärgruppen; eine Hauptgruppe schließt ihre
+  Untergruppen ein. Beide Filter bleiben beim Umschalten zwischen Aktiv/Archiviert/Alle
+  erhalten und stehen mit den drei Zustandsknöpfen in **einer** Zeile.
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
 - **Archivieren statt Löschen:** Übungen werden nicht hart gelöscht, sondern mit
   `archived = 1` archiviert. Archivierte Übungen erscheinen nicht mehr in Dropdowns und
@@ -551,6 +587,30 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   die Rotationsreihenfolge fest (§7.6). Push → Pull → Legs muss sich deshalb sortieren
   lassen, mit denselben Mitteln wie die Übungen innerhalb eines Plans.
 - Übungen zu einem Plan hinzufügen/entfernen und **in Reihenfolge sortieren**.
+- **Hinzugefügt wird über eine überlagerte Auswahl**, nicht über ein Dropdown mit allen
+  aktiven Übungen: Ein Knopf *Übung hinzufügen* öffnet einen Dialog, der sich nach
+  **Muskelgruppe und Trainingsgerät** filtern lässt — einzeln oder kombiniert, mit denselben
+  Regeln wie der Filter in §6.3. Ein ungefiltertes Auswahlfeld ist am Handy unbedienbar,
+  sobald der Übungsbestand dreistellig wird, und es trug den ganzen Bestand je Plan im HTML.
+  - **Die beiden Auswahlfelder schränken sich gegenseitig ein.** Nach der Wahl einer
+    Muskelgruppe stehen unter *Trainingsgerät* nur noch die Geräte, für die es zu dieser
+    Gruppe auch eine Übung gibt — und umgekehrt. Ein Filterwert, der zuverlässig eine leere
+    Liste erzeugt, ist schlechter als kein Filterwert.
+    - Maßgeblich: **Jede der beiden Listen wird ohne ihren eigenen Filter berechnet**, nur
+      mit dem des anderen Feldes. Sonst bliebe nach der Wahl von „Kurzhantel" nur noch
+      „Kurzhantel" im Gerätefeld übrig, und man käme aus der Einschränkung nicht mehr
+      heraus, ohne zuerst die Muskelgruppe zurückzusetzen.
+    - Eine **Hauptgruppe bleibt wählbar, sobald eine ihrer Untergruppen passt** — sie
+      schließt ihre Untergruppen ein und hätte also Treffer.
+    - Wird eine Wahl durch die andere ungültig (erst *Kurzhantel*, dann eine Muskelgruppe
+      ohne Kurzhantelübung), springt das betroffene Feld auf *alle* zurück und die Liste
+      wird neu geholt — statt einer garantiert leeren Anzeige.
+    - Archivierte Übungen zählen dabei nicht mit: Sie sind als Auswahl ohnehin gesperrt.
+  - Ein Treffer wird **wie ein Tauschvorschlag** dargestellt (Bild, Name, Muskelgruppen,
+    Trainingsgerät, Schwerpunkt) — es ist dieselbe Information, nur mit einem anderen Knopf.
+  - Übungen, die **bereits im Plan stehen**, bleiben sichtbar und sind lediglich gesperrt.
+    Herausgefiltert wüsste man nicht, ob die gesuchte Übung fehlt oder längst dabei ist.
+  - Archivierte Übungen erscheinen nicht (§6.3).
 - **Sperre bei offener Einheit:** Hat der betroffene Benutzer eine offene Einheit, ist die
   Planbearbeitung blockiert (Hinweis anzeigen). Sonst würde sich `n` in der laufenden
   Fortschrittsanzeige „x/n" mitten im Training verschieben.
@@ -699,7 +759,19 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Umgekehrt landen Übungen mit passender Primärgruppe zuverlässig in der Liste, egal wie
   viele Sekundärgruppen sie mitbringen.
 - Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
-  erkennbar ist, was man sich zusätzlich einhandelt.
+  erkennbar ist, was man sich zusätzlich einhandelt — dazu das **Trainingsgerät**, das an
+  dieser Stelle die entscheidende Angabe ist: Man tauscht meist, *weil* ein Gerät besetzt ist.
+- **Die Vorschläge lassen sich nach Gerät filtern** — im Training wie in der Planverwaltung,
+  beide Tauschdialoge verhalten sich gleich. Der Filter wirkt ausschließlich **innerhalb**
+  der bereits abgerufenen Liste und läuft rein im Browser; die Frage, *was* überhaupt als
+  Ersatz taugt, beantwortet weiterhin allein die Hauptgruppe (oben). Zwei Gründe für den
+  Verzicht auf einen zweiten Serverabruf: Man steht damit im Studio vor einem belegten
+  Gerät, wo das Netz schwach ist, und die Antwort ist ohnehin vollständig da.
+  - Zur Auswahl stehen nur die Geräte, die in der Liste **tatsächlich vorkommen**. Ein
+    Eintrag, der zuverlässig eine leere Liste erzeugt, ist schlechter als kein Eintrag.
+  - Bleibt nur ein Gerät übrig, entfällt der Filter ganz.
+  - Beim Öffnen für eine andere Übung steht er wieder auf *alle* — sonst zeigte der Dialog
+    eine eingeschränkte und scheinbar unvollständige Liste.
 - **Übungen, die in diesem Plan ohnehin anstehen, erscheinen nicht als Vorschlag.** Sie sind
   kein Ersatz — man macht sie an diesem Tag sowieso. Maßgeblich ist die *angezeigte* Übung je
   Position: Wurde eine Position bereits getauscht, ist die verdrängte Original-Übung heute
@@ -717,6 +789,20 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
     **Existiert noch keine offene Einheit, startet dieser Tausch die Einheit** (siehe §7.6).
   - **Dauerhaft (neue Default-Übung):** Der `plan_exercises`-Eintrag wird geändert
     (`exercise_id` = Ersatzübung). Ab sofort fester Bestandteil des Plans.
+
+    **Dieser Weg verlangt eine Rückfrage**, die beide Übungsnamen nennt und sagt, dass die
+    Änderung für alle künftigen Trainings gilt und protokollierte Einheiten unberührt
+    bleiben. Die zwei Knöpfe stehen im Studio nebeneinander auf einem kleinen Bildschirm
+    und unterscheiden sich in der Tragweite erheblich; ein Fehlgriff fiele erst Wochen
+    später auf, und der Weg zurück führte über die Planverwaltung.
+
+    **„Nur diese Einheit" fragt bewusst nicht.** Der Tausch gilt für ein Training, ist
+    durch einen zweiten Tausch sofort korrigierbar — und eine Rückfrage bei jedem
+    Handgriff gewöhnt man sich an wegzuklicken. Dann greift sie auch dort nicht mehr, wo
+    sie zählt.
+
+    In der **Planverwaltung** gibt es keine Rückfrage: Dort ist die dauerhafte Änderung des
+    Plans der erklärte Zweck der Seite, nicht die überraschende Nebenwirkung.
 
 - **Bereits abgehakte Positionen lassen sich gar nicht tauschen** — weder dauerhaft noch für
   diese Einheit. Der Tausch-Button ist dann deaktiviert, mit Begründung; wer doch tauschen

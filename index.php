@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/training.php';
+require_once __DIR__ . '/lib/geraete.php';
 
 bootstrap_session();
 require_login();
@@ -214,11 +215,16 @@ require __DIR__ . '/lib/view_header.php';
                                     </span>
                                 <?php endforeach; ?>
                             </p>
-                            <?php if (!empty($z['focus'])): ?>
-                                <p class="schwerpunkt-zeile">
+                            <?php // Das Trainingsgeraet steht hier bewusst mit im
+                                  // Studio: Es sagt, wohin man gehen muss, und ist
+                                  // damit die Information, die man beim Blick aufs
+                                  // Handy als naechste braucht. ?>
+                            <p class="schwerpunkt-zeile">
+                                <?= geraet_abzeichen($z['equipment'] ?? null) ?>
+                                <?php if (!empty($z['focus'])): ?>
                                     <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
-                                </p>
-                            <?php endif; ?>
+                                <?php endif; ?>
+                            </p>
                         </div>
                     </div>
 
@@ -294,6 +300,17 @@ require __DIR__ . '/lib/view_header.php';
     <p class="matt">
         Vorgeschlagen werden Übungen derselben <strong>primären</strong> Hauptgruppe.
         Ganz oben stehen die mit genau derselben Untergruppe.
+    </p>
+    <?php // Der Gerätefilter arbeitet rein im Browser: Die Vorschläge liegen nach
+          // dem ersten Abruf schon vollständig vor, und im Studio ist das Netz
+          // genau die Stelle, an der man nicht auf einen zweiten Abruf warten will.
+          // Die Auswahl füllt index.js aus den tatsächlich vorhandenen Vorschlägen,
+          // deshalb steht hier nur die erste Option. ?>
+    <p class="tausch-filter" hidden>
+        <label for="tausch-geraet" class="nur-lesbar">Trainingsgerät</label>
+        <select id="tausch-geraet">
+            <option value="">alle Trainingsgeräte</option>
+        </select>
     </p>
     <div id="tausch-liste"></div>
     <p id="tausch-fehler" class="feld-fehler" role="alert" hidden></p>

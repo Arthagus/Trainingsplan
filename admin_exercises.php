@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
+require_once __DIR__ . '/lib/geraete.php';
 
 bootstrap_session();
 require_login();
@@ -22,6 +23,14 @@ $gruppeFilter = to_int_or_null($_GET['group'] ?? null);
 
 if (!in_array($filter, ['aktiv', 'archiviert', 'alle'], true)) {
     $filter = 'aktiv';
+}
+
+// Neben "egal" und "dieses Geraet" kennt der Filter GERAET_LEER (lib/geraete.php)
+// fuer die Uebungen ohne Angabe -- der Weg zu den Bestandsuebungen, die aus der
+// Zeit vor diesem Feld stammen.
+$geraetFilter = to_str($_GET['equipment'] ?? '');
+if ($geraetFilter !== '' && $geraetFilter !== GERAET_LEER && !geraet_gueltig($geraetFilter)) {
+    $geraetFilter = '';
 }
 
 $alleGruppen = db()->query(
@@ -59,12 +68,24 @@ if ($gruppeFilter !== null) {
     $werte[] = $gruppeFilter;
     $werte[] = $gruppeFilter;
 }
+
+// Der zweite Filter kommt in dieselbe Sammlung und wirkt dadurch UND-verknuepft
+// mit dem ersten -- "alle Kurzhantel-Uebungen fuer den Bizeps" braucht keinen
+// eigenen Weg, sondern faellt aus der Kombination beider Bedingungen heraus.
+if ($geraetFilter === GERAET_LEER) {
+    // Leerstring mitpruefen: ueber die Oberflaeche entsteht er nicht, aber ein
+    // eingespielter Bestand koennte ihn tragen, und "fast leer" ist leer.
+    $wo[] = "(e.equipment IS NULL OR e.equipment = '')";
+} elseif ($geraetFilter !== '') {
+    $wo[] = 'e.equipment = ?';
+    $werte[] = $geraetFilter;
+}
+
 $woSql = $wo === [] ? '' : ' WHERE ' . implode(' AND ', $wo);
 
 $stmt = db()->prepare(
     'SELECT SUM(CASE WHEN e.archived = 0 THEN 1 ELSE 0 END) AS aktiv,
-            SUM(CASE WHEN e.archived = 1 THEN 1 ELSE 0 END) AS archiviert,
-            COUNT(*) AS alle
+            SUM(CASE WHEN e.archived = 1 THEN 1 ELSE 0 END) AS archiviert
        FROM exercises e' . $woSql
 );
 $stmt->execute($werte);
@@ -72,7 +93,6 @@ $anzahl = $stmt->fetch();
 $anzahl = [
     'aktiv'      => (int)($anzahl['aktiv'] ?? 0),
     'archiviert' => (int)($anzahl['archiviert'] ?? 0),
-    'alle'       => (int)($anzahl['alle'] ?? 0),
 ];
 
 // --- Liste ----------------------------------------------------------------
@@ -102,8 +122,8 @@ if ($gruppeFilter !== null) {
 }
 
 $stmt = db()->prepare(
-    'SELECT e.id, e.name_de, e.name_en, e.description, e.focus, e.image_path,
-            e.archived, e.archived_at, e.created_at,
+    'SELECT e.id, e.name_de, e.name_en, e.description, e.focus, e.equipment,
+            e.image_path, e.archived, e.archived_at, e.created_at,
             (SELECT COUNT(*) FROM workout_log wl WHERE wl.exercise_id = e.id) AS log_anzahl
        FROM exercises e' . $listeWoSql . '
       ORDER BY ' . $sortSql
@@ -231,11 +251,49 @@ function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $prima
     <?php
 }
 
+/**
+ * Die Auswahl des Trainingsgeraets -- ein Pflichtfeld mit genau einem Wert.
+ *
+ * Anders als bei den Muskelgruppen ein Dropdown und kein Faecher aus Radios:
+ * Dort gibt es eine Mehrfachauswahl mit zwei Rollen und einer Hierarchie, hier
+ * genau einen Wert aus sieben. Die leere erste Option ist der Grund, warum das
+ * Feld ueberhaupt required sein kann.
+ *
+ * @param string  $prefix   Macht die Feld-ID je Formular eindeutig
+ * @param ?string $gewaehlt Der bisherige Wert (null bei einer neuen Uebung)
+ */
+function geraet_auswahl(string $prefix, ?string $gewaehlt): void {
+    $gewaehlt = $gewaehlt === null ? '' : trim($gewaehlt);
+    ?>
+    <label for="<?= h($prefix) ?>_equipment">Trainingsgerät</label>
+    <select id="<?= h($prefix) ?>_equipment" name="equipment" required>
+        <option value="">— bitte wählen —</option>
+        <?php foreach (GERAETE as $code => $label): ?>
+            <option value="<?= h($code) ?>" <?= $gewaehlt === $code ? 'selected' : '' ?>>
+                <?= h($label) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <p class="matt">
+        Womit die Übung ausgeführt wird. Der Übungstausch richtet sich
+        <em>nicht</em> danach — ist eine Maschine besetzt, will man gerade auf ein
+        anderes Gerät ausweichen können.
+    </p>
+    <p class="feld-fehler" data-fehler-fuer="equipment" hidden></p>
+    <?php
+}
+
 /** Baut eine Filter-URL mit den jeweils anderen Parametern. */
-function filter_url(string $filter, ?int $gruppe): string {
+function filter_url(string $filter, ?int $gruppe, string $geraet): string {
     $p = ['filter' => $filter];
     if ($gruppe !== null) {
         $p['group'] = $gruppe;
+    }
+    // Beide Nebenfilter muessen mitreisen: Wer bei "Kurzhantel" auf
+    // "Archiviert" umschaltet, will die archivierten Kurzhantel-Uebungen sehen
+    // und nicht wieder von vorn anfangen.
+    if ($geraet !== '') {
+        $p['equipment'] = $geraet;
     }
     return '?' . http_build_query($p);
 }
@@ -274,6 +332,8 @@ require __DIR__ . '/lib/view_header.php';
 
         <?php gruppen_auswahl($hauptGruppen, $unterGruppen, [], 0, 'neu'); ?>
 
+        <?php geraet_auswahl('neu', null); ?>
+
         <label for="neu_focus">Ausführung (optional)</label>
         <input type="text" id="neu_focus" name="focus" maxlength="60"
                placeholder="z. B. vertikal, stehend, in gedehnter Position">
@@ -297,12 +357,16 @@ require __DIR__ . '/lib/view_header.php';
 
 <nav class="filterleiste" aria-label="Filter">
     <span class="filter-gruppe">
-        <a href="<?= h(filter_url('aktiv', $gruppeFilter)) ?>"
+        <a href="<?= h(filter_url('aktiv', $gruppeFilter, $geraetFilter)) ?>"
            class="<?= $filter === 'aktiv' ? 'aktiv' : '' ?>">Aktiv (<?= $anzahl['aktiv'] ?>)</a>
-        <a href="<?= h(filter_url('archiviert', $gruppeFilter)) ?>"
+        <a href="<?= h(filter_url('archiviert', $gruppeFilter, $geraetFilter)) ?>"
            class="<?= $filter === 'archiviert' ? 'aktiv' : '' ?>">Archiviert (<?= $anzahl['archiviert'] ?>)</a>
-        <a href="<?= h(filter_url('alle', $gruppeFilter)) ?>"
-           class="<?= $filter === 'alle' ? 'aktiv' : '' ?>">Alle (<?= $anzahl['alle'] ?>)</a>
+        <?php // "Alle" steht bewusst nicht mehr hier: Zusammen mit den beiden
+              // Auswahlfeldern passte die Leiste sonst nicht in eine Zeile, und
+              // eine Ansicht, die Aktives und Archiviertes vermischt, wird
+              // ohnehin nicht gebraucht. Serverseitig bleibt der Wert gueltig
+              // (siehe Whitelist oben), ?filter=alle greift also weiterhin --
+              // dieselbe Linie wie bei equipment=_leer. ?>
     </span>
 
     <form method="get" class="filter-form">
@@ -326,6 +390,26 @@ require __DIR__ . '/lib/view_header.php';
                 <?php endforeach; ?>
             <?php endforeach; ?>
         </select>
+
+        <?php // Zweiter Filter im selben Formular, damit beide Werte gemeinsam
+              // abgeschickt werden: Nur so bleibt die Kombination erhalten, wenn
+              // man den einen aendert und den anderen stehen laesst. ?>
+        <label for="equipment" class="nur-lesbar">Trainingsgerät</label>
+        <select id="equipment" name="equipment" onchange="this.form.submit()">
+            <option value="">alle Trainingsgeräte</option>
+            <?php foreach (GERAETE as $code => $label): ?>
+                <option value="<?= h($code) ?>" <?= $geraetFilter === $code ? 'selected' : '' ?>>
+                    <?= h($label) ?>
+                </option>
+            <?php endforeach; ?>
+            <?php // "ohne Gerät" steht bewusst NICHT mehr in der Liste: Seit die
+                  // Bestandsübungen nachgepflegt sind, kann der Eintrag keine Treffer
+                  // mehr bekommen — das Feld ist beim Anlegen UND beim Bearbeiten
+                  // Pflicht. Serverseitig bleibt GERAET_LEER gültig (siehe oben), damit
+                  // ?equipment=_leer von Hand weiterhin funktioniert, falls eine
+                  // eingespielte alte Sicherung doch einmal Lücken mitbringt. Sichtbar
+                  // wären sie ohnehin: als "Gerät fehlt" in der Zeile. ?>
+        </select>
         <noscript><button type="submit">Filtern</button></noscript>
     </form>
 </nav>
@@ -335,6 +419,12 @@ require __DIR__ . '/lib/view_header.php';
         <p>
             <?php if ($filter === 'archiviert'): ?>
                 Keine archivierte Übung.
+            <?php elseif ($geraetFilter === GERAET_LEER): ?>
+                Jede Übung hat ein Trainingsgerät — nichts nachzupflegen.
+            <?php elseif ($gruppeFilter !== null && $geraetFilter !== ''): ?>
+                Keine Übung mit dieser Muskelgruppe an diesem Trainingsgerät.
+            <?php elseif ($geraetFilter !== ''): ?>
+                Keine Übung mit diesem Trainingsgerät.
             <?php elseif ($gruppeFilter !== null): ?>
                 Keine Übung mit dieser Muskelgruppe.
             <?php else: ?>
@@ -362,10 +452,10 @@ require __DIR__ . '/lib/view_header.php';
                 }
             }
             ?>
-            <?php // Das Bild links ueber BEIDE Zeilen -- Text oben, Knoepfe darunter.
-                  // Dadurch beginnen die Knoepfe auf derselben Hoehe wie der Text und
-                  // stehen nicht mehr unter dem Bild. Gleiche Anordnung wie in der
-                  // Planverwaltung (.position-raster). ?>
+            <?php // Oben Bild und Text nebeneinander, darunter die Knoepfe ueber die
+                  // ganze Breite -- gleicher Aufbau wie im Training und in der
+                  // Planverwaltung (.position-raster). Laege die Knopfzeile neben dem
+                  // Bild, fehlten ihr am Handy dessen 80px und sie braeche um. ?>
             <li class="karte uebung <?= $archiviert ? 'ist-archiviert' : '' ?>" data-id="<?= $id ?>">
                 <div class="uebung-raster">
                     <?php if (!empty($u['image_path'])): ?>
@@ -413,11 +503,15 @@ require __DIR__ . '/lib/view_header.php';
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </p>
-                        <?php if (!empty($u['focus'])): ?>
-                            <p class="schwerpunkt-zeile">
+                        <?php // Das Geraet steht immer, auch wenn es fehlt: Ein leerer
+                              // Platz waere genau die Sorte Luecke, die niemand
+                              // nachpflegt. Die Ausfuehrung daneben, sofern gesetzt. ?>
+                        <p class="schwerpunkt-zeile">
+                            <?= geraet_abzeichen($u['equipment'] ?? null) ?>
+                            <?php if (!empty($u['focus'])): ?>
                                 <span class="schwerpunkt"><?= h((string)$u['focus']) ?></span>
-                            </p>
-                        <?php endif; ?>
+                            <?php endif; ?>
+                        </p>
 
                         <?php if ($archiviert): ?>
                             <p class="matt">
@@ -441,9 +535,10 @@ require __DIR__ . '/lib/view_header.php';
                         <?php endif; ?>
                     </div>
 
-                    <?php // Bearbeiten links, die gefaehrliche Aktion rechts aussen --
-                          // dieselbe Anordnung wie bei den Positionen in der
-                          // Planverwaltung. Rot ist sie, weil sie die Uebung aus allen
+                    <?php // Bearbeiten links, die gefaehrliche Aktion rechts aussen, die
+                          // Zeile ueber die volle Kartenbreite -- dieselbe Anordnung wie
+                          // bei den Positionen in der Planverwaltung und wie die
+                          // Aktionszeile im Training. Rot ist sie, weil sie die Uebung aus allen
                           // Auswahllisten nimmt; rueckgaengig zu machen ist sie nur ueber
                           // den Filter "Archiviert". ?>
                     <div class="uebung-knoepfe">
@@ -486,6 +581,10 @@ require __DIR__ . '/lib/view_header.php';
                            value="<?= h((string)($u['name_en'] ?? '')) ?>">
 
                     <?php gruppen_auswahl($hauptGruppen, $unterGruppen, $gewaehlteIds, $primaerId, 'e' . $id); ?>
+
+                    <?php // Auch hier Pflicht -- und genau das ist der Weg, auf dem die
+                          // Uebungen aus der Zeit vor diesem Feld ihr Geraet bekommen. ?>
+                    <?php geraet_auswahl('e' . $id, $u['equipment'] ?? null); ?>
 
                     <label for="e<?= $id ?>_focus">Ausführung (optional)</label>
                     <input type="text" id="e<?= $id ?>_focus" name="focus" maxlength="60"

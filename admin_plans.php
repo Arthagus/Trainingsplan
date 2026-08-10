@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/training.php';
+require_once __DIR__ . '/lib/geraete.php';
 
 bootstrap_session();
 require_login();
@@ -45,7 +46,7 @@ $positionen        = [];
 $gruppenZuPosition = [];
 $offeneEinheit     = null;
 $vorschlag         = null;
-$freieUebungen     = [];
+$aktiveUebungen    = 0;
 
 if ($aktuellerBenutzer !== null) {
     $plaene        = plaene_von($gewaehlt);
@@ -62,7 +63,8 @@ if ($aktuellerBenutzer !== null) {
 
         $stmt = db()->prepare(
             "SELECT pe.id, pe.plan_id, pe.sort_order, e.id AS exercise_id,
-                    e.name_de, e.name_en, e.focus, e.archived, e.image_path, e.description
+                    e.name_de, e.name_en, e.focus, e.equipment, e.archived,
+                    e.image_path, e.description
                FROM plan_exercises pe
                JOIN exercises e ON e.id = pe.exercise_id
               WHERE pe.plan_id IN ($platzhalter)
@@ -89,17 +91,30 @@ if ($aktuellerBenutzer !== null) {
         }
     }
 
-    // Nur aktive Uebungen lassen sich in einen Plan aufnehmen (§6.3).
-    $freieUebungen = db()->query(
-        'SELECT e.id, e.name_de,
-                (SELECT mg.name_de
-                   FROM exercise_muscle_groups emg
-                   JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
-                  WHERE emg.exercise_id = e.id AND emg.is_primary = 1) AS primaergruppe
-           FROM exercises e
-          WHERE e.archived = 0
-          ORDER BY e.name_de'
-    )->fetchAll();
+    // Nur aktive Uebungen lassen sich in einen Plan aufnehmen (§6.3). Hier
+    // reicht die ANZAHL: Die Uebungen selbst holt die Auswahl gefiltert ueber
+    // api/plans.php -> exercise_picker nach. Frueher stand hier die vollstaendige
+    // Liste, und sie wurde je Plan erneut in ein Pulldown gerendert.
+    $aktiveUebungen = (int)db()->query(
+        'SELECT COUNT(*) FROM exercises WHERE archived = 0'
+    )->fetchColumn();
+}
+
+// Die Muskelgruppen fuer den Filter der Uebungsauswahl -- zweistufig wie in der
+// Uebungsverwaltung, damit eine Hauptgruppe ihre Untergruppen mit einschliesst.
+$alleGruppen = db()->query(
+    'SELECT id, name_de, parent_id FROM muscle_groups ORDER BY sort_order, name_de'
+)->fetchAll();
+
+$hauptGruppen = array_values(array_filter(
+    $alleGruppen,
+    static fn(array $g): bool => $g['parent_id'] === null
+));
+$unterGruppen = [];
+foreach ($alleGruppen as $g) {
+    if ($g['parent_id'] !== null) {
+        $unterGruppen[(int)$g['parent_id']][] = $g;
+    }
 }
 
 $gesperrt = $offeneEinheit !== null;
@@ -171,7 +186,7 @@ require __DIR__ . '/lib/view_header.php';
     <p id="plan-neu-fehler" class="feld-fehler" role="alert" hidden></p>
 </div>
 
-<?php if ($freieUebungen === [] && $plaene !== []): ?>
+<?php if ($aktiveUebungen === 0 && $plaene !== []): ?>
     <div class="karte hinweis-warnung">
         <strong>Keine aktive Übung vorhanden.</strong>
         <p><a class="knopf" href="<?= h(base_path()) ?>/admin_exercises.php">Zu den Übungen</a></p>
@@ -207,13 +222,15 @@ require __DIR__ . '/lib/view_header.php';
             <?php else: ?>
                 <ol class="positions-liste">
                     <?php foreach ($eintr as $z): ?>
-                        <?php // Zweizeilig: rechts oben der Name, darunter die Knoepfe,
-                              // links das Bild ueber beide Zeilen. Nebeneinander blieb
-                              // fuer den Namen bei vier Knoepfen kaum Platz, und genau
-                              // der ist hier die Hauptinformation.
+                        <?php // Zweizeilig: oben die Nummer, das Bild und der Name, darunter
+                              // die Knoepfe ueber die ganze Breite des <li>. Alles in einer
+                              // Zeile liess dem Namen bei vier Knoepfen kaum Platz, und
+                              // genau der ist hier die Hauptinformation; die Knoepfe neben
+                              // dem Bild wiederum brachen am Handy um.
                               //
-                              // Das <li> traegt sein eigenes Raster: links die Nummer,
-                              // rechts dieses zweizeilige. Die Nummer ist ein
+                              // Das <li> traegt das Raster: obere Zeile links die Nummer,
+                              // rechts daneben .position-raster mit Bild und Text, untere
+                              // Zeile die Knoepfe ueber beide Spalten. Die Nummer ist ein
                               // CSS-Zaehler (.positions-liste im Stylesheet) und nicht
                               // der Listenpunkt des Browsers -- der haengt an einer
                               // Textgrundlinie und stand deshalb am unteren Rand. ?>
@@ -269,51 +286,50 @@ require __DIR__ . '/lib/view_header.php';
                                         </p>
                                     <?php endif; ?>
 
-                                    <?php if (!empty($z['focus'])): ?>
-                                        <p class="schwerpunkt-zeile">
+                                    <p class="schwerpunkt-zeile">
+                                        <?= geraet_abzeichen($z['equipment'] ?? null) ?>
+                                        <?php if (!empty($z['focus'])): ?>
                                             <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
-                                        </p>
-                                    <?php endif; ?>
+                                        <?php endif; ?>
+                                    </p>
                                 </div>
-                                <span class="position-knoepfe">
-                                    <button type="button" class="leise pos-tauschen"
-                                            <?= $gesperrt ? 'disabled' : '' ?>>Tauschen</button>
-                                    <?php // Die Pfeile in die Mitte: gleicher Abstand nach
-                                          // links zum Tauschen und nach rechts zum Entfernen. ?>
-                                    <span class="pos-pfeile">
-                                        <button type="button" class="leise pos-hoch" aria-label="Nach oben"
-                                                <?= $gesperrt ? 'disabled' : '' ?>>↑</button>
-                                        <button type="button" class="leise pos-runter" aria-label="Nach unten"
-                                                <?= $gesperrt ? 'disabled' : '' ?>>↓</button>
-                                    </span>
-                                    <button type="button" class="gefahr pos-entfernen"
-                                            <?= $gesperrt ? 'disabled' : '' ?>>Entfernen</button>
-                                </span>
                             </div>
+
+                            <?php // Die Knopfzeile haengt am <li>, NICHT am Raster darin:
+                                  // Sonst begaenne sie erst hinter der Positionsnummer und
+                                  // stuende sichtbar eingerueckt. So faengt "Tauschen" am
+                                  // linken Rand der Karte an -- wie die Aktionszeile im
+                                  // Training -- und die Zeile ist rund 26px breiter. ?>
+                            <span class="position-knoepfe">
+                                <button type="button" class="leise pos-tauschen"
+                                        <?= $gesperrt ? 'disabled' : '' ?>>Tauschen</button>
+                                <?php // Die Pfeile in die Mitte: gleicher Abstand nach
+                                      // links zum Tauschen und nach rechts zum Entfernen. ?>
+                                <span class="pos-pfeile">
+                                    <button type="button" class="leise pos-hoch" aria-label="Nach oben"
+                                            <?= $gesperrt ? 'disabled' : '' ?>>↑</button>
+                                    <button type="button" class="leise pos-runter" aria-label="Nach unten"
+                                            <?= $gesperrt ? 'disabled' : '' ?>>↓</button>
+                                </span>
+                                <button type="button" class="gefahr pos-entfernen"
+                                        <?= $gesperrt ? 'disabled' : '' ?>>Entfernen</button>
+                            </span>
                         </li>
                     <?php endforeach; ?>
                 </ol>
             <?php endif; ?>
 
-            <?php if ($freieUebungen !== []): ?>
-                <div class="zeile-eingabe">
-                    <label for="add<?= $pid ?>" class="nur-lesbar">Übung hinzufügen</label>
-                    <select id="add<?= $pid ?>" class="uebung-wahl" <?= $gesperrt ? 'disabled' : '' ?>>
-                        <option value="">Übung wählen …</option>
-                        <?php foreach ($freieUebungen as $u): ?>
-                            <option value="<?= (int)$u['id'] ?>">
-                                <?= h((string)$u['name_de']) ?><?php
-                                    if (!empty($u['primaergruppe'])) {
-                                        echo ' — ' . h((string)$u['primaergruppe']);
-                                    }
-                                ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <button type="button" class="uebung-hinzu" <?= $gesperrt ? 'disabled' : '' ?>>
-                        Hinzufügen
+            <?php if ($aktiveUebungen > 0): ?>
+                <?php // Ein Knopf statt eines Pulldowns mit allen aktiven Uebungen:
+                      // Die Auswahl dahinter laesst sich nach Muskelgruppe und
+                      // Trainingsgeraet filtern, was ein <select> nicht kann. Die
+                      // Liste kommt erst beim Oeffnen und dann gefiltert -- ein
+                      // Pulldown je Plan trug bisher den ganzen Bestand im HTML. ?>
+                <p class="zeile-eingabe">
+                    <button type="button" class="uebung-waehlen" <?= $gesperrt ? 'disabled' : '' ?>>
+                        Übung hinzufügen
                     </button>
-                </div>
+                </p>
             <?php endif; ?>
         </li>
     <?php endforeach; ?>
@@ -334,9 +350,64 @@ require __DIR__ . '/lib/view_header.php';
         Der Tausch gilt <strong>dauerhaft</strong> für diesen Plan. Bereits
         protokollierte Einheiten bleiben unverändert.
     </p>
+    <?php // Wie im Training: Der Gerätefilter arbeitet auf der bereits geladenen
+          // Vorschlagsliste, ohne zweiten Abruf. Die Auswahl füllt admin_plans.js
+          // aus den tatsächlich vorhandenen Vorschlägen — deshalb steht hier nur
+          // die erste Option. ?>
+    <p class="tausch-filter" hidden>
+        <label for="tausch-geraet" class="nur-lesbar">Trainingsgerät</label>
+        <select id="tausch-geraet">
+            <option value="">alle Trainingsgeräte</option>
+        </select>
+    </p>
     <div id="tausch-liste"></div>
     <p id="tausch-fehler" class="feld-fehler" role="alert" hidden></p>
     <p><button type="button" id="tausch-schliessen" class="leise">Abbrechen</button></p>
+</dialog>
+
+<?php // Die Uebungsauswahl (§6.4). Inline und kein Partial wie der Bilddialog:
+      // Sie wird nur hier gebraucht, und ein Partial fuer eine Seite ist ein
+      // Umweg ohne Nutzen. Die Treffer rendert vorschlagMarkup() aus
+      // assets/app.js -- dieselbe Darstellung wie beim Tausch. ?>
+<dialog id="waehlen-dialog">
+    <h2 id="waehlen-titel">Übung hinzufügen</h2>
+
+    <?php // Beide Filter wirken gemeinsam, deshalb stehen sie nebeneinander:
+          // "Kurzhantel" UND "Bizeps" ist der eigentliche Zweck der Maske. ?>
+    <div class="waehlen-filter">
+        <span>
+            <label for="waehlen-gruppe" class="nur-lesbar">Muskelgruppe</label>
+            <select id="waehlen-gruppe">
+                <option value="">alle Muskelgruppen</option>
+                <?php foreach ($hauptGruppen as $hg): ?>
+                    <option value="<?= (int)$hg['id'] ?>"><?= h((string)$hg['name_de']) ?></option>
+                    <?php // Kein <optgroup>: Dessen Beschriftung waere nicht waehlbar,
+                          // die Hauptgruppe muss aber als Filter taugen. Deshalb das
+                          // vorangestellte "–" als Einrueckung -- wie in der
+                          // Uebungsverwaltung. ?>
+                    <?php foreach ($unterGruppen[(int)$hg['id']] ?? [] as $ug): ?>
+                        <option value="<?= (int)$ug['id'] ?>">– <?= h((string)$ug['name_de']) ?></option>
+                    <?php endforeach; ?>
+                <?php endforeach; ?>
+            </select>
+        </span>
+        <span>
+            <label for="waehlen-geraet" class="nur-lesbar">Trainingsgerät</label>
+            <select id="waehlen-geraet">
+                <option value="">alle Trainingsgeräte</option>
+                <?php foreach (GERAETE as $code => $label): ?>
+                    <option value="<?= h($code) ?>"><?= h($label) ?></option>
+                <?php endforeach; ?>
+                <?php // Kein "ohne Gerät" — dieselbe Begründung wie in der
+                      // Übungsverwaltung: Das Feld ist Pflicht, der Eintrag träfe
+                      // nichts mehr. ?>
+            </select>
+        </span>
+    </div>
+
+    <div id="waehlen-liste"></div>
+    <p id="waehlen-fehler" class="feld-fehler" role="alert" hidden></p>
+    <p><button type="button" id="waehlen-schliessen" class="leise">Schließen</button></p>
 </dialog>
 
 <?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
