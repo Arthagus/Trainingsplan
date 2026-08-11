@@ -13,11 +13,18 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.4`
+> ## Live läuft `trainingsplan:1.1.5`
 >
 > Ausgerollt am 2026-08-11; die App meldet die Nummer selbst auf der Wartungsseite.
-> **Der Arbeitsstand im Repo ist `1.1.5` und noch nicht gebaut.**
-> Alles darunter ist die Vorgeschichte, neueste zuerst.
+> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
+> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
+
+**Die neue Satz-Kachel sagt: `0 Sätze`.** Der Expertenmodus ist über fünf Nummern hinweg
+gebaut und ausgerollt worden, aber **noch keine einzige Trainingseinheit ist damit
+protokolliert** — die 25 Protokollzeilen stammen sämtlich aus dem Standardmodus. Das ist
+kein Fehler, sondern der Stand: Geprüft ist der Modus gegen den Dev-Server und über ein
+Testkonto auf dem Live-System, im echten Training war er noch nicht. Damit steht die
+eigentliche Bewährungsprobe (§11.19, Gerätehälfte) weiterhin aus.
 
 **`1.1.5`: Die Wartungsseite zählt jetzt auch die Sätze.** Seit `1.1.0` liegt im
 Expertenmodus das eigentliche Trainingsvolumen in `workout_sets` und nicht in
@@ -263,7 +270,7 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
 | Benutzer | `Oliver` (id 1, Admin) · `claude` (id 2, Admin) · `Nele` (id 3) — Namen ab `1.0.8` änderbar. Wer den Expertenmodus eingeschaltet hat, steht in `users.expert_mode` und wird hier nicht mitgeführt: Es ist eine persönliche Einstellung, die sich jederzeit ändert |
 | Pläne | `Oliver`: Push, Pull · `Nele`: Ganzkörper A, Ganzkörper B — je 8 Positionen |
 | Trainingseinheiten | 4, mit 25 Protokollzeilen (Wartungsseite, 2026-08-11) |
-| Sätze (`workout_sets`) | Entsteht mit `1.1.0` leer und füllt sich, sobald jemand im Expertenmodus trainiert. **Die Wartungsseite zählt sie nicht** — dort stehen nur die Protokollzeilen; wer den Bestand wissen will, fragt die Datenbank |
+| Sätze (`workout_sets`) | **0** (Wartungsseite, 2026-08-11) — der Expertenmodus ist ausgerollt, aber noch nicht im echten Training benutzt worden. Seit `1.1.5` zählt die Wartungsseite sie mit |
 | Sicherungen | 2 — **frisch: 2026-08-11 16:13, 1,5 MB mit Bildern**; daneben die alte vom 2026-08-07 (774 KB) |
 
 Zahlen vom 2026-08-11, abgelesen auf der Wartungsseite: 3 Benutzer, 27 Muskelgruppen,
@@ -400,7 +407,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
-| `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(noch nicht gebaut)* |
+| `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(live seit 2026-08-11)* |
 | `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(live seit 2026-08-11)* |
 | `1.1.3` | Beim Weiterspringen nach dem Abhaken landete die nächste Übungskarte **unter der Verbindungsleiste** — sie ist `position: sticky; top: 0` und wird genau in diesem Moment sichtbar, weil die Eingabe in die Warteschlange geht; `scrollIntoView({block:'start'})` setzt das Ziel exakt an den Viewport-Rand und damit darunter. `zurAktivenSpringen()` zieht ihre **gemessene** Höhe ab (`offsetHeight`, 0 wenn ausgeblendet — der Text kann auf schmalen Geräten zweizeilig werden) und lässt 8 px Luft. Nur `index.js` betroffen, deshalb **kein** Cache-Hochzählen: Der Service Worker fasst ausschließlich `/assets/` an *(live seit 2026-08-11)* |
 | `1.1.2` | Feinschliff aus dem zweiten Einsatz, alles zur Bedienung am Gerät. **Farbleitsystem** am linken Kartenrand: grün = hier bist du, blau = erledigt, grau = kommt noch — vorher war Grün „erledigt", aber Grün zieht den Blick, und den soll ziehen, was als Nächstes dran ist. **Aktive Markierung und aufgeklappter Satzblock nur während eines Trainings**; „Training starten" öffnet die erste Übung und scrollt dorthin (Merker in `sessionStorage`, weil die Seite dazwischen neu lädt). **Der Wartezustand strichelt die vorhandene Balkenfarbe**, statt orange zu werden — das sah nach Fehler aus; der Hinweissatz in der Karte entfällt ersatzlos, weil er die Kartenhöhe änderte und die Liste bei jedem Satz springen ließ. **Fokusrahmen im Stepper freigestellt** (3 px Abstand plus `outline-offset: 0`), dazu das Breitenbudget der Satzzeile nachgerechnet und die Staffelung für schmale Geräte zweistufig gemacht. Cache `v17` *(live seit 2026-08-11)* |
