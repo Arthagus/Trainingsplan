@@ -214,6 +214,25 @@ $pdo->exec('PRAGMA busy_timeout = 5000');
   anschließende Zählung stimmt nicht mehr — was wie ein Fehler im CASCADE aussieht, aber
   keiner ist. Genau so ist beim Prüfen von `workout_sets` einmal ein falscher Befund
   entstanden.
+- **Neue Tabellen brauchen an der Sicherung nichts.** `backup_erstellen()` kopiert über
+  `VACUUM INTO` die **ganze** Datei — es gibt keine Tabellenliste, die man beim Erweitern
+  des Schemas vergessen könnte. Nachgemessen für `workout_sets`: angelegt, gesichert,
+  zerstört, eingespielt — Sätze, Leitgewicht und `done` kamen unverändert zurück.
+
+  **Die Liste `$noetig` in `backup_pruefen()` (`lib/backup.php`) ist bewusst unvollständig**
+  — `users, exercises, plans, sessions, workout_log`. Sie beantwortet die Frage „ist das
+  überhaupt eine Trainingsplan-Datenbank", nicht „ist sie aktuell". **Neue Tabellen gehören
+  dort NICHT hinein**: Eine ältere Sicherung kennt sie nicht und würde sonst abgelehnt —
+  ausgerechnet die, die man im Ernstfall braucht. Fehlende Strukturen sind ohnehin kein
+  Problem, siehe unten.
+
+- **Ein Restore repariert das Schema selbst.** `backup_wiederherstellen()` ruft nach dem
+  Einspielen `db()` auf, und damit `init_schema()`: `schema.sql` legt fehlende Tabellen an,
+  `apply_migrations()` fehlende Spalten. Eine Sicherung aus der Zeit vor `1.1.0` — ohne
+  `workout_sets`, ohne `expert_mode`, ohne `done` — ist deshalb **einspielbar**, und die App
+  läuft unmittelbar danach weiter; die Vorgabewerte der Migrationen ordnen den Bestand
+  richtig ein (`done = 1`, alte Zeilen gelten als erledigt). Durchgespielt, nicht gefolgert.
+
 - **Sicherungen über `VACUUM INTO`, nie als Dateikopie** (`lib/backup.php`). Im WAL-Modus ist
   ein `cp` der `.db` ohne `-wal`/`-shm` im besten Fall veraltet, im schlechteren unbrauchbar.
   Gilt auch für Portainers Dateibrowser und Volume-Backup-Werkzeuge.

@@ -16,8 +16,24 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 > ## Live läuft `trainingsplan:1.1.4`
 >
 > Ausgerollt am 2026-08-11; die App meldet die Nummer selbst auf der Wartungsseite.
-> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
-> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
+> **Der Arbeitsstand im Repo ist `1.1.5` und noch nicht gebaut.**
+> Alles darunter ist die Vorgeschichte, neueste zuerst.
+
+**`1.1.5`: Die Wartungsseite zählt jetzt auch die Sätze.** Seit `1.1.0` liegt im
+Expertenmodus das eigentliche Trainingsvolumen in `workout_sets` und nicht in
+`workout_log` — eine Protokollzeile kann einen Satz tragen oder sechs. Die Übersicht sagte
+darüber bisher nichts, und genau das will man wissen, bevor man eine Sicherung beurteilt.
+
+**Dabei nachgemessen, ob die Sätze überhaupt in der Sicherung landen** — die Frage lag
+nahe, weil `lib/backup.php` älter ist als der Expertenmodus. Ergebnis: ja, und zwar ohne
+dass daran etwas zu tun war. `backup_erstellen()` kopiert über `VACUUM INTO` die **ganze**
+Datei; es gibt keine Tabellenliste, die beim Erweitern des Schemas veralten könnte.
+Durchgespielt: drei Sätze angelegt, gesichert, in der Arbeitsdatenbank zerstört, wieder
+eingespielt — Sätze, Leitgewicht und `done` kamen unverändert zurück. Ebenso der
+umgekehrte Fall: Eine nachgestellte Sicherung **ohne** `workout_sets`, `expert_mode` und
+`done` (also aus der Zeit vor `1.1.0`, wie die vom 2026-08-07) lässt sich einspielen, und
+`backup_wiederherstellen()` stellt das Schema im selben Zug wieder her — es ruft `db()`
+und damit `init_schema()`.
 
 **`1.1.4`: Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich bei einer
 als erledigt markierten Übung Wiederholungen und Gewicht nachträglich ändern und Sätze
@@ -384,6 +400,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
+| `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(noch nicht gebaut)* |
 | `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(live seit 2026-08-11)* |
 | `1.1.3` | Beim Weiterspringen nach dem Abhaken landete die nächste Übungskarte **unter der Verbindungsleiste** — sie ist `position: sticky; top: 0` und wird genau in diesem Moment sichtbar, weil die Eingabe in die Warteschlange geht; `scrollIntoView({block:'start'})` setzt das Ziel exakt an den Viewport-Rand und damit darunter. `zurAktivenSpringen()` zieht ihre **gemessene** Höhe ab (`offsetHeight`, 0 wenn ausgeblendet — der Text kann auf schmalen Geräten zweizeilig werden) und lässt 8 px Luft. Nur `index.js` betroffen, deshalb **kein** Cache-Hochzählen: Der Service Worker fasst ausschließlich `/assets/` an *(live seit 2026-08-11)* |
 | `1.1.2` | Feinschliff aus dem zweiten Einsatz, alles zur Bedienung am Gerät. **Farbleitsystem** am linken Kartenrand: grün = hier bist du, blau = erledigt, grau = kommt noch — vorher war Grün „erledigt", aber Grün zieht den Blick, und den soll ziehen, was als Nächstes dran ist. **Aktive Markierung und aufgeklappter Satzblock nur während eines Trainings**; „Training starten" öffnet die erste Übung und scrollt dorthin (Merker in `sessionStorage`, weil die Seite dazwischen neu lädt). **Der Wartezustand strichelt die vorhandene Balkenfarbe**, statt orange zu werden — das sah nach Fehler aus; der Hinweissatz in der Karte entfällt ersatzlos, weil er die Kartenhöhe änderte und die Liste bei jedem Satz springen ließ. **Fokusrahmen im Stepper freigestellt** (3 px Abstand plus `outline-offset: 0`), dazu das Breitenbudget der Satzzeile nachgerechnet und die Staffelung für schmale Geräte zweistufig gemacht. Cache `v17` *(live seit 2026-08-11)* |

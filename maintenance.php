@@ -34,6 +34,12 @@ $zahlen = [
     'Pläne'          => (int)db()->query('SELECT COUNT(*) FROM plans')->fetchColumn(),
     'Einheiten'      => (int)db()->query('SELECT COUNT(*) FROM sessions')->fetchColumn(),
     'Protokollzeilen'=> (int)db()->query('SELECT COUNT(*) FROM workout_log')->fetchColumn(),
+    // Seit 1.1.0 liegt im Expertenmodus das eigentliche Trainingsvolumen hier
+    // und nicht in workout_log: Eine Protokollzeile kann einen Satz tragen oder
+    // sechs. Ohne diesen Zaehler sagte die Seite nichts darueber, wie viel
+    // tatsaechlich drinsteht -- und genau das will man von einer Uebersicht
+    // wissen, bevor man eine Sicherung beurteilt.
+    'Sätze'          => (int)db()->query('SELECT COUNT(*) FROM workout_sets')->fetchColumn(),
 ];
 
 $uploads      = uploads_path();
