@@ -49,9 +49,32 @@ foreach ($plaene as $p) {
     }
 }
 
-$positionen = ($planId === null) ? [] : plan_positionen($userId, $planId, $offen === null ? null : (int)$offen['id']);
+$experte = (int)($benutzer['expert_mode'] ?? 0) === 1;
+
+$positionen = ($planId === null)
+    ? []
+    : plan_positionen($userId, $planId, $offen === null ? null : (int)$offen['id'], $experte);
 $erledigt   = count(array_filter($positionen, static fn(array $z): bool => $z['erledigt']));
 $gesamt     = count($positionen);
+
+// Die AKTIVE Position: die erste noch nicht erledigte -- die Uebung, an der man
+// gerade steht. Sie traegt den gruenen Balken und, im Expertenmodus, den einzig
+// aufgeklappten Satzblock. Alles andere bleibt zu, sonst waere die Seite bei
+// acht Uebungen eine einzige lange Rolle. Der Zustand wird bewusst nirgends
+// gespeichert: Er wandert von selbst mit, waehrend man den Plan durcharbeitet.
+//
+// NUR WAEHREND EINES TRAININGS. Wer den Plan bloss anschaut, sieht eine ruhige
+// Liste: kein aufgeklappter Satzblock, keine "hier bist du"-Markierung. Beides
+// waere eine Aussage ueber einen Ablauf, der noch gar nicht laeuft.
+$aktivePosition = null;
+if ($offen !== null) {
+    foreach ($positionen as $z) {
+        if (!$z['erledigt']) {
+            $aktivePosition = $z['plan_exercise_id'];
+            break;
+        }
+    }
+}
 
 // Eine offene Einheit, die aelter als 12 Stunden ist, ist mit hoher
 // Wahrscheinlichkeit vergessen worden -- sie blockiert sonst dauerhaft die
@@ -177,10 +200,33 @@ require __DIR__ . '/lib/view_header.php';
         <ul id="uebungen" class="liste-schlicht"
             data-user="<?= $userId ?>"
             data-session="<?= $offen === null ? '' : (int)$offen['id'] ?>"
+            data-experte="<?= $experte ? '1' : '' ?>"
             data-erledigt="<?= $erledigt ?>" data-gesamt="<?= $gesamt ?>">
             <?php foreach ($positionen as $z): ?>
-                <li class="karte position-karte <?= $z['erledigt'] ? 'zeile-erledigt' : 'zeile-offen' ?>"
-                    data-pe="<?= $z['plan_exercise_id'] ?>">
+                <?php // Die Satzlisten reisen als JSON im Attribut mit. Gezeichnet
+                      // werden die Zeilen ausschliesslich in index.js: Sie sind ein
+                      // Bedienelement, das sich im Betrieb staendig aendert
+                      // (Satz dazu, Satz weg), und zwei Renderer fuer dieselbe Zeile
+                      // waeren irgendwann verschieden -- derselbe Grund, aus dem sich
+                      // die beiden Tauschdialoge vorschlagMarkup() teilen. ?>
+                <?php
+                // Drei Zustaende, drei Farben am linken Rand (§7.3):
+                //   erledigt -> blau, aktiv -> gruen, sonst -> grau
+                $zustandKlasse = $z['erledigt']
+                    ? 'zeile-erledigt'
+                    : ($z['plan_exercise_id'] === $aktivePosition ? 'zeile-aktiv' : 'zeile-offen');
+                ?>
+                <li class="karte position-karte <?= $zustandKlasse ?>"
+                    data-pe="<?= $z['plan_exercise_id'] ?>"
+                    data-eintrag="<?= $z['hat_eintrag'] ? '1' : '' ?>"
+                    <?php if ($experte): ?>
+                        data-saetze="<?= h(json_encode($z['saetze'])) ?>"
+                        data-letzte-saetze="<?= h(json_encode($z['letzte_saetze'])) ?>"
+                        <?php // Rueckfall fuer den ersten Satz einer Uebung, die noch
+                              // nie satzgenau protokolliert wurde -- wer aus dem
+                              // einfachen Modus kommt, hat hier trotzdem eine Zahl. ?>
+                        data-letztes-gewicht="<?= h(format_decimal($z['letztes_gewicht'])) ?>"
+                    <?php endif; ?>>
 
                     <div class="uebung-kopf">
                         <?php if (!empty($z['image_path'])): ?>
@@ -239,42 +285,76 @@ require __DIR__ . '/lib/view_header.php';
                           // vergessen? Ein Satz beantwortet das, und die Karten behalten
                           // dieselbe Hoehe. ?>
                     <p class="matt letzter-wert">
-                        <?php if ($z['letztes_gewicht'] !== null): ?>
+                        <?php if ($experte && $z['letzte_saetze'] !== []): ?>
+                            <?php // Im Expertenmodus ist die Satzfolge vom letzten Mal
+                                  // die nuetzlichere Auskunft als eine einzelne Zahl --
+                                  // sie ist zugleich das, was der Knopf "+ Satz" gleich
+                                  // vorschlaegt. Gleiche Form wie die Zusammenfassung im
+                                  // Satzblock darunter, damit man beides ohne Umdenken
+                                  // vergleichen kann: erst wie viele, dann welche. ?>
+                            zuletzt <?= h(saetze_zusammenfassung($z['letzte_saetze'])) ?>
+                        <?php elseif ($z['letztes_gewicht'] !== null): ?>
                             zuletzt <?= h(format_decimal($z['letztes_gewicht'])) ?> kg
                         <?php else: ?>
                             Noch kein Gewicht gespeichert
                         <?php endif; ?>
                     </p>
 
+                    <?php if ($experte): ?>
+                        <?php $eigene = $z['saetze']; ?>
+                        <details class="saetze-block"
+                                 <?= $z['plan_exercise_id'] === $aktivePosition ? 'open' : '' ?>>
+                            <summary class="summary-knopf saetze-kopf">
+                                <span class="saetze-zusammenfassung"><?=
+                                    h(saetze_zusammenfassung($eigene))
+                                ?></span>
+                            </summary>
+
+                            <?php // Wird von index.js aus data-saetze gefuellt. ?>
+                            <ol class="satz-liste"></ol>
+
+                            <button type="button" class="satz-hinzu">+ Satz</button>
+                        </details>
+                    <?php endif; ?>
+
                     <?php // Tauschen -- Gewicht -- Erledigt in EINER Zeile. Das
                           // Gewichtsfeld war ueber die volle Breite gezogen und
                           // beanspruchte damit mehr Platz als die beiden Aktionen
                           // zusammen; gebraucht werden drei bis vier Zeichen. ?>
                     <div class="position-aktionen">
-                        <!-- Abgehakt heisst gesperrt (§7.5): erst Haekchen weg,
-                             dann tauschen. index.js schaltet das mit um. -->
+                        <?php // Protokolliert heisst gesperrt (§7.5) -- und zwar ab dem
+                              // ersten Satz, nicht erst ab dem Haekchen: Der Eintrag hält
+                              // fest, was tatsächlich gemacht wurde. api/swap.php weist
+                              // es ohnehin ab; hier wird es gar nicht erst angeboten. ?>
                         <button type="button" class="leise tauschen"
-                                <?= $z['erledigt'] ? 'disabled title="Erst das Häkchen entfernen"' : '' ?>>
+                                <?= $z['hat_eintrag']
+                                    ? 'disabled title="Erst die protokollierten Werte entfernen"'
+                                    : '' ?>>
                             Tauschen
                         </button>
 
-                        <span class="wert-feld">
-                            <label for="w<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
-                                Gewicht in kg
-                            </label>
-                            <?php // type="text" mit inputmode: type="number" bricht am
-                                  // Handy am Dezimalkomma.
-                                  //
-                                  // readonly, sobald abgehakt (§7.4): Wer den Wert ändern
-                                  // will, entfernt das Häkchen, korrigiert und hakt neu ab
-                                  // -- derselbe Weg wie beim Tausch (§7.5). ?>
-                            <input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
-                                   id="w<?= $z['plan_exercise_id'] ?>" class="gewicht"
-                                   value="<?= h(format_decimal($z['weight'])) ?>"
-                                   placeholder="—" enterkeyhint="done"
-                                   <?= $z['erledigt'] ? 'readonly' : '' ?>>
-                            <span class="wert-einheit" aria-hidden="true">kg</span>
-                        </span>
+                        <?php // Im Expertenmodus steht das Gewicht in jedem Satz --
+                              // ein zusätzliches Feld für die ganze Übung wäre eine
+                              // zweite Wahrheit neben der Satzliste. ?>
+                        <?php if (!$experte): ?>
+                            <span class="wert-feld">
+                                <label for="w<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
+                                    Gewicht in kg
+                                </label>
+                                <?php // type="text" mit inputmode: type="number" bricht am
+                                      // Handy am Dezimalkomma.
+                                      //
+                                      // readonly, sobald abgehakt (§7.4): Wer den Wert ändern
+                                      // will, entfernt das Häkchen, korrigiert und hakt neu ab
+                                      // -- derselbe Weg wie beim Tausch (§7.5). ?>
+                                <input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
+                                       id="w<?= $z['plan_exercise_id'] ?>" class="gewicht"
+                                       value="<?= h(format_decimal($z['weight'])) ?>"
+                                       placeholder="—" enterkeyhint="done"
+                                       <?= $z['erledigt'] ? 'readonly' : '' ?>>
+                                <span class="wert-einheit" aria-hidden="true">kg</span>
+                            </span>
+                        <?php endif; ?>
 
                         <label class="zeile-wahl erledigt-wahl">
                             <input type="checkbox" class="erledigt"
@@ -285,13 +365,13 @@ require __DIR__ . '/lib/view_header.php';
                         <button type="button" class="wiederholen" hidden>Erneut versuchen</button>
                     </div>
 
-                    <?php // Der sichtbare Vorbehalt bei schlechtem Netz: Das Häkchen
-                          // bleibt stehen, trägt aber erkennbar, dass der Server es
-                          // noch nicht bestätigt hat. Früher sprang es stattdessen
-                          // zurück — richtig, aber am Gerät stehend unbrauchbar. ?>
-                    <p class="wartet-hinweis" hidden>
-                        Noch nicht gespeichert — wird nachgeholt, sobald das Netz da ist.
-                    </p>
+                    <?php // Der sichtbare Vorbehalt bei schlechtem Netz steckt allein im
+                          // gestrichelten Balken am linken Rand — plus der Leiste ganz
+                          // oben, die die Anzahl nennt. Hier stand bis 1.1.1 zusätzlich
+                          // ein Hinweissatz; er machte die Karte für die Dauer des
+                          // Speicherns höher und danach wieder niedriger, und bei jedem
+                          // Satz sprang die ganze Liste darunter. Zwei Anzeigen für
+                          // dieselbe Sache, von denen eine die Seite unruhig macht. ?>
                     <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
                 </li>
             <?php endforeach; ?>

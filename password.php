@@ -4,12 +4,19 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
+require_once __DIR__ . '/lib/training.php';
 
 bootstrap_session();
 require_login();
 
 $benutzer = current_user();
 $erzwungen = (int)($benutzer['must_change_password'] ?? 0) === 1;
+$experte   = (int)($benutzer['expert_mode'] ?? 0) === 1;
+
+// Umschalten geht nur ausserhalb eines Trainings (§7.4) -- die Begruendung
+// steht in api/auth.php. Hier wird der Schalter deshalb gar nicht erst
+// bedienbar angeboten: Ein Knopf, der sicher in ein 409 laeuft, waere unehrlich.
+$laeuftEinheit = $erzwungen ? false : offene_einheit((int)$benutzer['id']) !== null;
 
 $pageTitle = 'Konto';
 require __DIR__ . '/lib/view_header.php';
@@ -101,6 +108,37 @@ require __DIR__ . '/lib/view_header.php';
             <button type="submit" id="name-speichern">Benutzernamen ändern</button>
         </p>
     </form>
+
+    <h2>Trainingsansicht</h2>
+
+    <div class="karte" id="experte-karte">
+        <p id="experte-fehler" class="feld-fehler" role="alert" hidden></p>
+
+        <label class="zeile-wahl">
+            <input type="checkbox" id="experte" <?= $experte ? 'checked' : '' ?>
+                   <?= $laeuftEinheit ? 'disabled' : '' ?>>
+            Sätze einzeln erfassen (Expertenmodus)
+        </label>
+
+        <p class="matt">
+            Statt einem Gewicht je Übung wird jeder Satz mit Wiederholungen und
+            Gewicht eingetragen — etwa 12×40, 10×40, 9×45. Beim Hinzufügen eines
+            Satzes steht schon drin, was du beim letzten Mal gemacht hast.
+        </p>
+        <p class="matt">
+            Bereits protokollierte Trainings bleiben erhalten und lesbar. Im
+            Verlauf steht als Gewicht einer Übung weiterhin eine Zahl — im
+            Expertenmodus der schwerste Satz.
+        </p>
+
+        <?php if ($laeuftEinheit): ?>
+            <p class="hinweis-warnung">
+                <strong>Gerade läuft ein Training.</strong>
+                Umschalten geht erst, wenn es beendet ist — sonst gingen Werte
+                verloren, die noch auf dem Weg zum Server sind.
+            </p>
+        <?php endif; ?>
+    </div>
 
 <?php endif; ?>
 

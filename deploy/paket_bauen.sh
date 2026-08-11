@@ -4,7 +4,15 @@
 # Aufruf aus dem Projektverzeichnis:
 #     bash deploy/paket_bauen.sh
 #
-# Ergebnis: deploy/trainingsplan-build.tar.gz
+# Ergebnis: deploy/trainingsplan-build-<version>.tar.gz, z. B.
+#           deploy/trainingsplan-build-1.1.2.tar.gz
+#
+# Aeltere Pakete werden dabei geloescht -- es liegt immer genau eines da.
+#
+# Die Nummer steht im Dateinamen, weil das Paket den Rechner verlaesst: Es wird
+# irgendwann spaeter in Portainer hochgeladen, oft neben einem aelteren, und ein
+# Tarball ohne Nummer sieht aus wie jeder andere. Genau so ging am 2026-08-10
+# verloren, welche von zwei Fassungen als 1.0.16 ausgerollt worden war.
 #
 # Eingepackt wird eine POSITIVLISTE, keine Ausschlussliste. Das ist Absicht:
 # Eine Ausschlussliste vergisst man irgendwann zu pflegen, und dann liegt die
@@ -14,7 +22,10 @@
 set -euo pipefail
 
 PROJEKT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ZIEL="$PROJEKT/deploy/trainingsplan-build.tar.gz"
+
+# ZIEL steht bewusst NICHT hier, sondern erst hinter der Versionspruefung
+# weiter unten -- der Dateiname enthaelt die Nummer, und die ist an dieser
+# Stelle noch nicht geprueft.
 
 cd "$PROJEKT"
 
@@ -97,6 +108,19 @@ done < <(grep -oE 'trainingsplan:[0-9]+\.[0-9]+\.[0-9]+' deploy/ANLEITUNG.md | c
 
 echo "Version: $VERSION (stack.yml und ANLEITUNG.md stimmen ueberein)"
 
+# Jetzt erst steht der Dateiname fest -- die Nummer darin ist geprueft.
+ZIEL="$PROJEKT/deploy/trainingsplan-build-$VERSION.tar.gz"
+
+# Ein Paket unter derselben Nummer ein zweites Mal zu bauen ist der Fall, in dem
+# zwei verschiedene Staende denselben Namen tragen -- genau das, was der Name mit
+# Nummer verhindern soll. Deshalb hier ein Hinweis statt eines stillen
+# Ueberschreibens. Abgebrochen wird nicht: Beim Nachbessern VOR dem Ausrollen ist
+# das Ueberschreiben richtig, und nur der Benutzer weiss, ob schon ausgerollt ist.
+if [[ -e "$ZIEL" ]]; then
+    echo "  Hinweis: ${ZIEL##*/} gibt es bereits und wird ueberschrieben."
+    echo "           Falls $VERSION schon ausgerollt ist, vorher VERSION hochzaehlen."
+fi
+
 # --- Syntax pruefen ----------------------------------------------------------
 # Ein Tippfehler faellt sonst erst im laufenden Container auf, und dort ist die
 # Fehlersuche deutlich unangenehmer als hier.
@@ -144,6 +168,28 @@ if tar --list --file "$ZIEL" | grep -qE '(^|/)\.env|\.db($|-)|(^|/)\.git|(^|/)up
     exit 1
 fi
 echo "Geprueft: keine .env, keine Datenbank, keine Uploads, kein .git enthalten."
+
+# --- Aeltere Pakete wegraeumen -----------------------------------------------
+# Seit der Dateiname die Version traegt, ueberschreibt ein neuer Bau den alten
+# nicht mehr -- ohne dieses Aufraeumen lagen hier nach ein paar Runden dutzende
+# Tarballs, und beim Hochladen waere der falsche nur einen Griff entfernt.
+#
+# ERST HIER, nach der Sicherungspruefung: Bricht der Bau vorher ab, soll das
+# zuletzt funktionierende Paket noch dastehen. Und ausschliesslich das eigene
+# Namensmuster, nie ein blosses *.tar.gz -- in diesem Ordner koennte auch etwas
+# anderes liegen.
+geloescht=0
+for alt in "$PROJEKT"/deploy/trainingsplan-build-*.tar.gz; do
+    [[ -e "$alt" ]] || continue          # Glob ohne Treffer
+    [[ "$alt" == "$ZIEL" ]] && continue  # das gerade gebaute nicht
+    rm -f "$alt"
+    echo "  Aelteres Paket entfernt: ${alt##*/}"
+    geloescht=$((geloescht + 1))
+done
+if [[ $geloescht -eq 0 ]]; then
+    echo "Keine aelteren Pakete vorhanden."
+fi
+
 echo
 echo "Naechster Schritt in Portainer (Environment 10.10.10.2):"
 echo "  Images -> Build a new image -> Upload -> ${ZIEL##*/}"

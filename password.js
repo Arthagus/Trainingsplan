@@ -1,10 +1,44 @@
 'use strict';
 
 /**
- * Konto: Passwortwechsel und Benutzername (§7.7).
+ * Konto: Passwortwechsel, Benutzername und Trainingsansicht (§7.7).
  */
 
 (() => {
+    // --- Expertenmodus -----------------------------------------------------
+
+    const experte = qs('#experte');
+    if (experte) {
+        const experteHinweis = qs('#experte-fehler');
+
+        experte.addEventListener('change', async () => {
+            const gewuenscht = experte.checked;
+            experteHinweis.hidden = true;
+            experte.disabled = true;
+
+            try {
+                await apiFetch('api/auth.php', {
+                    body: { action: 'set_expert_mode', expert_mode: gewuenscht },
+                });
+                meldung(
+                    gewuenscht
+                        ? 'Expertenmodus eingeschaltet — Sätze werden einzeln erfasst.'
+                        : 'Expertenmodus ausgeschaltet — ein Gewicht je Übung.',
+                    'gut'
+                );
+            } catch (fehler) {
+                // Der Schalter springt zurueck: Eine Anzeige, die etwas
+                // anderes behauptet als der Server, waere schlimmer als die
+                // Fehlermeldung.
+                experte.checked = !gewuenscht;
+                experteHinweis.textContent = fehler.message;
+                experteHinweis.hidden = false;
+            } finally {
+                experte.disabled = false;
+            }
+        });
+    }
+
     // --- Benutzername ------------------------------------------------------
 
     // Fehlt, solange ein Passwortwechsel erzwungen ist -- password.php

@@ -1,10 +1,29 @@
 # Rückmeldungen aus dem Praxistest
 
-Gesammelt am **2026-08-07** nach dem ersten echten Training im Studio mit
-`trainingsplan:1.0.2`. Alles hier ist **noch nicht umgesetzt**.
+Fünf Runden, alle aus dem echten Studio-Einsatz. **Alles hier ist umgesetzt** — die
+Beschreibungen bleiben stehen, damit später nachvollziehbar ist, *warum* etwas so gebaut
+wurde.
+
+Auffällig und der Grund, warum diese Datei geführt wird: Die Punkte werden mit jeder Runde
+kleiner — erst Konstruktionsfehler, dann Entwurfsfehler, zuletzt Bedienung. Und keiner davon
+wäre am Schreibtisch aufgefallen.
+
+| Runde | Wann | Aus welcher Version | Landete in | Punkte |
+|---|---|---|---|---|
+| Erste | 2026-08-07 | `1.0.2` | `1.0.3` | 1–7 |
+| Zweite | 2026-08-11 | `1.1.0` (Expertenmodus) | `1.1.1` | 8–10 |
+| Dritte | 2026-08-11 | `1.1.1` | `1.1.2` | 11–14 |
+| Vierte | 2026-08-11 | `1.1.2` | `1.1.3` | 15 |
+| Fünfte | 2026-08-11 | `1.1.3` | `1.1.4` | 16 |
 
 Reihenfolge = Nummerierung des Benutzers, nicht Priorität. Die Einschätzung „Aufwand" ist
-grob und dient nur der Planung.
+grob und diente nur der Planung.
+
+---
+
+# Erste Runde: erstes Training, 2026-08-07
+
+Gesammelt nach dem ersten echten Training im Studio mit `trainingsplan:1.0.2`.
 
 > ## Stand: 1, 2, 3, 4, 5 und 7 sind **umgesetzt** und stecken in `1.0.3`
 >
@@ -316,3 +335,236 @@ Startwege; Abhaken und Tausch bleiben, damit niemand feststeckt, der den Knopf �
 
 **Als Nächstes:** Wartung/Backup (§6.5), bewusst ans Projektende gestellt — und inzwischen
 dringlicher, weil echte Trainingsdaten entstanden sind.
+
+---
+
+# Zweite Runde: Expertenmodus, 2026-08-11
+
+Gesammelt nach dem ersten Einsatz von `trainingsplan:1.1.0` auf dem Live-System.
+**Alle drei Punkte sind umgesetzt und stecken in `1.1.1`.**
+
+## 8. „+ Satz" markiert die Zeile als fehlerhaft (Fehler) — **umgesetzt**
+
+**Beobachtung:** Beim ersten Satz einer Übung erscheint nach dem Antippen von „+ Satz" ein
+roter Strich links an der Übung und der Knopf „Erneut versuchen".
+
+**Ursache:** „+ Satz" belegt die neue Zeile mit dem passenden Satz der letzten Einheit. Gibt
+es für diese Übung noch gar keine Vorgeschichte, bleibt die Zeile **leer** — und genau die
+lehnt `saetze_pruefen()` in `api/log.php` zu Recht mit 422 ab: Ein Satz ohne Wiederholungen
+*und* ohne Gewicht sagt nichts aus. Der Fehler saß also nicht in der Prüfung, sondern darin,
+dass die Zeile überhaupt abgeschickt wurde.
+
+**Umsetzung:** `saetzeFuerServer()` in `index.js` filtert leere Zeilen heraus.
+`saetzeLesen()` liefert weiterhin **alle** Zeilen — die leere muss im DOM stehen bleiben,
+sie wird ja gerade ausgefüllt. Die beiden auseinanderzuhalten ist der ganze Trick; wer sie
+verwechselt, bekommt entweder den roten Rand zurück oder eine Zeile, die beim Tippen
+verschwindet.
+
+## 9. „Erledigt" hakt sich beim zweiten Satz selbst an — **umgesetzt**
+
+**Beobachtung des Benutzers, wörtlich sinngemäß:** *„Erledigt steht für mich dafür, dass man
+mit der Übung fertig ist. Aber ich will ja evtl. noch einen dritten oder vierten Satz machen
+— erst wenn ich wirklich fertig bin, will ich das Feld anklicken, und dann sollte sich die
+Übung zusammenklappen und zur nächsten weiterscrollen."*
+
+**Das war kein Fehler, sondern ein Entwurfsfehler.** Die Fassung `1.1.0` koppelte „erledigt"
+an die Existenz der `workout_log`-Zeile — dieselbe Regel wie im einfachen Modus, wo Abhaken
+und Protokollieren tatsächlich dasselbe sind. Im Expertenmodus stimmt sie nicht: Dort
+entsteht die Zeile mit dem **ersten Satz**, und da steht man mitten in der Übung am Gerät.
+Der Entwurf war beim Planen als „Erledigt folgt den Sätzen" ausdrücklich zur Wahl gestellt
+und bewusst so entschieden worden; die Nutzung hat ihn widerlegt.
+
+**Umsetzung:** Neue Spalte `workout_log.done` (0/1, **Vorgabe 1**). Die Vorgabe ist der
+ganze Trick bei der Migration: Jede Bestandszeile gilt damit als erledigt — genau das war
+sie bisher auch. Daraus folgt der Rest:
+
+- **„x/n" zählt `done = 1`**, in `fortschritt()` *und* in `einheiten_verlauf()`. Beide,
+  sonst hieße „erledigt" im Verlauf etwas anderes als im Training.
+- **Die Tauschsperre hängt weiter an der bloßen Existenz der Zeile.** Wer zwei Sätze
+  Bankdrücken gemacht hat, kann die Position nicht mehr tauschen, auch ohne Häkchen — die
+  zwei Sätze *waren* Bankdrücken. `plan_positionen()` liefert dafür `hat_eintrag` neben
+  `erledigt`; die Sperrmeldung in `api/swap.php` spricht deshalb nicht mehr vom Häkchen,
+  sondern von „bereits protokollierten Werten".
+- **Ab-wählen löscht die Sätze nicht mehr.** Es setzt nur `done = 0`. Sie zu löschen, weil
+  jemand eine Fertig-Markierung zurücknimmt, wäre dieselbe Sorte Fehler wie ein Tausch auf
+  eine protokollierte Position. Weg sind sie über das ✕ der einzelnen Zeile.
+- **Abhaken klappt den Satzblock zu und springt zur nächsten offenen Übung**, die sich dabei
+  aufklappt — der ausdrücklich gewünschte Teil.
+- Der Warteschlangen-Schlüssel geht auf `-v3`: Ein Eintrag aus `1.1.0` trägt kein `done`,
+  und ein fehlendes `done` bedeutet serverseitig „erledigt". Beim Nachholen hakte er die
+  Übung sonst ab.
+
+## 10. Die Farblogik ist verkehrt herum — **umgesetzt**
+
+**Beobachtung:** Der Kopf mit der Satz-Zusammenfassung ist dunkelblau; tippt man „+ Satz"
+an, wird der Kopf plötzlich hellblau und „+ Satz" dunkelblau.
+
+**Zwei Ursachen, beide unabhängig voneinander:**
+
+1. **Spezifität.** `.saetze-kopf` sollte den Kopf leise machen (hellgrau mit Rahmen), aber
+   `.summary-knopf` hat dieselbe Spezifität und steht **weiter unten** in derselben Datei —
+   also gewann die spätere Regel und der Kopf blieb blau. Jetzt `.saetze-block >
+   .saetze-kopf`, das gewinnt unabhängig von der Reihenfolge.
+2. **Klebender Hover.** Auf einem Touchscreen gibt es kein Verlassen mit dem Zeiger, deshalb
+   bleibt `:hover` am zuletzt angetippten Element hängen. `--akzent` (#1f6feb) gegen
+   `--akzent-tief` (#16509f) — genau das beobachtete Tauschen der Blautöne. **Alle**
+   `:hover`-Regeln des Stylesheets stehen jetzt hinter `@media (hover: hover)`; am
+   Zeigegerät ändert das nichts.
+
+**Entscheidung des Benutzers (2026-08-11):** kräftig ist **„+ Satz"**, leise der Kopf. Der
+Kopf ist nur eine Statuszeile zum Auf- und Zuklappen; kräftig gehört der Knopf, den man
+zwischen zwei Sätzen ohne Hinsehen trifft. Nebenbei bleibt die Seite dadurch ruhig —
+zugeklappt trägt keine der acht Karten Farbe.
+
+---
+
+# Dritte Runde: Feinschliff, 2026-08-11
+
+Gesammelt nach dem zweiten Einsatz, mit `trainingsplan:1.1.1`. Diesmal keine Fehler im
+engeren Sinn, sondern **vier Beobachtungen zur Bedienung am Gerät** — die Sorte
+Rückmeldung, die man nur im Studio bekommt und nie am Schreibtisch.
+**Alle vier sind umgesetzt und stecken in `1.1.2`.**
+
+## 11. Satzblock ist schon vor dem Training offen — **umgesetzt**
+
+**Beobachtung:** Ruft man die Trainingsseite auf, ohne ein Training gestartet zu haben, ist
+der Bereich „− Noch kein Satz" mit dem „+ Satz"-Knopf darunter bereits aufgeklappt.
+
+**Warum das falsch ist:** Der aufgeklappte Block sagt „hier bist du gerade". Ohne laufende
+Einheit stimmt das nicht — es gibt keinen Ablauf, in dem man irgendwo wäre. Dieselbe
+Überlegung gilt für die grüne Markierung aus Punkt 12.
+
+**Umsetzung:** `$aktivePosition` in `index.php` bleibt `null`, solange keine Einheit offen
+ist; daran hängen sowohl das `open` am `<details>` als auch die Zustandsklasse. **„Training
+starten" öffnet den Block der ersten Übung und scrollt dorthin** — und weil die Seite
+dazwischen neu lädt, geht der Wunsch über einen Merker in `sessionStorage` (`sessionStorage`
+und nicht `localStorage`: Er gilt für diesen Tab und diesen Moment, sonst spränge die Seite
+beim nächsten Öffnen grundlos).
+
+## 12. Wo bin ich gerade? — **umgesetzt**
+
+**Wunsch des Benutzers:** *„Wenn man im Training ist, sollte die jeweils aktive Box links
+grün sein — damit man weiß, wo man gerade ist, wenn man scrollt. Erledigte Blöcke dafür
+evtl. mit blauem Streifen."*
+
+**Das ist eine Umkehrung, und sie ist richtig.** Bis `1.1.1` war Grün die Farbe für
+„erledigt" — der naheliegende Griff, aber falsch herum: **Grün zieht den Blick**, und den
+soll ziehen, was als Nächstes zu tun ist, nicht was schon abgehakt wurde. Bei acht Karten
+und einem Handy in der Hand ist „wo bin ich" die Frage, nicht „was war".
+
+**Umsetzung:** Drei Zustände am linken Rand — `.zeile-aktiv` grün (`--gut`),
+`.zeile-erledigt` blau (`--akzent`), `.zeile-offen` grau (`--linie`). Serverseitig entscheidet
+`$aktivePosition`, im Betrieb zieht `aktiveMarkieren()` in `index.js` die Markierung mit,
+sobald ein Häkchen fällt.
+
+## 13. Fokusrahmen liegt über den Steppern — **umgesetzt**
+
+**Beobachtung:** Klickt man in das Wiederholungsfeld, liegt der blaue Fokusrahmen links
+*über* dem Minus- und rechts *unter* dem Plus-Knopf.
+
+**Ursache:** Der Stepper hatte keinen Abstand zwischen Knöpfen und Feld, und der Rahmen wird
+mit 2 px Versatz **außerhalb** des Feldes gezeichnet. Was dabei über wem liegt, entscheidet
+die Malreihenfolge und nicht die Absicht.
+
+**Umsetzung:** 3 px Abstand im Stepper, dazu `outline-offset: 0` am Zahlenfeld, damit die
+3 px reichen. Das kostet 6 px Breite — deshalb ist bei der Gelegenheit das **Breitenbudget
+der Satzzeile nachgerechnet und im Stylesheet dokumentiert**, und die Staffelung für schmale
+Geräte ist zweistufig geworden: bis 400 px entfallen „×" und „kg", bis 352 px zusätzlich die
+Satznummer. Die Knöpfe behalten in jeder Stufe ihre volle Größe — sie sind der Grund für die
+ganze Rechnung.
+
+## 14. Das Speichern sieht nach Fehler aus — **umgesetzt**
+
+**Beobachtung:** *„Beim Speichern eines Satzes wird der linke Balken kurz orange gestrichelt.
+Das sieht irgendwie nach Fehler aus."* Dazu: Der Zustand wird **zweimal** angezeigt — oben
+als Leiste und noch einmal als Satz in der Übungskarte —, *„und das verlängert die Box kurz
+und macht sie dann wieder kleiner, das macht das Ganze ziemlich unruhig."*
+
+**Beides trifft zu, und der zweite Punkt wiegt schwerer.** Orange (`--warnung`) ist im
+übrigen System die Farbe für „Achtung", hier ging aber gerade alles seinen Gang. Und eine
+Anzeige, die im Sekundentakt erscheint und verschwindet, darf **nichts verschieben** — sonst
+springt bei jedem Satz die ganze Liste darunter.
+
+**Umsetzung:** `.zeile-wartet` ändert nur noch `border-left-style: dashed`. Die **Farbe
+bleibt**, was der Zustand vorgibt — bei der aktiven Übung also grün, wie vom Benutzer
+vorgeschlagen. Der Hinweissatz in der Karte entfällt **ersatzlos**; die `sticky` Leiste am
+oberen Rand nennt die Anzahl und ist immer im Blick. Die Regel aus §2 („Fehler nie
+stillschweigend verschlucken") bleibt damit gewahrt: Der Vorbehalt ist weiterhin sichtbar,
+nur ohne Nebenwirkung auf das Layout.
+
+---
+
+# Vierte und fünfte Runde: 2026-08-11
+
+Mit `trainingsplan:1.1.2` bzw. `1.1.3` im Einsatz. **Umgesetzt in `1.1.3` und `1.1.4`.**
+
+## 15. Nach dem Abhaken scrollt er zu weit — **umgesetzt**
+
+**Beobachtung:** Hakt man eine Übung als erledigt ab, springt die Ansicht zur nächsten — aber
+zu weit. Oben ist einiges abgeschnitten, der Name der Übung ist nicht mehr zu sehen.
+
+**Ursache — und sie ist ein hübsches Zusammenspiel zweier für sich richtiger Dinge:**
+
+1. Die **Verbindungsleiste** hängt als *erstes Element im `<body>`*
+   (`assets/app.js`, `verbindung._element()`) und ist `position: sticky; top: 0; z-index: 20`.
+   Genau so soll sie sein — bei Netzproblemen ist sie die wichtigste Information auf dem
+   Bildschirm und muss über allem stehen. Sticky heißt aber auch: Sie **überlagert**, was
+   darunter durchscrollt.
+2. `scrollIntoView({ block: 'start' })` setzt das Ziel **exakt** an den oberen
+   Viewport-Rand — per Definition also unter die Leiste.
+
+Der Grund, warum es *zuverlässig* auftrat und nicht nur manchmal: Die Leiste wird **in
+genau diesem Moment sichtbar**. Das Abhaken legt einen Eintrag in die Warteschlange, und
+`verbindung.wartend(...)` blendet sie ein — unmittelbar bevor gescrollt wird. Verdeckt waren
+damit rund 38 px, und dort steht der Übungsname.
+
+**Umsetzung:** `zurAktivenSpringen()` scrollt nicht mehr über `scrollIntoView`, sondern
+rechnet die Zielposition selbst und zieht die Höhe der Leiste ab — **gemessen** über
+`offsetHeight` und 0, wenn sie ausgeblendet ist. Eine feste Zahl wäre falsch gewesen: Der
+Text der Leiste kann auf schmalen Geräten zweizeilig werden. Dazu 8 px Luft, damit die Karte
+nicht bündig am Rand klebt.
+
+**Kein Cache-Hochzählen:** Betroffen ist nur `index.js`, und der Service Worker fasst
+ausschließlich Dateien unter `/assets/` an (`assets/sw.js`, `istAsset`). Alles andere läuft
+`network-only`, kommt also ohnehin frisch.
+
+## 16. Abgehakte Übungen ließen sich noch ändern — **umgesetzt**
+
+**Beobachtung:** Bei einer als *erledigt* markierten Übung ließen sich die Wiederholungen und
+das Gewicht eines Satzes nachträglich ändern; ebenso konnte man Sätze hinzufügen und löschen.
+
+**Das war ein Überbleibsel, kein Versehen — und die Begründung hatte sich selbst überholt.**
+`1.1.0` hielt in §7.4 ausdrücklich fest:
+
+> *Die Sätze bleiben änderbar, solange die Einheit läuft. Das `readonly` nach dem Abhaken
+> lässt sich hier nicht halten: Nachtragen weiterer Sätze ist der Normalfall und nicht die
+> Korrektur.*
+
+Das stimmte, **solange der erste Satz die Übung selbst abhakte**. Eine Sperre hätte damals
+verhindert, den zweiten Satz einzutragen. Seit „Erledigt" mit `1.1.1` ein **Schalter** ist
+(Punkt 9), trägt das Argument nicht mehr: Wer noch einen Satz machen will, hat schlicht noch
+nicht abgehakt. Damit gilt wieder die ursprüngliche Regel aus §7.4 — Häkchen entfernen,
+korrigieren, neu abhaken —, und zwar für Sätze genauso wie für das Gewichtsfeld im
+Standardmodus und für den Übungstausch (§7.5). **Ein Mechanismus statt dreier.**
+
+**Umsetzung, zweistufig wie bei der Tauschsperre (Fallstrick 6):**
+
+- *Oberfläche:* `saetzeSperren()` in `index.js` setzt bei abgehakter Übung alle Satzfelder auf
+  `readonly` und deaktiviert Stepper, ✕ und „+ Satz". Aufgerufen aus `zustandSetzen()` **und**
+  am Ende von `saetzeZeichnen()` — die Zeilen entstehen über `innerHTML` neu und wüssten
+  sonst nichts vom Häkchen.
+- *Server:* `abgeschlossene_position_schuetzen()` in `api/log.php` weist eine Änderung an
+  einer Position mit `done = 1` mit **409** ab. Das ist die eigentliche Regel; die
+  ausgegrauten Felder sind nur die Bequemlichkeit davor.
+
+**Die Ausnahme, die man nicht vergessen darf:** Eine **unverändert** durchgereichte Nutzlast
+muss durchgehen. Die Warteschlange schickt einen Eintrag nach einem Funkloch erneut, und der
+zweite Aufruf trifft dann auf die bereits abgehakte Position — ohne diese Ausnahme schlüge er
+mit 409 fehl und zeigte dem Benutzer einen Fehler, obwohl längst alles gespeichert ist.
+Verglichen wird deshalb inhaltlich (`saetze_gleich()`), Gewichte nie mit `===`: 40.0 aus der
+Datenbank und 40.0 aus der Eingabe sind dasselbe Gewicht, aber nicht zwingend dasselbe
+Bitmuster.
+
+**Nebenbei mitgenommen:** Die Sperre gilt jetzt auch für das **Gewichtsfeld im
+Standardmodus**. §7.4 verlangte sie dort seit `1.0.3`, durchgesetzt hatte sie aber nur die
+Oberfläche — über einen zweiten Tab war sie zu umgehen.

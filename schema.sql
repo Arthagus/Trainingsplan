@@ -111,12 +111,17 @@ CREATE INDEX IF NOT EXISTS idx_emg_group
 -- last_plan_id zeigt auf plans, das weiter unten erst angelegt wird. SQLite
 -- prueft Fremdschluessel-Ziele nicht beim CREATE, sondern erst beim Schreiben --
 -- die Reihenfolge ist also unkritisch.
+-- expert_mode schaltet die satzgenaue Erfassung ein (§7.4). Die Spalte steuert
+-- ausschliesslich die DARSTELLUNG -- api/log.php nimmt Saetze unabhaengig davon
+-- entgegen. Auf Bestandsdatenbanken kommt sie ueber apply_migrations() dazu,
+-- dort allerdings ohne CHECK: ALTER TABLE kann in SQLite keines nachtragen.
 CREATE TABLE IF NOT EXISTS users (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     name                 TEXT    NOT NULL UNIQUE,
     password_hash        TEXT    NOT NULL,
     is_admin             INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
     must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
+    expert_mode          INTEGER NOT NULL DEFAULT 0 CHECK (expert_mode IN (0, 1)),
     last_plan_id         INTEGER REFERENCES plans(id) ON DELETE SET NULL,
     created_at           TEXT    NOT NULL
 );
@@ -219,10 +224,20 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_time
 -- ohne Zusatzgewicht). Genau deshalb ueberspringt die Abfrage fuer "letztes
 -- Gewicht" leere Werte.
 --
--- Wiederholungen werden bewusst NICHT erfasst: Bei drei Saetzen macht man
--- z. B. 12, dann 10, dann 9 -- ein einzelnes Feld kann das nicht abbilden und
--- taeuscht eine Genauigkeit vor, die es nicht gibt. Satzgenaues Protokollieren
--- ist als Erweiterung vorgemerkt (§10) und bekaeme dann eine eigene Tabelle.
+-- Hier steht KEINE Wiederholungsspalte, und das ist dieselbe Begruendung wie
+-- 2026-08-07: Bei drei Saetzen macht man z. B. 12, dann 10, dann 9 -- ein
+-- einzelnes Feld je Einheit kann das nicht abbilden und taeuscht eine
+-- Genauigkeit vor, die es nicht gibt. Wer satzgenau protokolliert, bekommt
+-- deshalb Zeilen in workout_sets (siehe unten) und nicht Spalten hier.
+--
+-- weight bleibt auch dann gefuellt: Es traegt das LEITGEWICHT der Position --
+-- im Expertenmodus den schwersten Satz. Nur so bleiben "letztes Gewicht" und
+-- der Gewichtsverlauf ueber beide Modi hinweg eine durchgehende Reihe.
+-- done trennt "hier steht etwas protokolliert" von "die Uebung ist fertig".
+-- Im einfachen Modus fallen beide zusammen, deshalb die Vorgabe 1. Im
+-- Expertenmodus nicht: Wer den ersten Satz eintraegt, ist noch lange nicht
+-- fertig -- er will gleich den zweiten und dritten machen. Ohne diese Spalte
+-- haekte sich die Uebung mit dem ersten Satz selbst ab (§7.4).
 CREATE TABLE IF NOT EXISTS workout_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id       INTEGER NOT NULL REFERENCES sessions(id)       ON DELETE CASCADE,
@@ -231,6 +246,7 @@ CREATE TABLE IF NOT EXISTS workout_log (
     exercise_id      INTEGER NOT NULL REFERENCES exercises(id)      ON DELETE RESTRICT,
     plan_id          INTEGER          REFERENCES plans(id)          ON DELETE SET NULL,
     weight           REAL,
+    done             INTEGER NOT NULL DEFAULT 1 CHECK (done IN (0, 1)),
     performed_at     TEXT    NOT NULL
 );
 
@@ -248,6 +264,35 @@ CREATE INDEX IF NOT EXISTS idx_workout_log_last_value
 
 CREATE INDEX IF NOT EXISTS idx_workout_log_session
     ON workout_log(session_id);
+
+
+-- Die einzelnen Saetze einer Planposition im Expertenmodus (§7.4).
+--
+-- Haengt an workout_log und NICHT direkt an (session_id, plan_exercise_id):
+-- Damit erledigt ON DELETE CASCADE das gesamte Aufraeumen von selbst. Ein
+-- Ab-waehlen loescht die workout_log-Zeile -> Saetze weg; das Loeschen einer
+-- Einheit loescht sessions -> workout_log -> Saetze. Kein einziger eigener
+-- Loeschpfad, der vergessen werden koennte.
+--
+-- reps UND weight sind nullbar: Koerpergewichtsuebungen haben kein Gewicht,
+-- Halte-Uebungen keine Wiederholungszahl. Ein Satz, in dem BEIDES leer ist,
+-- wird von api/log.php abgelehnt -- er saegte nichts aus.
+--
+-- satz_nr wird beim Speichern immer neu von 1 an vergeben. Die Nutzlast
+-- beschreibt die vollstaendige Satzliste, der Server ersetzt sie als Ganzes;
+-- es gibt deshalb keine Luecken und kein Umnummerieren.
+CREATE TABLE IF NOT EXISTS workout_sets (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    workout_log_id INTEGER NOT NULL REFERENCES workout_log(id) ON DELETE CASCADE,
+    satz_nr        INTEGER NOT NULL,
+    reps           INTEGER,
+    weight         REAL
+);
+
+-- Traegt das Lesen in Satzreihenfolge und sichert zugleich, dass eine
+-- Satznummer je Protokollzeile nur einmal vorkommt.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sets_nr
+    ON workout_sets(workout_log_id, satz_nr);
 
 
 -- Einmaliger Uebungstausch, an die EINHEIT gebunden -- nicht an den Plan.

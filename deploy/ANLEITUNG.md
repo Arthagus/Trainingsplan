@@ -8,7 +8,7 @@ installiert werden. Rechnen Sie mit etwa 15 Minuten.
 
 | Datei | Wozu |
 |---|---|
-| `trainingsplan-build.tar.gz` | Das fertige Paket, aus dem Portainer das Image baut (Schritt 2) |
+| `trainingsplan-build-<version>.tar.gz` | Das fertige Paket, aus dem Portainer das Image baut (Schritt 2). Die Nummer aus `VERSION` steht im Dateinamen |
 | `stack.yml` | Die Stack-Definition zum Einfügen in Portainer (Schritt 3) |
 | `env-vorlage.txt` | Die Umgebungsvariablen zum Eintragen (Schritt 4) |
 | `paket_bauen.sh` | Baut das `.tar.gz` neu — **nur nötig, wenn sich der Code geändert hat** |
@@ -74,13 +74,15 @@ müssen sich alle Geräte einmal neu anmelden, mehr passiert nicht.
 2. Links auf **Images**.
 3. Oben auf **Build a new image**.
 4. **Naming**: den Namen aus der `image:`-Zeile von `stack.yml` eintragen,
-   derzeit **`trainingsplan:1.0.21`**.
+   derzeit **`trainingsplan:1.1.4`**.
    Genau diese Schreibweise — die Stack-Datei sucht nach diesem Namen.
    `paket_bauen.sh` hat ihn beim Packen als letzte Zeile ausgegeben und vorher
    geprüft, dass er zur Datei `VERSION` passt; abtippen genügt.
 5. **Build method**: **Upload** wählen.
-6. **Select file**: die Datei `trainingsplan-build.tar.gz` aus diesem Ordner
-   hochladen.
+6. **Select file**: die Datei `trainingsplan-build-<version>.tar.gz` aus diesem
+   Ordner hochladen. Es liegt immer genau **eine** davon da — `paket_bauen.sh`
+   räumt ältere weg —, und die Nummer im Dateinamen ist dieselbe, die Sie eben
+   in Schritt 4 eingetippt haben.
 7. **Dockerfile path**: `Dockerfile` (Standard, unverändert lassen).
 8. Auf **Build the image** klicken.
 

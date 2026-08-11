@@ -112,7 +112,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/db.php` | PDO-Singleton, Schema, Migrationen, Erst-Admin |
 | `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse |
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Auffangnetz |
-| `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Verlauf |
+| `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf |
 | `lib/geraete.php` | Codeliste der Trainingsgeräte, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
@@ -164,6 +164,11 @@ $pdo->exec('PRAGMA busy_timeout = 5000');
 - **Schema in `schema.sql`**, ausschließlich `CREATE TABLE IF NOT EXISTS` /
   `CREATE INDEX IF NOT EXISTS`, läuft bei jedem Start. Neue Spalten kommen als idempotenter
   `PRAGMA table_info`-Block in `apply_migrations()` dazu — **kein** Migrationsverzeichnis.
+
+  **Der Umweg gilt nur für Spalten, nicht für ganze Tabellen.** Eine neue Tabelle gehört nach
+  `schema.sql`: `CREATE TABLE IF NOT EXISTS` läuft bei jedem Start und legt sie auch auf der
+  Bestandsdatenbank an. So kam `workout_sets` in `1.1.0` dazu. Nur `ALTER TABLE ADD COLUMN`
+  kennt kein `IF NOT EXISTS` und braucht deshalb den Blick in `PRAGMA table_info`.
 - **`schema.sql` darf nichts voraussetzen, was erst eine Migration schafft.** Es läuft
   **vor** `apply_migrations()`. Ein Index auf einer nachgerüsteten Spalte gehört deshalb in
   die Migration, nicht ins Schema — sonst scheitert er auf jeder Bestandsdatenbank, die
@@ -470,6 +475,151 @@ einmal zugeschlagen hat.
     `vorschlagMarkup()`. **Wer einen Wert in `GERAETE` ergänzt, ergänzt dort das passende
     `<symbol>`** — sonst bleibt das Abzeichen leer, und zwar ohne Fehlermeldung.
 
+17. **Im Expertenmodus ist die ganze SATZLISTE die Nutzlast, nicht der einzelne Satz** (§7.4,
+    `api/log.php`). `check` nimmt sie als Feld `sets` entgegen und ersetzt die Sätze der
+    Position vollständig — erst `DELETE`, dann `INSERT` von 1 an, alles in **einer**
+    Transaktion. Damit ist der Aufruf idempotent, und genau darauf verlässt sich die
+    Warteschlange: Sie hält einen Eintrag je Planposition, überschreibt ihn bei jeder
+    Änderung und schickt ihn nach einem Funkloch erneut. Ein „Satz anlegen"-Endpunkt hätte
+    bei jedem Wiederversuch einen weiteren Satz erzeugt.
+
+    Daraus folgen drei Dinge, die zusammengehören:
+
+    - **Ein `check` OHNE `sets` löscht vorhandene Sätze.** Die Nutzlast beschreibt die Zeile
+      vollständig; ließe man die alten stehen, zeigte die Position ein Leitgewicht aus einer
+      Satzfolge, die niemand mehr sieht.
+    - **Deshalb ist der Moduswechsel bei laufender Einheit gesperrt** (`api/auth.php →
+      set_expert_mode`, 409). Die Ablage im `localStorage` überlebt einen Wechsel, und ein
+      wartender Eintrag aus dem einfachen Modus trägt keine Satzliste — das wäre stiller
+      Datenverlust mitten im Training.
+    - **Deshalb heißt der `localStorage`-Schlüssel `…-warteschlange-v2`.** Ein Eintrag aus
+      `1.0.x` liefe sonst als `check` ohne Satzliste durch.
+
+    `workout_log.weight` bleibt gefüllt und trägt den **schwersten** Satz. Das ist keine
+    Redundanz: `letztes_gewicht()`, `gewichts_verlauf()` und `uebungen_mit_verlauf()` lesen
+    ausschließlich diese Spalte und funktionieren dadurch über beide Modi hinweg unverändert.
+    `workout_sets` hängt an `workout_log.id` mit `ON DELETE CASCADE` — Ab-wählen und
+    Einheit-Löschen räumen die Sätze von selbst mit weg, es gibt **keinen** eigenen
+    Löschpfad.
+
+    **Eine leere Satzzeile darf nicht mitgeschickt werden.** `+ Satz` legt bei einer Übung
+    ohne Vorlage eine leere Zeile an; `saetze_pruefen()` weist einen Satz ohne Wiederholungen
+    *und* ohne Gewicht zu Recht mit 422 ab. Das Filtern erledigt `saetzeFuerServer()` in
+    `index.js` — `saetzeLesen()` liefert weiterhin **alle** Zeilen, weil die leere im DOM
+    stehen bleiben muss, sie wird ja gerade ausgefüllt. Wer die beiden verwechselt, erzeugt
+    entweder einen roten Fehlerrand ohne Anlass oder eine Zeile, die beim Tippen verschwindet.
+
+18. **„Protokolliert" und „erledigt" sind zwei Zustände** (`workout_log.done`, §7.4). Im
+    einfachen Modus fallen sie zusammen; im Expertenmodus entsteht die Zeile mit dem **ersten
+    Satz**, und da ist man mitten in der Übung. Die erste Fassung von `1.1.0` hatte
+    „Erledigt" an die Existenz der Zeile gekoppelt — ab dem zweiten Satz stand die Übung als
+    fertig da, während der Benutzer noch am Gerät stand.
+
+    Die Trennung zieht sich durch und muss zusammen gedacht werden:
+
+    - **`done = 1` zählt „x/n"** — in `fortschritt()` (`api/log.php`) *und* in
+      `einheiten_verlauf()`. Beide, sonst heißt „erledigt" im Verlauf etwas anderes als im
+      Training.
+    - **Die Tauschsperre hängt an der EXISTENZ der Zeile**, nicht an `done`
+      (`position_abgehakt()` in `api/swap.php`). Wer zwei Sätze Bankdrücken gemacht hat, kann
+      die Position nicht mehr tauschen — die zwei Sätze waren Bankdrücken. `plan_positionen()`
+      liefert dafür `hat_eintrag` neben `erledigt`.
+    - **`done` fehlt in der Nutzlast ⇒ erledigt.** Das ist die Vorgabe für den einfachen
+      Modus und der Rückfall für eine ältere Nutzlast — und der Grund, warum der
+      Warteschlangen-Schlüssel auf `-v3` ging: Ein Eintrag aus `1.1.0` ohne `done` hakte die
+      Übung sonst beim Nachholen ab.
+    - **Ab-wählen löscht im Expertenmodus keine Sätze.** Es setzt nur `done = 0`; gelöscht
+      wird eine Zeile erst, wenn kein Satz mehr übrig und kein Häkchen gesetzt ist.
+    - **`done = 1` schreibt die Position fest** (`abgeschlossene_position_schuetzen()`).
+      Wiederholungen, Gewicht, Sätze hinzufügen oder löschen — alles abgelehnt, bis das
+      Häkchen weg ist. Das gilt seit `1.1.4` auch für das Gewichtsfeld im einfachen Modus,
+      wo es bis dahin nur eine Regel der Oberfläche war.
+
+      **Die eine Ausnahme, die man nicht vergessen darf: Eine unveränderte Nutzlast muss
+      durchgehen.** Die Warteschlange schickt einen Eintrag nach einem Funkloch erneut, und
+      der zweite Aufruf trifft dann auf die bereits abgehakte Position. Ohne diese Ausnahme
+      schlüge er mit 409 fehl — für den Benutzer ein Fehler, obwohl längst alles gespeichert
+      ist. Verglichen wird deshalb inhaltlich (`saetze_gleich()`), und Gewichte nie mit
+      `===`: 40.0 aus der Datenbank und 40.0 aus der Eingabe sind dasselbe Gewicht, aber
+      nicht zwingend dasselbe Bitmuster.
+
+19. **Alle `:hover`-Regeln stehen hinter `@media (hover: hover)`.** Auf einem Touchscreen gibt
+    es kein Verlassen mit dem Zeiger, deshalb bleibt `:hover` am zuletzt angetippten Element
+    kleben. Im Studio sah das so aus, dass Satzkopf und „+ Satz" beim Tippen ihre Blautöne
+    tauschten (`--akzent` gegen `--akzent-tief`) — als reagierte die Oberfläche auf etwas
+    anderes als den Tipp.
+
+    **Dieselbe Klasse von Fehler: Anzeigen, die die Kartenhöhe ändern.** Der wartende
+    Zustand trug bis `1.1.1` einen Hinweissatz in der Karte — sie wurde für die Dauer des
+    Speicherns höher und danach wieder niedriger, und bei jedem Satz sprang die ganze Liste
+    darunter. Was sich im Sekundentakt ändert, darf **nichts verschieben**: `.zeile-wartet`
+    ändert deshalb nur noch `border-left-style` und nicht einmal die Farbe. Wie viele
+    Eingaben ausstehen, sagt die `sticky` Leiste am oberen Rand — eine Anzeige genügt.
+
+    **Und die Farbe des Balkens ist ein Leitsystem, keine Dekoration:** grün = hier bist du
+    (`.zeile-aktiv`, die erste noch nicht erledigte Position), blau = erledigt, grau = kommt
+    noch. Grün für „erledigt" ist der naheliegende Griff und falsch herum — Grün zieht den
+    Blick, und den soll ziehen, was als Nächstes zu tun ist. **`.zeile-aktiv` gibt es nur bei
+    laufender Einheit**, ebenso den aufgeklappten Satzblock: Beides ist eine Aussage über
+    einen Ablauf, und ohne Training läuft keiner. Serverseitig entscheidet das
+    `$aktivePosition` in `index.php`, im Betrieb zieht `aktiveMarkieren()` in `index.js` es
+    nach.
+
+    **Und beim Scrollen an eine Position gehört die Verbindungsleiste eingerechnet.** Sie
+    hängt als **erstes Element im `<body>`** (`assets/app.js`, `verbindung._element()`) und
+    ist `position: sticky; top: 0; z-index: 20` — sie überlagert also alles, was darunter
+    durchscrollt. `scrollIntoView({ block: 'start' })` setzt das Ziel exakt an den oberen
+    Viewport-Rand und damit **unter** die Leiste. Im Training fiel das zuverlässig auf:
+    Genau beim Abhaken wird die Leiste sichtbar (die Eingabe geht in die Warteschlange), und
+    die nächste Übungskarte landete verdeckt — der Name war weg. `zurAktivenSpringen()` in
+    `index.js` rechnet die Höhe deshalb **gemessen** heraus (`offsetHeight`, 0 wenn
+    ausgeblendet) statt mit einer festen Zahl: Der Text der Leiste kann auf schmalen Geräten
+    zweizeilig werden.
+
+    Dazu die Lehre daneben: **`.saetze-kopf` allein reicht als Selektor nicht.**
+    `.summary-knopf` steht weiter unten in derselben Datei und hat dieselbe Spezifität, also
+    gewinnt die spätere Regel. Deshalb `.saetze-block > .saetze-kopf`. Wer einen
+    `.summary-knopf` irgendwo umfärben will, braucht denselben Griff — sonst passiert
+    schlicht nichts, und zwar ohne Fehlermeldung.
+
+20. **Der verzögerte Satz-Speicher muss vor Beenden und Tauschen ausgelöst werden**
+    (`satzSpeichernJetzt()` in `index.js`). Änderungen an der Satzliste gehen erst 800 ms
+    nach der letzten Eingabe raus — sonst löste jeder Tipp auf `−`/`+` einen eigenen Aufruf
+    aus. Der Preis: In diesem Fenster steht der Eintrag **noch nicht in der Warteschlange**.
+
+    `einheitBeenden()` und `tauschOeffnen()` prüfen aber beide genau die Warteschlange
+    (`schlange.anzahl()` bzw. `schlange.eintrag(peId)`). Ohne den vorgezogenen Aufruf sähen
+    sie über einen wartenden Satz hinweg — die Einheit schlösse über ihn hinweg, oder ein
+    Tausch liefe an ihm vorbei. Das ist dieselbe Falle wie in Fallstrick 13, nur eine Ebene
+    davor.
+
+    Aus demselben Grund zeichnet `saetzeSetzen()` die Zeilen **nur** neu, wenn sich ihre
+    Anzahl geändert hat. Beim Tippen und beim Stepper stehen die Felder schon richtig; sie
+    über `innerHTML` zu ersetzen risse dem Benutzer den Fokus mitten aus der Eingabe und den
+    Knopf unter dem Finger weg.
+
+    **Die Satzzeile hat genau einen Erzeuger:** `satzZeileMarkup()` in `index.js`.
+    `index.php` rendert sie *nicht*, sondern liefert die Werte als JSON in `data-saetze` und
+    dazu die Zusammenfassung im `<summary>`. Das ist die Ausnahme von „serverseitig
+    gerendertes HTML", und sie ist begründet: Die Zeile ist ein Bedienelement, das sich im
+    Betrieb ständig ändert (Satz dazu, Satz weg), JS muss sie also ohnehin bauen können —
+    eine zweite Fassung in PHP wäre irgendwann verschieden. Für die Formatierung
+    Für die Formatierung einer Satzfolge gibt es dagegen zwangsläufig **zwei Paare**, jeweils
+    PHP + JS, und beide Hälften gehören zusammen geändert:
+
+    | Funktion | Ergebnis | Wofür |
+    |---|---|---|
+    | `saetze_text()` / `saetzeText()` | `12×40 · 10×40 · 9×45` | die bloße Liste — für die Spalte „Sätze" im Verlauf, deren Kopf die Anzahl schon nennt |
+    | `saetze_zusammenfassung()` / `saetzeZusammenfassung()` | `3 Sätze (12×40 · 10×40 · 9×45)` | eine Satzfolge für sich — Zeile „zuletzt …" und Kopf des Satzblocks |
+
+    **Die Zusammenfassung hat genau eine Schreibweise, und das ist keine Kosmetik.** Die
+    Zeile „zuletzt …" (server-gerendert) und der Kopf des Satzblocks (im Browser gebaut)
+    stehen am Handy direkt übereinander — oben, was letztes Mal war, darunter, was gerade
+    entsteht. Zwei verschiedene Schreibweisen liest man dort unwillkürlich als Unterschied in
+    der Sache. Klammer statt `3 Sätze · 12×40`, weil der Mittelpunkt schon die Sätze
+    untereinander trennt: Als Trenner zwischen Anzahl und Liste gelesen, sieht „3 Sätze" aus
+    wie ein weiterer Listeneintrag.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -479,6 +629,20 @@ Ablauf in `deploy/ANLEITUNG.md`, Topologie in `doku/deployment.md`.
 ```bash
 bash deploy/paket_bauen.sh    # Positivliste packen, lintet vorher
 ```
+
+**Das Paket trägt die Versionsnummer im Dateinamen** —
+`deploy/trainingsplan-build-1.1.2.tar.gz`. Es verlässt den Rechner: Hochgeladen wird es
+irgendwann später in Portainer, und ein Tarball ohne Nummer sieht aus wie jeder andere. Der
+Name wird erst **nach** dem Versionsabgleich gebildet, damit die Nummer darin geprüft ist.
+Existiert die Datei schon, warnt das Skript und packt trotzdem — beim Nachbessern *vor* dem
+Ausrollen ist Überschreiben richtig, und nur der Benutzer weiß, ob die Nummer bereits
+draußen ist.
+
+**Nach dem Bau bleibt genau ein Paket liegen**: Das Skript löscht ältere
+`trainingsplan-build-*.tar.gz`, sonst sammelten sich dort mit jeder Runde welche an und der
+falsche wäre beim Hochladen einen Griff entfernt. Das Aufräumen läuft **erst nach der
+Sicherungsprüfung** — bricht der Bau vorher ab, soll das zuletzt funktionierende Paket noch
+dastehen. Und ausschließlich auf dem eigenen Namensmuster, nie auf `*.tar.gz`.
 
 **Das Paket wird ausschließlich auf ausdrückliche Ansage gebaut.** Nicht nach jeder
 Änderung, nicht „damit es bereitliegt". Der Benutzer gibt seine Rückmeldungen aus dem

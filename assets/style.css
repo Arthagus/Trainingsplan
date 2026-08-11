@@ -85,7 +85,27 @@ body {
     text-decoration: none;
 }
 
-.kopf a:hover { background: rgba(255, 255, 255, 0.12); }
+/* ALLE :hover-Regeln dieser Datei stehen hinter `hover: hover`, und zwar aus
+   einem am Gerät beobachteten Grund: Auf einem Touchscreen gibt es kein
+   Verlassen mit dem Zeiger, deshalb bleibt :hover am zuletzt angetippten
+   Element KLEBEN. Im Training sah das so aus, dass Satzkopf und „+ Satz" beim
+   Tippen die Blautöne untereinander tauschten (--akzent gegen --akzent-tief) —
+   als reagierte die Oberfläche auf etwas anderes als den Tipp. Am Zeigegerät
+   ändert die Abfrage nichts. */
+@media (hover: hover) {
+    .kopf a:hover { background: rgba(255, 255, 255, 0.12); }
+
+    button:hover, .knopf:hover { background: var(--akzent-tief); }
+
+    /* Das Bild ist ein Knopf, sieht aber keiner — die Regel nimmt zurück, was
+       button:hover darüber setzt, und gehört deshalb in dieselbe Abfrage. */
+    .bild-knopf:hover { background: none; }
+
+    .saetze-block > .saetze-kopf:hover { background: var(--linie); }
+
+    .summary-knopf:hover { background: var(--akzent-tief); }
+}
+
 .kopf a.aktiv { background: rgba(255, 255, 255, 0.22); }
 
 /* Der Name gehört zur Marke, ist aber nicht sie — etwas leiser gesetzt, damit
@@ -161,7 +181,7 @@ button, .knopf {
     cursor: pointer;
 }
 
-button:hover, .knopf:hover { background: var(--akzent-tief); }
+/* button:hover steht oben gesammelt hinter @media (hover: hover). */
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 button.leise {
@@ -725,22 +745,35 @@ button.gefahr { background: var(--fehler); }
 
 /* --- Zustaende einer Uebungszeile ---------------------------------------- */
 
+/* Der Balken am linken Rand ist das Leitsystem beim Scrollen durch acht Karten.
+   Drei Zustaende, und die Zuordnung ist bewusst so herum:
+
+     gruen  = HIER BIST DU. Die erste noch nicht erledigte Uebung, waehrend ein
+              Training laeuft. Das ist die Information, die man beim Blick aufs
+              Handy zuerst sucht -- nicht, was schon fertig ist.
+     blau   = erledigt. Abgeschlossen und abgelegt, in der ruhigen Hausfarbe.
+     grau   = kommt noch.
+
+   Frueher war Gruen die Farbe fuer "erledigt". Das ist verlockend, aber falsch
+   herum: Gruen zieht den Blick, und den soll das ziehen, was als Naechstes zu
+   tun ist. */
 .zeile-offen      { border-left: 4px solid var(--linie); }
-.zeile-erledigt   { border-left: 4px solid var(--gut); }
+.zeile-aktiv      { border-left: 4px solid var(--gut); }
+.zeile-erledigt   { border-left: 4px solid var(--akzent); }
+
 /* Ein fehlgeschlagenes Speichern bleibt sichtbar stehen, bis es geklappt hat --
    es wird nie stillschweigend verschluckt. */
 .zeile-fehler     { border-left: 4px solid var(--fehler); background: #fdf3f2; }
 
-/* Gesetzt, aber vom Server noch nicht bestaetigt: gestrichelt statt
-   durchgezogen. Muss NACH .zeile-erledigt stehen -- beide sind einfache
-   Klassen, es entscheidet also die Reihenfolge im Stylesheet. */
-.zeile-wartet     { border-left: 4px dashed var(--warnung); }
+/* Gesetzt, aber vom Server noch nicht bestaetigt.
+   Geaendert wird NUR die Strichart, nicht die Farbe: Der Balken behaelt, was
+   sein Zustand ihm gibt, und strichelt kurz. Bis 1.1.1 wurde er dabei orange --
+   das sah aus wie ein Fehler, obwohl gerade alles seinen Gang geht. Wie viele
+   Eingaben tatsaechlich ausstehen, sagt die Leiste am oberen Rand.
 
-.wartet-hinweis {
-    margin: 0.4rem 0 0;
-    color: var(--warnung);
-    font-size: 0.85rem;
-}
+   Muss NACH den Zustandsklassen stehen: Alles hier sind einfache Klassen, es
+   entscheidet also die Reihenfolge im Stylesheet. */
+.zeile-wartet     { border-left-style: dashed; }
 
 /* --- Verbindungsleiste ---------------------------------------------------- */
 
@@ -845,7 +878,7 @@ button.gefahr { background: var(--fehler); }
     cursor: zoom-in;
 }
 
-.bild-knopf:hover { background: none; }
+/* .bild-knopf:hover ebenfalls oben, siehe @media (hover: hover). */
 
 .letzter-wert { margin: 0.2rem 0 0.6rem; font-size: 0.9rem; }
 
@@ -899,6 +932,11 @@ button.gefahr { background: var(--fehler); }
         grid-column: 1 / -1;
         justify-self: start;
     }
+
+    /* Im Expertenmodus steht das Gewicht in den Sätzen, die mittlere Spalte
+       entfällt also. Bliebe es beim Grid, hinge das Häkchen am Ende der
+       zweiten von drei Spalten und damit in der Mitte statt rechts. */
+    #uebungen[data-experte="1"] .position-aktionen { display: flex; }
 }
 
 /* Das Häkchen ist die Hauptaktion der Seite — entsprechend groß, und es
@@ -918,6 +956,148 @@ button.gefahr { background: var(--fehler); }
 }
 
 .wiederholen { background: var(--warnung); }
+
+/* --- Sätze (Expertenmodus) ------------------------------------------------ */
+
+.saetze-block { margin: 0 0 0.6rem; }
+
+/* Der Satzkopf ist ein .summary-knopf, aber ein leiser: Acht Übungskarten mit
+   je einem vollflächig blauen Balken ergäben eine Seite, auf der nichts mehr
+   hervorsticht. Der Aufklapp-Marker bleibt, die Farbe geht zurück — kräftig
+   ist stattdessen „+ Satz", der Knopf, den man zwischen zwei Sätzen ohne
+   Hinsehen trifft.
+
+   ZWEI Klassen im Selektor, und das ist kein Zufall: `.summary-knopf` steht
+   weiter unten in dieser Datei und hat dieselbe Spezifität. Mit nur
+   `.saetze-kopf` gewänne die spätere Regel, und der Kopf bliebe blau — genau
+   das war bis 1.1.0 der Fall. */
+.saetze-block > .saetze-kopf {
+    display: flex;
+    width: 100%;
+    background: var(--grund-tief);
+    color: var(--schrift);
+    border: 1px solid var(--linie);
+    font-weight: 500;
+}
+
+.saetze-zusammenfassung { font-variant-numeric: tabular-nums; }
+
+.satz-liste {
+    list-style: none;
+    margin: 0 0 0.5rem;
+    padding: 0;
+}
+
+/* Eine Satzzeile muss auf ein schmales Handy passen, ohne dass ein Tippziel
+   unter die Fingerkuppe schrumpft. Die Rechnung, damit sie nachvollziehbar
+   bleibt — verfügbar sind Fensterbreite minus 66 px (je 1 rem Polster an
+   `.inhalt` und an der Karte, plus deren Rahmen):
+
+     Nummer 20 + Stepper 142 + „×" 12 + Feld 81 + Löschen 44 + Abstände 16 = 315
+
+   Das passt ab 400 px Fensterbreite. Darunter entfallen gestaffelt die reinen
+   Beschriftungen (siehe die beiden Media Queries unten) — die Knöpfe bleiben in
+   jedem Fall bei voller Größe, sie sind der Grund für die ganze Rechnung. */
+.satz-zeile {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0;
+}
+
+.satz-nr {
+    width: 1.25rem;
+    color: var(--schrift-matt);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.satz-mal { color: var(--schrift-matt); }
+
+/* −  12  +  als eine zusammenhängende Einheit. Die Wiederholungen ändern sich
+   fast immer nur um ±1 gegenüber dem Vorschlag — dafür sind zwei große Ziele
+   schneller und sicherer als die Zifferntastatur mit feuchten Fingern. Die
+   Zahl selbst bleibt ein Eingabefeld, für den Sprung von 12 auf 25. */
+/* Der Abstand ist kein Zierrat, sondern macht Platz fuer den Fokusrahmen des
+   Zahlenfeldes. Ohne ihn lag der Rahmen ueber dem Minus- und unter dem
+   Plus-Knopf -- die Malreihenfolge entscheidet das, nicht die Absicht. */
+.stepper {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+}
+
+/* Und damit die 3px reichen, liegt der Rahmen hier eng am Feld statt mit den
+   ueblichen 2px Abstand. */
+.stepper input:focus-visible { outline-offset: 0; }
+
+.stepper button {
+    min-width: var(--tippziel);
+    min-height: var(--tippziel);
+    padding: 0;
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
+.stepper input[type="text"] {
+    width: 3rem;
+    text-align: center;
+    padding-inline: 0.2rem;
+    border-radius: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.satz-zeile .wert-feld { flex: none; }
+
+.satz-zeile .wert-feld input[type="text"] { width: 3.5rem; }
+
+.satz-weg {
+    min-width: var(--tippziel);
+    min-height: var(--tippziel);
+    margin-left: auto;
+    padding: 0;
+    color: var(--fehler);
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+/* Der Hauptknopf des Modus: ein Tipp je Satz, und im Text steht schon, was
+   dabei herauskommt. Über die volle Breite, weil man ihn zwischen zwei Sätzen
+   ohne Hinsehen treffen können muss. */
+.satz-hinzu {
+    width: 100%;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Abgehakt heißt festgeschrieben (§7.4). Die Knöpfe sind dann `disabled` und
+   damit über `button:disabled` schon blass; die Eingabefelder brauchen einen
+   eigenen Hinweis, sonst sähen sie weiter aus wie Eingabefelder und man tippt
+   vergeblich hinein. Gedämpfter Grund statt Ausgrauen der Schrift: Die Werte
+   sollen lesbar bleiben — man schaut sie ja an. */
+.satz-zeile input[readonly] {
+    background: var(--grund-tief);
+    color: var(--schrift-matt);
+    border-color: var(--linie);
+    cursor: default;
+}
+
+/* Bis 400 px (die meisten Handys im Hochformat) fallen „×" und „kg" weg: reine
+   Beschriftungen, die keine Information tragen, welche nicht auch aus der
+   Anordnung hervorginge. Spart rund 41 px, macht 274 — passt ab 340 px. */
+@media (max-width: 25rem) {
+    .satz-mal,
+    .satz-zeile .wert-einheit { display: none; }
+}
+
+/* Unter 352 px (die schmalsten Geräte) geht zusätzlich die Satznummer. Sie
+   steht als Reihenfolge ohnehin in der Liste. Macht 250 — passt ab 316 px.
+   Die aria-label der Felder nennen Nummer, Einheit und Bedeutung weiterhin,
+   für alle drei Stufen gleich. */
+@media (max-width: 22rem) {
+    .satz-nr { display: none; }
+}
 
 /* --- Dialoge ------------------------------------------------------------- */
 
@@ -1094,7 +1274,7 @@ dialog h2 { margin-top: 0; }
 details[open] > .summary-knopf { margin-bottom: 0.5rem; }
 details[open] > .summary-knopf::before { content: "−"; }
 
-.summary-knopf:hover { background: var(--akzent-tief); }
+/* .summary-knopf:hover ebenfalls oben, siehe @media (hover: hover). */
 
 .summary-knopf:focus-visible {
     outline: 2px solid var(--akzent);
@@ -1265,6 +1445,40 @@ details[open] > .einheit-kopf::before { content: "▾"; }
     width: 100%;
     height: 1.75rem;
 }
+
+/* Die Satzfolge ist der längste Zellinhalt der Tabelle und darf sich schmal
+   machen — sie steht dicht neben ihrem Datum und wird nicht überflogen,
+   sondern gelesen. */
+.satz-spalte {
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Fünf Spalten passen auf kein Handy. Statt umbrechender Zellen rollt die
+   Tabelle seitwärts in ihrem eigenen Kasten; die Seite selbst bleibt fest. */
+.tabelle-rollt { overflow-x: auto; }
+
+/* Volumen- und 1RM-Kurve stehen im aufgeklappten Bereich, jede mit ihrer
+   Beschriftung davor — ohne sie wären zwei gleich aussehende Linien
+   nicht auseinanderzuhalten. */
+.kurven-zeile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.35rem 0;
+}
+
+.kurve-titel {
+    flex: none;
+    min-width: 8.5rem;
+    font-size: 0.85rem;
+    color: var(--schrift-matt);
+}
+
+/* In der Zusammenfassungszeile teilt sich die Kurve den Platz mit Name und
+   Eckdaten und bleibt deshalb schmal. Hier hat sie die Zeile für sich. */
+.kurven-zeile .verlauf-kurve-halter { flex: 1 1 auto; }
 
 .diff-plus  { color: var(--gut); font-weight: 600; }
 .diff-minus { color: var(--warnung); font-weight: 600; }

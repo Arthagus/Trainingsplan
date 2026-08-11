@@ -161,10 +161,16 @@ function aktion_tauschen(array $eingabe): never {
 
     // Gilt fuer BEIDE Modi. Die Alternative -- den Protokolleintrag auf die
     // Ersatzuebung umzuschreiben -- wuerde stillschweigend Historie faelschen.
+    //
+    // Gesperrt wird, sobald ETWAS protokolliert ist -- im Expertenmodus also
+    // schon ab dem ersten Satz und nicht erst ab dem Haekchen (§7.4). Wer zwei
+    // Saetze Bankdruecken gemacht hat, kann die Position nicht mehr gegen eine
+    // andere Uebung tauschen; die zwei Saetze waren Bankdruecken.
     if (position_abgehakt($peId)) {
         json_err(
-            'Diese Übung ist bereits als erledigt markiert. Zum Tauschen erst das '
-            . 'Häkchen entfernen, dann tauschen und neu abhaken.',
+            'Für diese Übung sind bereits Werte protokolliert. Zum Tauschen erst '
+            . 'die Werte entfernen — Häkchen weg bzw. Sätze löschen —, dann '
+            . 'tauschen und neu eintragen.',
             409
         );
     }

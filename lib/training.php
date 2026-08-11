@@ -87,6 +87,213 @@ function letztes_gewicht(int $userId, int $exerciseId): ?float {
 }
 
 /**
+ * Bringt eine Satzzeile aus der Datenbank in die Form, die die App benutzt.
+ *
+ * PDO liefert alles als Text; ohne diese Stelle stuenden in den JSON-Antworten
+ * "12" und "40" statt 12 und 40, und der Vergleich im Browser ginge schief.
+ */
+function satz_zeile(array $z): array {
+    return [
+        'satz_nr' => (int)$z['satz_nr'],
+        'reps'    => $z['reps']   === null ? null : (int)$z['reps'],
+        'weight'  => $z['weight'] === null ? null : (float)$z['weight'],
+    ];
+}
+
+/**
+ * Alle Saetze einer Einheit, geschluesselt nach Planposition.
+ *
+ * Bewusst EINE Abfrage fuer die ganze Einheit statt einer je Position:
+ * plan_positionen() laeuft ohnehin schon mit einer N+1-Schleife fuer
+ * Muskelgruppen und "letztes Gewicht"; eine dritte kaeme bei acht Positionen
+ * auf acht weitere Abfragen, ohne dass es dafuer einen Grund gaebe.
+ */
+function saetze_der_einheit(int $sessionId): array {
+    $stmt = db()->prepare(
+        'SELECT wl.plan_exercise_id, ws.satz_nr, ws.reps, ws.weight
+           FROM workout_sets ws
+           JOIN workout_log wl ON wl.id = ws.workout_log_id
+          WHERE wl.session_id = ?
+          ORDER BY wl.plan_exercise_id, ws.satz_nr'
+    );
+    $stmt->execute([$sessionId]);
+
+    $nach = [];
+    foreach ($stmt->fetchAll() as $z) {
+        // Eine Protokollzeile ohne Planposition gibt es nur historisch (§4.1);
+        // fuer die laufende Einheit ist sie bedeutungslos.
+        if ($z['plan_exercise_id'] === null) {
+            continue;
+        }
+        $nach[(int)$z['plan_exercise_id']][] = satz_zeile($z);
+    }
+
+    return $nach;
+}
+
+/**
+ * Die Saetze aus der letzten Einheit, in der diese Uebung satzgenau
+ * protokolliert wurde -- Grundlage fuer "letztes Mal" und die Vorbelegung
+ * beim Hinzufuegen eines Satzes (§7.4).
+ *
+ * $ausserSessionId schliesst die LAUFENDE Einheit aus, und das ist nicht
+ * optional gemeint: Ohne diesen Ausschluss lieferte die Abfrage waehrend des
+ * Trainings die Saetze, die man gerade selbst eingetragen hat -- "letztes Mal"
+ * zeigte dann auf das aktuelle Mal.
+ *
+ * Uebersprungen werden Einheiten OHNE Saetze: Wer zwischendurch im einfachen
+ * Modus trainiert hat, verliert seine Satzvorlage dadurch nicht.
+ */
+function letzte_saetze(int $userId, int $exerciseId, ?int $ausserSessionId = null): array {
+    $stmt = db()->prepare(
+        'SELECT ws.satz_nr, ws.reps, ws.weight
+           FROM workout_sets ws
+          WHERE ws.workout_log_id = (
+                SELECT wl.id
+                  FROM workout_log wl
+                 WHERE wl.user_id = ? AND wl.exercise_id = ?
+                   AND (? IS NULL OR wl.session_id <> CAST(? AS INTEGER))
+                   AND EXISTS (SELECT 1 FROM workout_sets w2
+                                WHERE w2.workout_log_id = wl.id)
+                 ORDER BY wl.performed_at DESC, wl.id DESC
+                 LIMIT 1)
+          ORDER BY ws.satz_nr'
+    );
+    $stmt->execute([$userId, $exerciseId, $ausserSessionId, $ausserSessionId]);
+
+    return array_map('satz_zeile', $stmt->fetchAll());
+}
+
+/**
+ * Die Saetze zu mehreren Protokollzeilen auf einmal, geschluesselt nach
+ * workout_log.id -- fuer den Verlauf, der sonst je Zeile eine Abfrage braeuchte.
+ *
+ * Die IDs stammen ausschliesslich aus vorherigen Abfragen, nie aus einer
+ * Eingabe. Trotzdem Platzhalter statt Interpolation: Die Regel "ausschliesslich
+ * Prepared Statements" kennt keine Ausnahme fuer Faelle, die heute harmlos sind.
+ */
+function saetze_zu_logs(array $logIds): array {
+    if ($logIds === []) {
+        return [];
+    }
+
+    $ids = array_map('intval', array_values($logIds));
+    $stmt = db()->prepare(
+        'SELECT workout_log_id, satz_nr, reps, weight
+           FROM workout_sets
+          WHERE workout_log_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')
+          ORDER BY workout_log_id, satz_nr'
+    );
+    $stmt->execute($ids);
+
+    $nach = [];
+    foreach ($stmt->fetchAll() as $z) {
+        $nach[(int)$z['workout_log_id']][] = satz_zeile($z);
+    }
+
+    return $nach;
+}
+
+/**
+ * Eine Satzfolge als Text: "12×40 · 10×40 · 9×45" -- die blosse Liste, ohne
+ * Anzahl davor.
+ *
+ * So gebraucht im Verlauf (history.php): Dort steht sie in einer Tabellenspalte,
+ * deren Kopf bereits "Saetze" heisst -- eine Anzahl daneben waere Doppelung, und
+ * die Spalte ist ohnehin die breiteste. Wer eine Satzfolge FUER SICH zeigt,
+ * nimmt saetze_zusammenfassung().
+ *
+ * Das Gegenstueck heisst saetzeText() in index.js. Zwei Fassungen sind hier
+ * unvermeidlich -- die Liste entsteht server-gerendert UND im Browser --,
+ * deshalb stehen beide bewusst nebeneinander und muessen zusammen geaendert
+ * werden. Mehr als diese Formatierung teilen sie nicht.
+ */
+function saetze_text(array $saetze): string {
+    if ($saetze === []) {
+        return '';
+    }
+
+    $teile = [];
+    foreach ($saetze as $s) {
+        $wdh = $s['reps']   === null ? '?' : (string)$s['reps'];
+        $kg  = $s['weight'] === null ? '—' : format_decimal($s['weight']);
+        $teile[] = $wdh . '×' . $kg;
+    }
+
+    return implode(' · ', $teile);
+}
+
+/**
+ * Eine Satzfolge als Zusammenfassung: "3 Sätze (12×45 · 10×45 · 8×50)".
+ *
+ * DIE EINE Schreibweise fuer beide Stellen, an denen eine Satzfolge zusammen-
+ * gefasst wird: die Zeile "zuletzt ..." und der Kopf des Satzblocks. Sie stehen
+ * am Handy direkt uebereinander -- oben was letztes Mal war, darunter was gerade
+ * entsteht --, und zwei verschiedene Schreibweisen macht man dort unwillkuerlich
+ * zu einem Unterschied in der Sache.
+ *
+ * Klammer und nicht "3 Sätze · 12×45": Der Mittelpunkt trennt schon die Saetze
+ * untereinander. Als Trenner zwischen Anzahl und Liste gelesen, sieht "3 Sätze"
+ * aus wie ein weiterer Listeneintrag.
+ *
+ * Gegenstueck: saetzeZusammenfassung() in index.js.
+ */
+function saetze_zusammenfassung(array $saetze): string {
+    if ($saetze === []) {
+        return 'Noch kein Satz';
+    }
+
+    $anzahl = count($saetze) . (count($saetze) === 1 ? ' Satz' : ' Sätze');
+
+    return $anzahl . ' (' . saetze_text($saetze) . ')';
+}
+
+/**
+ * Das Trainingsvolumen einer Satzfolge: Summe aus Wiederholungen mal Gewicht.
+ *
+ * null, sobald kein einziger Satz beide Werte traegt -- eine 0 waere gelogen,
+ * sie stuende fuer "nichts bewegt" statt fuer "nicht berechenbar" und riss in
+ * der Kurve einen Einbruch, den es nie gab.
+ */
+function saetze_volumen(array $saetze): ?float {
+    $summe = 0.0;
+    $zaehlt = false;
+
+    foreach ($saetze as $s) {
+        if ($s['reps'] !== null && $s['weight'] !== null) {
+            $summe += $s['reps'] * $s['weight'];
+            $zaehlt = true;
+        }
+    }
+
+    return $zaehlt ? $summe : null;
+}
+
+/**
+ * Geschaetztes Einwiederholungsmaximum nach Epley: kg × (1 + Wdh/30), das
+ * Maximum ueber die Saetze.
+ *
+ * Eine NAEHERUNG, keine Messung -- die Anzeige sagt das ausdruecklich dazu.
+ * Ohne diesen Hinweis waere die Zahl genau der Fehler, wegen dem 2026-08-07
+ * das Wiederholungsfeld geflogen ist: vorgetaeuschte Genauigkeit.
+ */
+function saetze_e1rm(array $saetze): ?float {
+    $best = null;
+
+    foreach ($saetze as $s) {
+        if ($s['reps'] === null || $s['weight'] === null || $s['weight'] <= 0.0) {
+            continue;
+        }
+        $wert = $s['weight'] * (1 + $s['reps'] / 30);
+        if ($best === null || $wert > $best) {
+            $best = $wert;
+        }
+    }
+
+    return $best;
+}
+
+/**
  * Die Positionen eines Plans, wie sie in dieser Einheit anzuzeigen sind.
  *
  * Zwei Dinge stecken hier drin, die eine naive Umsetzung falsch macht:
@@ -99,9 +306,15 @@ function letztes_gewicht(int $userId, int $exerciseId): ?float {
  *    steht in workout_log.exercise_id die Ersatzuebung; ohne
  *    plan_exercise_id waere "x/n" nicht zaehlbar (§4).
  *
- * @param int|null $sessionId Offene Einheit, oder null wenn noch keine laeuft
+ * @param int|null $sessionId  Offene Einheit, oder null wenn noch keine laeuft
+ * @param bool     $mitSaetzen Expertenmodus: Satzliste und Satzvorlage mitladen
  */
-function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
+function plan_positionen(
+    int $userId,
+    int $planId,
+    ?int $sessionId,
+    bool $mitSaetzen = false
+): array {
     $stmt = db()->prepare(
         'SELECT pe.id            AS plan_exercise_id,
                 pe.sort_order,
@@ -112,7 +325,7 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
                 e.image_path, e.archived,
                 orig.name_de     AS plan_uebung_name,
                 wl.id            AS log_id,
-                wl.weight, wl.performed_at
+                wl.weight, wl.done, wl.performed_at
            FROM plan_exercises pe
            LEFT JOIN exercise_swaps sw
                   ON sw.plan_exercise_id = pe.id AND sw.session_id = :sid
@@ -136,16 +349,30 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
           ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de'
     );
 
+    // Einmal fuer die ganze Einheit, nicht je Position. Ohne laufende Einheit
+    // und ausserhalb des Expertenmodus gibt es nichts zu holen.
+    $saetzeDerEinheit = ($mitSaetzen && $sessionId !== null)
+        ? saetze_der_einheit($sessionId)
+        : [];
+
     $ergebnis = [];
     foreach ($zeilen as $z) {
         $exerciseId = (int)$z['exercise_id'];
         $gruppen->execute([$exerciseId]);
 
-        $erledigt = $z['log_id'] !== null;
-        $letztes  = letztes_gewicht($userId, $exerciseId);
+        // ZWEI Zustaende, die im einfachen Modus zusammenfallen und im
+        // Expertenmodus auseinandergehen:
+        //   hat_eintrag -- es ist etwas protokolliert (und sei es ein Satz)
+        //   erledigt    -- die Uebung ist als fertig markiert
+        // Am ersten haengt die Tauschsperre (§7.5), am zweiten "x/n" und das
+        // Haekchen.
+        $hatEintrag = $z['log_id'] !== null;
+        $erledigt   = $hatEintrag && (int)$z['done'] === 1;
+        $letztes    = letztes_gewicht($userId, $exerciseId);
+        $peId       = (int)$z['plan_exercise_id'];
 
         $ergebnis[] = [
-            'plan_exercise_id' => (int)$z['plan_exercise_id'],
+            'plan_exercise_id' => $peId,
             'exercise_id'      => $exerciseId,
             'name_de'          => (string)$z['name_de'],
             'name_en'          => $z['name_en'],
@@ -158,11 +385,21 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
             'plan_uebung_name' => (string)$z['plan_uebung_name'],
             'muskelgruppen'    => $gruppen->fetchAll(),
             'erledigt'         => $erledigt,
+            'hat_eintrag'      => $hatEintrag,
             // Vorbelegung: in der Einheit protokollierter Wert, sonst der
-            // letzte bekannte. Ein bewusst geleertes Feld einer erledigten
-            // Position bleibt leer und wird nicht wieder aufgefuellt.
-            'weight'           => $erledigt ? to_decimal_or_null($z['weight']) : $letztes,
+            // letzte bekannte. Ein bewusst geleertes Feld einer bereits
+            // protokollierten Position bleibt leer und wird nicht wieder
+            // aufgefuellt.
+            'weight'           => $hatEintrag ? to_decimal_or_null($z['weight']) : $letztes,
             'letztes_gewicht'  => $letztes,
+            // Die Saetze DIESER Einheit -- die Eingabe von jetzt.
+            'saetze'           => $saetzeDerEinheit[$peId] ?? [],
+            // Die Saetze vom LETZTEN Mal -- Anzeige und Vorbelegung. Die
+            // laufende Einheit ist ausgeschlossen, sonst zeigte "letztes Mal"
+            // auf das, was man gerade selbst eingetragen hat.
+            'letzte_saetze'    => $mitSaetzen
+                ? letzte_saetze($userId, $exerciseId, $sessionId)
+                : [],
         ];
     }
 
@@ -404,7 +641,8 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
     $stmt = db()->prepare(
         'SELECT s.id, s.started_at, s.ended_at, s.plan_id,
                 p.name AS plan_name,
-                (SELECT COUNT(*) FROM workout_log wl WHERE wl.session_id = s.id) AS erledigt,
+                (SELECT COUNT(*) FROM workout_log wl
+                  WHERE wl.session_id = s.id AND wl.done = 1) AS erledigt,
                 (SELECT COUNT(*) FROM plan_exercises pe WHERE pe.plan_id = s.plan_id) AS gesamt
            FROM sessions s
            LEFT JOIN plans p ON p.id = s.plan_id
@@ -425,7 +663,7 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
  */
 function einheit_eintraege(int $sessionId, int $userId): array {
     $stmt = db()->prepare(
-        'SELECT wl.exercise_id, wl.weight, wl.performed_at,
+        'SELECT wl.id AS log_id, wl.exercise_id, wl.weight, wl.performed_at,
                 e.name_de,
                 pe.sort_order,
                 pe.exercise_id AS plan_uebung_id,
@@ -466,10 +704,13 @@ function uebungen_mit_verlauf(int $userId): array {
 
 /**
  * Der Gewichtsverlauf einer Uebung, aelteste zuerst (fuer die Kurve).
+ *
+ * wl.id kommt mit, damit sich ueber saetze_zu_logs() die Saetze je Punkt
+ * zuordnen lassen -- daraus entstehen Volumen und geschaetztes 1RM (§7.8).
  */
 function gewichts_verlauf(int $userId, int $exerciseId, int $limit = 60): array {
     $stmt = db()->prepare(
-        'SELECT wl.weight, wl.performed_at
+        'SELECT wl.id AS log_id, wl.weight, wl.performed_at
            FROM workout_log wl
           WHERE wl.user_id = ? AND wl.exercise_id = ? AND wl.weight IS NOT NULL
           ORDER BY wl.performed_at DESC, wl.id DESC

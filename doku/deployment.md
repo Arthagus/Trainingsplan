@@ -76,7 +76,8 @@ Wie bei solarwatch in zwei Schritten, weil Portainer den Quelltext nicht sieht
 und das Image deshalb nicht selbst aus dem Repo bauen kann.
 
 1. **Paket schnüren** (auf dem Entwicklungsrechner, im Projektverzeichnis):
-   `bash deploy/paket_bauen.sh` → `deploy/trainingsplan-build.tar.gz`
+   `bash deploy/paket_bauen.sh` → `deploy/trainingsplan-build-<version>.tar.gz`
+   (die Nummer aus `VERSION` steht im Dateinamen)
 2. **Image bauen:** Portainer → Environment `10.10.10.2` → *Images* → *Build a
    new image* → Tarball hochladen → Name `trainingsplan:1.0.0`
 3. **Stack anlegen:** Portainer → *Stacks* → *Add stack* → *Web editor* →

@@ -41,10 +41,20 @@ $offen     = offene_einheit($userId);
  * keine Abhängigkeiten" ein und wiegt nichts. Bei weniger als zwei Punkten
  * gibt es nichts zu verbinden — dann bleibt die Fläche leer.
  *
- * @param array $punkte Aufsteigend nach Zeit, je ['weight' => float]
+ * Punkte, deren Feld null ist, fallen heraus statt als 0 zu zaehlen: Volumen
+ * und 1RM gibt es nur fuer satzgenau protokollierte Einheiten, und eine 0 riss
+ * in die Kurve einen Einbruch, den es nie gegeben hat.
+ *
+ * @param array  $punkte Aufsteigend nach Zeit
+ * @param string $feld   Welcher Wert gezeichnet wird
  */
-function verlauf_kurve(array $punkte): void {
-    $werte = array_map(static fn(array $p): float => (float)$p['weight'], $punkte);
+function verlauf_kurve(array $punkte, string $feld = 'weight'): void {
+    $werte = [];
+    foreach ($punkte as $p) {
+        if (($p[$feld] ?? null) !== null) {
+            $werte[] = (float)$p[$feld];
+        }
+    }
     if (count($werte) < 2) {
         return;
     }
@@ -122,6 +132,11 @@ require __DIR__ . '/lib/view_header.php';
                 $eintraege = einheit_eintraege((int)$e['id'], $userId);
                 $gesamt    = (int)$e['gesamt'];
                 $fertig    = (int)$e['erledigt'];
+
+                // Ein Aufruf je Einheit, nicht je Zeile: saetze_zu_logs() holt
+                // die Saetze aller Positionen dieser Einheit auf einmal.
+                $saetze = saetze_zu_logs(array_column($eintraege, 'log_id'));
+                $mitSaetzen = $saetze !== [];
                 ?>
                 <li class="karte einheit-karte" data-session="<?= (int)$e['id'] ?>">
                     <details>
@@ -143,12 +158,21 @@ require __DIR__ . '/lib/view_header.php';
                         <?php if ($eintraege === []): ?>
                             <p class="matt">Keine Übung protokolliert.</p>
                         <?php else: ?>
+                            <?php // Die Spalte „Sätze" steht nur, wenn diese Einheit
+                                  // welche hat. Eine leere Spalte über jede im
+                                  // einfachen Modus protokollierte Einheit hinweg
+                                  // wäre am Handy verschenkte Breite. ?>
                             <table class="verlauf-tabelle">
                                 <thead>
-                                    <tr><th>Übung</th><th class="spalte-zahl">Gewicht</th></tr>
+                                    <tr>
+                                        <th>Übung</th>
+                                        <?php if ($mitSaetzen): ?><th>Sätze</th><?php endif; ?>
+                                        <th class="spalte-zahl">Gewicht</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
                                 <?php foreach ($eintraege as $z): ?>
+                                    <?php $zeilenSaetze = $saetze[(int)$z['log_id']] ?? []; ?>
                                     <tr>
                                         <td>
                                             <?= h((string)$z['name_de']) ?>
@@ -159,6 +183,13 @@ require __DIR__ . '/lib/view_header.php';
                                                 <span class="abzeichen">statt <?= h((string)$z['plan_uebung_name']) ?></span>
                                             <?php endif; ?>
                                         </td>
+                                        <?php if ($mitSaetzen): ?>
+                                            <td class="satz-spalte">
+                                                <?= $zeilenSaetze === []
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(saetze_text($zeilenSaetze)) ?>
+                                            </td>
+                                        <?php endif; ?>
                                         <td class="spalte-zahl">
                                             <?= $z['weight'] === null
                                                 ? '<span class="matt">—</span>'
@@ -168,6 +199,13 @@ require __DIR__ . '/lib/view_header.php';
                                 <?php endforeach; ?>
                                 </tbody>
                             </table>
+
+                            <?php if ($mitSaetzen): ?>
+                                <p class="matt">
+                                    Bei satzgenau erfassten Übungen ist das Gewicht der
+                                    schwerste Satz.
+                                </p>
+                            <?php endif; ?>
                         <?php endif; ?>
 
                         <?php // Fuer Fehleingaben: versehentlich gestartet, doch nicht
@@ -204,6 +242,19 @@ require __DIR__ . '/lib/view_header.php';
                 $letzter = $verlauf === [] ? null : (float)end($verlauf)['weight'];
                 $erster  = $verlauf === [] ? null : (float)$verlauf[0]['weight'];
                 $diff    = ($letzter !== null && $erster !== null) ? $letzter - $erster : 0.0;
+
+                // Volumen und geschaetztes 1RM je Punkt. Ein Aufruf fuer den
+                // ganzen Verlauf; gerechnet wird in PHP und nicht in SQL -- die
+                // Datenmenge ist winzig, und die Formel gehoert dorthin, wo man
+                // sie lesen kann.
+                $saetzeJeLog = saetze_zu_logs(array_column($verlauf, 'log_id'));
+                foreach ($verlauf as $i => $p) {
+                    $s = $saetzeJeLog[(int)$p['log_id']] ?? [];
+                    $verlauf[$i]['saetze']  = $s;
+                    $verlauf[$i]['volumen'] = saetze_volumen($s);
+                    $verlauf[$i]['e1rm']    = saetze_e1rm($s);
+                }
+                $hatSaetze = $saetzeJeLog !== [];
                 ?>
                 <li class="karte">
                     <details>
@@ -221,14 +272,64 @@ require __DIR__ . '/lib/view_header.php';
                             </span>
                         </summary>
 
+                        <?php // Volumen und 1RM stehen INNERHALB des aufgeklappten
+                              // Bereichs. Die Zusammenfassungszeile bleibt der
+                              // Gewichtskurve vorbehalten: Drei Kurven nebeneinander
+                              // machen den <summary> am Handy unlesbar. ?>
+                        <?php if ($hatSaetze): ?>
+                            <p class="kurven-zeile">
+                                <span class="kurve-titel">Volumen</span>
+                                <span class="verlauf-kurve-halter">
+                                    <?php verlauf_kurve($verlauf, 'volumen'); ?>
+                                </span>
+                            </p>
+                            <p class="kurven-zeile">
+                                <span class="kurve-titel">1RM (geschätzt)</span>
+                                <span class="verlauf-kurve-halter">
+                                    <?php verlauf_kurve($verlauf, 'e1rm'); ?>
+                                </span>
+                            </p>
+                        <?php endif; ?>
+
+                        <?php // Mit Sätzen, Volumen und 1RM hat die Tabelle fünf
+                              // Spalten und passt auf kein Handy. Sie rollt dann
+                              // seitwärts in ihrem eigenen Kasten — die Alternative
+                              // wären umbrechende Zellen, in denen „12×40 · 10×40"
+                              // über drei Zeilen steht. ?>
+                        <div class="<?= $hatSaetze ? 'tabelle-rollt' : '' ?>">
                         <table class="verlauf-tabelle">
                             <thead>
-                                <tr><th>Datum</th><th class="spalte-zahl">Gewicht</th></tr>
+                                <tr>
+                                    <th>Datum</th>
+                                    <?php if ($hatSaetze): ?>
+                                        <th>Sätze</th>
+                                        <th class="spalte-zahl">Volumen</th>
+                                        <th class="spalte-zahl">1RM</th>
+                                    <?php endif; ?>
+                                    <th class="spalte-zahl">Gewicht</th>
+                                </tr>
                             </thead>
                             <tbody>
                             <?php foreach (array_reverse($verlauf) as $v): ?>
                                 <tr>
                                     <td><?= h(format_datetime($v['performed_at'])) ?></td>
+                                    <?php if ($hatSaetze): ?>
+                                        <td class="satz-spalte">
+                                            <?= $v['saetze'] === []
+                                                ? '<span class="matt">—</span>'
+                                                : h(saetze_text($v['saetze'])) ?>
+                                        </td>
+                                        <td class="spalte-zahl">
+                                            <?= $v['volumen'] === null
+                                                ? '<span class="matt">—</span>'
+                                                : h(format_decimal(round($v['volumen']))) . ' kg' ?>
+                                        </td>
+                                        <td class="spalte-zahl">
+                                            <?= $v['e1rm'] === null
+                                                ? '<span class="matt">—</span>'
+                                                : h(format_decimal(round($v['e1rm'], 1))) . ' kg' ?>
+                                        </td>
+                                    <?php endif; ?>
                                     <td class="spalte-zahl">
                                         <?= h(format_decimal((float)$v['weight'])) ?> kg
                                     </td>
@@ -236,10 +337,27 @@ require __DIR__ . '/lib/view_header.php';
                             <?php endforeach; ?>
                             </tbody>
                         </table>
+                        </div>
 
                         <p class="matt">
                             Bestwert <?= h(format_decimal((float)$u['bestwert'])) ?> kg
                         </p>
+
+                        <?php // Der Vorbehalt gehört sichtbar an die Zahl und nicht in
+                              // eine Fußnote: Ein geschätztes Maximum sieht aus wie ein
+                              // gemessenes. Genau diese vorgetäuschte Genauigkeit hat
+                              // 2026-08-07 das Wiederholungsfeld gekostet. ?>
+                        <?php if ($hatSaetze): ?>
+                            <p class="matt">
+                                <strong>Volumen</strong> ist die Summe aus Wiederholungen
+                                mal Gewicht über alle Sätze einer Einheit — sie steigt
+                                auch dann, wenn das Gewicht gleich bleibt.
+                                <strong>1RM</strong> ist das geschätzte
+                                Einwiederholungsmaximum nach Epley
+                                (kg × (1 + Wdh ÷ 30)) aus dem besten Satz — eine
+                                Näherung, kein gemessener Wert.
+                            </p>
+                        <?php endif; ?>
                     </details>
                 </li>
             <?php endforeach; ?>

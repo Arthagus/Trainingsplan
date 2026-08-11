@@ -13,6 +13,48 @@ für mehrere Benutzer. Umsetzung mit Claude Code.
 > sondern als n:m-Zuordnung mit Primär-Kennzeichnung (§4 `exercise_muscle_groups`,
 > §6.3 Checkbox-Auswahl, §7.5 Tauschlogik).
 >
+> **Nachtrag 2026-08-11 (`1.1.3` und `1.1.4`):** Zwei weitere Punkte aus dem Einsatz —
+> (1) Beim Weiterspringen nach dem Abhaken landete die nächste Karte **unter der
+> Verbindungsleiste** (sticky, wird genau in dem Moment sichtbar); ihre Höhe wird jetzt
+> abgezogen (§7.3). (2) **Abgehakte Übungen sind festgeschrieben**: Im Expertenmodus ließen
+> sich Wiederholungen und Gewicht nachträglich ändern und Sätze hinzufügen oder löschen. Das
+> war ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte; mit dem
+> Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig**, mit einer
+> ausdrücklichen Ausnahme für unveränderte Nutzlasten — sonst zerbräche die Idempotenz der
+> Warteschlange (§7.4).
+>
+> **Nachtrag 2026-08-11 (Feinschliff aus dem zweiten Einsatz, `1.1.2`):** Vier Punkte, alle
+> zur Bedienung am Gerät — (1) **Farbleitsystem am linken Kartenrand**: grün = hier bist du,
+> blau = erledigt, grau = kommt noch. Grün zieht den Blick, und den soll ziehen, was als
+> Nächstes zu tun ist (§7.3). (2) **Aktive Position und aufgeklappter Satzblock nur während
+> eines Trainings**; „Training starten" öffnet die erste Übung und scrollt dorthin (§7.3).
+> (3) Der **Wartezustand** strichelt die vorhandene Balkenfarbe, statt orange zu werden, und
+> der Hinweissatz in der Karte entfällt — er veränderte die Kartenhöhe und ließ die Liste bei
+> jedem Satz springen (§7.4). (4) Der **Fokusrahmen** des Wiederholungsfeldes lag über den
+> Steppern; die Satzzeile hat jetzt ein nachgerechnetes Breitenbudget.
+>
+> **Nachtrag 2026-08-11 (Korrekturen aus dem ersten Einsatz, `1.1.1`):** Drei Punkte aus dem
+> Praxistest von `1.1.0` — (1) **„Erledigt" ist ein Schalter**, kein Nebeneffekt der Sätze:
+> Wer den ersten Satz einträgt, ist nicht fertig mit der Übung. Dafür trennt die neue Spalte
+> `workout_log.done` „protokolliert" von „fertig" (§4, §7.4). Abhaken klappt den Satzblock zu
+> und springt zur nächsten offenen Übung. (2) Eine **noch leere Satzzeile wird nicht
+> abgeschickt** — sie lief sonst in ein 422 und markierte die Zeile als fehlerhaft, obwohl
+> nichts falsch war (§7.4). (3) **Farbhierarchie**: Der Satzkopf ist leise, kräftig ist
+> „+ Satz". Dazu stehen alle `:hover`-Regeln hinter `@media (hover: hover)` — auf einem
+> Touchscreen blieb Hover am zuletzt angetippten Element kleben und ließ die Knöpfe ihre
+> Blautöne tauschen.
+>
+> **Nachtrag 2026-08-11 (Expertenmodus, `1.1.0`):** Satzgenaues Protokollieren war in §9 aus
+> v1 ausgenommen und in §10 vorgemerkt; es kommt auf Wunsch des Benutzers hinein — als
+> **je Benutzer abschaltbarer Expertenmodus**, der den einfachen Weg unangetastet lässt.
+> Damit wird die Zusage von 2026-08-07 eingelöst: Die Wiederholungen kehren **nicht** als
+> Spalte zurück (die Begründung dagegen gilt unverändert), sondern als eigene Tabelle
+> `workout_sets` — genau so, wie §4 es angekündigt hatte. `workout_log.weight` bleibt als
+> **Leitgewicht** bestehen und trägt im Expertenmodus den schwersten Satz; dadurch bleiben
+> „letztes Gewicht", Gewichtsverlauf und Bestwert über beide Modi hinweg durchgehend. Neu
+> oder geändert: §4 (`workout_sets`, `users.expert_mode`), §7.3, §7.4, §7.7, §7.8 (Sätze,
+> Volumen, geschätztes 1RM) und Abnahmekriterium 19.
+>
 > **Nachtrag 2026-08-07 (Trainingshistorie):** Die Auswertung war in §9 ausdrücklich aus v1
 > ausgenommen und in §10 vorgemerkt. Sie kommt auf Wunsch des Benutzers doch hinein — die
 > Daten lagen ohnehin vollständig vor, es fehlte nur die Ansicht. Neu: §7.8, `history.php`.
@@ -375,12 +417,28 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
 **workout_log** — Protokoll je Planposition innerhalb einer Einheit (Basis für „letztes Gewicht")
 - `id`, `session_id` (FK), `plan_exercise_id` (FK), `user_id` (FK), `exercise_id` (FK),
-  `plan_id` (FK), `weight` (decimal, **nullable**), `performed_at` (datetime)
-- **Keine Wiederholungen.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich
-  passiert — bei drei Sätzen etwa 12, dann 10, dann 9. Ein solches Feld täuscht eine
-  Genauigkeit vor, die es nicht hat. Beim Gewicht stellt sich die Frage nicht, das bleibt
-  über die Sätze meist gleich. Satzgenaues Protokollieren ist als Erweiterung vorgemerkt
-  (§10) und bekäme dann eine eigene Tabelle statt einer Spalte hier.
+  `plan_id` (FK), `weight` (decimal, **nullable**), `done` (0/1, Vorgabe 1),
+  `performed_at` (datetime)
+- **`done` trennt „hier steht etwas protokolliert" von „die Übung ist fertig"** (seit
+  `1.1.1`). Im Standardmodus fallen beide zusammen — deshalb die Vorgabe 1, die auch jede
+  Bestandszeile richtig einordnet. Im Expertenmodus nicht: Dort entsteht die Zeile mit dem
+  **ersten Satz**, und da ist man mitten in der Übung. Ohne diese Spalte hakte sich die
+  Übung mit dem ersten Satz selbst ab.
+- **„x/n" zählt `done = 1`**, nicht die bloße Existenz der Zeile — in der Trainingsansicht
+  wie im Verlauf. **Die Tauschsperre (§7.5) hängt dagegen an der Existenz der Zeile**: Wer
+  zwei Sätze Bankdrücken gemacht hat, kann die Position nicht mehr tauschen, auch ohne
+  Häkchen. Die zwei Sätze waren Bankdrücken.
+- **Hier steht keine Wiederholungsspalte, und die Begründung von 2026-08-07 gilt
+  unverändert.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich passiert — bei
+  drei Sätzen etwa 12, dann 10, dann 9. Ein solches Feld täuscht eine Genauigkeit vor, die
+  es nicht hat. Genau deshalb bekam das satzgenaue Protokollieren seit `1.1.0` **eine eigene
+  Tabelle** (`workout_sets`) statt einer Spalte hier — so, wie es an dieser Stelle
+  angekündigt war.
+- `weight` bleibt auch im Expertenmodus gefüllt und trägt dann das **Leitgewicht** der
+  Position: den **schwersten Satz**. Das ist keine Redundanz, sondern der Grund, warum
+  „letztes Gewicht" (unten), der Gewichtsverlauf und der Bestwert (§7.8) über beide Modi
+  hinweg eine durchgehende Reihe bleiben. Der schwerste und nicht der letzte Satz, weil der
+  Bestwert die Zahl ist, an der man Fortschritt misst.
 - **Eindeutig ist `(session_id, plan_exercise_id)`** — genau ein Eintrag pro Einheit und
   Planposition (Upsert beim Abhaken, Löschen beim Ab-wählen).
 - `plan_exercise_id` ist zwingend: Nach einem Tausch (§7.5) steht in `exercise_id` die
@@ -395,6 +453,33 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   es einmal nicht eingetragen wurde. Das `id DESC` ist Pflicht: Zeitstempel haben
   Sekundenauflösung, zwei Einträge derselben Sekunde hätten sonst keine definierte
   Reihenfolge.
+
+**workout_sets** — die einzelnen Sätze einer Planposition (Expertenmodus, siehe §7.4)
+- `id`, `workout_log_id` (FK, **CASCADE**), `satz_nr` (int), `reps` (int, nullable),
+  `weight` (decimal, nullable)
+- **Eindeutig ist `(workout_log_id, satz_nr)`.** Die Nummern werden bei jedem Speichern neu
+  von 1 an vergeben — die Reihenfolge der gesendeten Liste *ist* die Reihenfolge der Sätze.
+  Damit gibt es weder Lücken noch ein Umnummerieren.
+- **Hängt an `workout_log`, nicht direkt an `(session_id, plan_exercise_id)`.** Dadurch
+  erledigt `ON DELETE CASCADE` das gesamte Aufräumen: Ab-wählen löscht die Protokollzeile →
+  Sätze weg; eine Einheit zu löschen räumt `sessions` → `workout_log` → Sätze. Es gibt
+  keinen eigenen Löschpfad, den man beim nächsten Mal vergessen könnte.
+- `reps` **und** `weight` sind nullbar — Körpergewichtsübungen haben kein Gewicht,
+  Halte-Übungen keine Wiederholungszahl. Ein Satz, in dem **beides** leer ist, wird
+  abgelehnt: Er beantwortet keine Frage.
+- **Die ganze Satzliste ist die Nutzlast, nicht der einzelne Satz.** `api/log.php → check`
+  nimmt sie als Feld `sets` entgegen und ersetzt die Sätze der Position vollständig. Der
+  Aufruf ist damit idempotent und beliebig oft wiederholbar — worauf sich die Warteschlange
+  aus §7.4 verlässt, die einen Eintrag je Planposition hält und ihn nach einem Funkloch
+  erneut abschickt. Ein „Satz anlegen"-Endpunkt hätte bei jedem Wiederversuch einen weiteren
+  Satz erzeugt.
+- **Fehlt `sets` in der Nutzlast, werden vorhandene Sätze gelöscht.** Die Nutzlast beschreibt
+  die Zeile vollständig; alles andere ließe Leitgewicht und Satzliste auseinanderlaufen.
+
+**users.expert_mode** (0/1, Vorgabe 0) — steuert **ausschließlich die Darstellung**. Der
+Server nimmt Sätze unabhängig davon entgegen; es gibt keine modusabhängige Sonderbehandlung
+in `api/log.php`. Umgeschaltet wird auf der Kontoseite (§7.7), **nicht während einer
+laufenden Einheit** — Begründung in §7.4.
 
 **exercise_swaps** — einmaliger Übungstausch, an die Einheit gebunden (siehe §7.5)
 - `id`, `session_id` (FK), `plan_exercise_id` (FK), `replacement_exercise_id` (FK)
@@ -665,7 +750,31 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   - **Gewichts-Eingabefeld, vorbelegt mit dem zuletzt protokollierten Gewicht** nach der
     Regel in §4 (leere Werte werden übersprungen; leer, falls noch nie ein Gewicht
     protokolliert wurde). Das Feld **darf leer bleiben** (z. B. Bauch/Dips ohne
-    Zusatzgewicht). **Wiederholungen werden nicht erfasst** — siehe §4.
+    Zusatzgewicht). **Im Standardmodus werden keine Wiederholungen erfasst** — siehe §4.
+  - **Im Expertenmodus** (§7.4, `users.expert_mode`) tritt an die Stelle dieses Feldes ein
+    **aufklappbarer Satzblock**: je Satz Wiederholungen und Gewicht, dazu ein Knopf
+    „+ Satz". Aufgeklappt ist genau **eine** Position — die aktive (siehe unten). Der
+    Zustand wird bewusst nicht gespeichert; er wandert von selbst mit, während man den Plan
+    durcharbeitet.
+  - **Die Zeile „zuletzt …" nennt im Expertenmodus die ganze Satzfolge** —
+    `zuletzt 3 Sätze (12×45 · 10×45 · 8×50)` statt einer einzelnen Zahl. Sie steht in
+    derselben Form wie die Zusammenfassung im Satzblock darunter (erst wie viele, dann
+    welche), damit sich beides ohne Umdenken vergleichen lässt: oben, was letztes Mal war —
+    darunter, was gerade entsteht. Im Standardmodus bleibt es bei „zuletzt 45 kg".
+- **Der Balken am linken Rand jeder Karte ist das Leitsystem beim Scrollen** — bei acht
+  Übungen weiß man sonst nicht mehr, an welchem Gerät man steht:
+  - **grün = hier bist du.** Die **aktive** Position, also die erste noch nicht erledigte.
+  - **blau = erledigt.** Abgeschlossen, in der ruhigen Hausfarbe.
+  - **grau = kommt noch.**
+
+  Grün für „erledigt" wäre naheliegend und falsch herum: Grün zieht den Blick, und den soll
+  das ziehen, was als Nächstes zu tun ist.
+- **Aktive Position und aufgeklappter Satzblock gibt es nur während eines Trainings.** Wer
+  den Plan bloß anschaut, sieht eine ruhige Liste — beides wäre sonst eine Aussage über
+  einen Ablauf, der noch gar nicht läuft. **„Training starten" öffnet den Block der ersten
+  Übung und scrollt dorthin**; dasselbe passiert beim Abhaken einer Übung für die nächste.
+  Dabei wird die Höhe der Verbindungsleiste abgezogen — sie klebt oben am Rand und verdeckte
+  sonst genau den Übungsnamen der angesprungenen Karte.
   - **„Erledigt"-Häkchen**,
   - Aktion **„Übung tauschen"** (§7.5).
 - Fortschrittsanzeige „x/n erledigt" und der **„Training beendet"-Button** (§7.6) sind während
@@ -680,7 +789,9 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Gewicht, `performed_at`). Ein Eintrag pro Einheit + Planposition.
 - **Nach dem Abhaken ist das Gewichtsfeld schreibgeschützt.** Wer den Wert korrigieren will,
   entfernt das Häkchen, ändert ihn und hakt neu ab. Damit gibt es **einen** Mechanismus
-  statt zweier — genau so ist der Übungstausch geregelt (§7.5).
+  statt zweier — genau so ist der Übungstausch geregelt (§7.5). **Seit `1.1.4` weist auch der
+  Server einen abweichenden Wert auf einer abgehakten Position ab** (409); bis dahin war das
+  nur eine Regel der Oberfläche.
 
   Der Preis: Wer abwählt, ändert und dann vergisst, wieder abzuhaken, hat für diese Position
   nichts protokolliert. Das ist aber sichtbar — das Häkchen fehlt und „x/n" steht niedriger.
@@ -694,6 +805,71 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 - **Fehlerfall:** Schlägt ein Speichern fehl, bleibt das Häkchen sichtbar unbestätigt und ein
   Wiederholen-Button erscheint (§2).
 
+- **Expertenmodus: Sätze einzeln erfassen** (seit `1.1.0`, je Benutzer abschaltbar über
+  `users.expert_mode`, umgeschaltet auf der Kontoseite §7.7). Statt eines Gewichts je Übung
+  wird jeder Satz mit Wiederholungen und Gewicht eingetragen — 12×40, 10×40, 9×45. Der
+  Standardmodus bleibt unverändert bestehen.
+
+  - **Ein Tipp je Satz.** `+ Satz` legt eine Zeile an, die schon gefüllt ist: **Satz k wird
+    mit Satz k der letzten Einheit vorbelegt** — nicht mit dem vorherigen Satz von heute.
+    Genau das macht den Modus im Studio schnell: Wer 12/10/9 gewohnt ist, bekommt beim
+    dritten Antippen 9 vorgeschlagen und nicht 10. Hatte das letzte Mal weniger Sätze, gilt
+    der vorherige Satz von heute; gibt es gar keine Vorlage, das zuletzt bekannte Gewicht
+    dieser Übung mit leerem Wiederholungsfeld. Der Vorschlag steht im Knopf („+ Satz
+    (9 × 45)"), damit vor dem Tippen sichtbar ist, was entsteht.
+  - **Wiederholungen mit −/+**, Gewicht als Textfeld. Die Wiederholungen weichen fast immer
+    nur um ±1 vom Vorschlag ab — dafür sind zwei große Tippziele schneller und sicherer als
+    die Zifferntastatur mit feuchten Fingern. Das Gewicht ändert sich selten und dann in
+    beliebigen Sprüngen; ein fester Stepper-Schritt wäre bei Maschine (5 kg), Kurzhantel
+    (2 kg) und Scheiben (1,25 kg) immer für etwas falsch.
+  - **„Erledigt" ist ein Schalter und kein Nebeneffekt** (korrigiert in `1.1.1` nach dem
+    ersten Studio-Einsatz). Sätze einzutragen heißt *nicht*, mit der Übung fertig zu sein —
+    man will ja gleich den nächsten machen. Die `workout_log`-Zeile entsteht mit dem ersten
+    Satz, aber mit `done = 0`; „x/n" springt erst, wenn der Benutzer das Häkchen selbst
+    setzt.
+
+    Die erste Fassung hatte das andersherum („Erledigt folgt den Sätzen") und war damit
+    falsch: Ab dem zweiten Satz stand die Übung als erledigt da, während der Benutzer noch
+    am Gerät stand.
+  - **Abhaken klappt den Satzblock zu und springt zur nächsten offenen Übung**, die sich
+    dabei aufklappt. Im Studio hält man das Handy in der Hand und will nicht scrollen, um
+    die Übung zu suchen, die ohnehin an der Reihe ist.
+  - **Das Häkchen zurückzunehmen löscht die Sätze NICHT** — in beide Richtungen bleiben sie
+    stehen. Sie dokumentieren, was tatsächlich gemacht wurde; sie zu löschen, weil jemand
+    eine Fertig-Markierung zurücknimmt, wäre dieselbe Sorte Fehler wie ein Tausch auf eine
+    bereits protokollierte Position. Weg sind sie über das ✕ der einzelnen Satzzeile; ist
+    die letzte weg und kein Häkchen gesetzt, verschwindet die Position aus dem Protokoll.
+  - **Abgehakt heißt festgeschrieben** (seit `1.1.4`): Wiederholungen und Gewicht sind dann
+    schreibgeschützt, „+ Satz" und das ✕ jeder Zeile sind gesperrt. Geändert wird über
+    Häkchen entfernen → korrigieren → neu abhaken — derselbe **eine** Mechanismus wie beim
+    Gewichtsfeld im Standardmodus und beim Übungstausch (§7.5).
+
+    In `1.1.0`/`1.1.1` waren die Sätze noch dauerhaft änderbar, mit der Begründung,
+    Nachtragen sei der Normalfall. Das galt, solange der erste Satz die Übung **selbst**
+    abhakte — dann hätte eine Sperre den zweiten Satz verhindert. Seit „Erledigt" ein
+    Schalter ist (§7.4, `1.1.1`), ist das Argument hinfällig: Wer noch einen Satz machen
+    will, hat schlicht noch nicht abgehakt.
+
+    **Gesperrt wird serverseitig** (`api/log.php`); die ausgegrauten Felder sind nur die
+    Bequemlichkeit davor. Drei Ausnahmen sind nötig und ausdrücklich gewollt: ohne
+    bestehende Zeile gibt es nichts zu schützen, `done = false` ist der Weg zum Entsperren,
+    und eine **unverändert durchgereichte Nutzlast geht durch** — sonst zerbräche die
+    Idempotenz, auf der die Warteschlange steht.
+  - **Eine noch leere Satzzeile wird nicht abgeschickt.** „+ Satz" legt bei einer Übung ohne
+    Vorlage eine leere Zeile an — die ist zum Ausfüllen da. Mitgeschickt lehnte der Server
+    sie zu Recht ab („Wiederholungen oder Gewicht angeben"), und die Zeile bekäme einen
+    roten Rand samt „Erneut versuchen", ohne dass jemand etwas falsch gemacht hätte.
+  - **Änderungen werden gebündelt geschickt** (800 ms nach der letzten Eingabe). Wer dreimal
+    auf „+" tippt, löst einen Aufruf aus und nicht drei. **Beenden und Tauschen lösen den
+    Verzug vorher aus** — beide prüfen die Warteschlange, und ein Eintrag, der noch im
+    Zeitgeber hängt, steht dort noch nicht drin.
+  - **Umschalten nur außerhalb eines Trainings.** Die Warteschlange ist auf `user_id` und
+    `session_id` geschlüsselt und überlebt einen Moduswechsel; ein wartender Eintrag aus dem
+    einfachen Modus trägt keine Satzliste, und ein `check` ohne Satzliste löscht die Sätze
+    der Position (§4). Das wäre stiller Datenverlust mitten im Training.
+  - Grenzen: höchstens **20 Sätze** je Übung, **1 bis 200** Wiederholungen, **0 bis 1000 kg**
+    je Satz; ein Satz ohne Wiederholungen **und** ohne Gewicht wird abgelehnt.
+
 - **Schlechtes Netz.** Der Regelfall im Studio ist nicht *kein* Empfang, sondern *schwacher*.
   Drei Vorkehrungen, gestaffelt:
 
@@ -706,8 +882,16 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   3. **Warteschlange für das Abhaken**, siehe unten.
 
 - **Warteschlange (`assets/app.js`, `index.js`).** Ein Häkchen springt bei Netzproblemen
-  nicht mehr zurück. Es bleibt gesetzt, die Zeile trägt sichtbar den Vorbehalt „noch nicht
-  gespeichert", und der Eintrag wird nachgeholt, sobald das Netz wieder da ist.
+  nicht mehr zurück. Es bleibt gesetzt, die Zeile trägt sichtbar den Vorbehalt, und der
+  Eintrag wird nachgeholt, sobald das Netz wieder da ist.
+
+  **Der Vorbehalt ist ausschließlich der gestrichelte Balken am linken Rand** — dieselbe
+  Farbe wie sonst, nur gestrichelt. Zwei Dinge waren daran bis `1.1.1` falsch: Er wurde
+  **orange**, was nach einem Fehler aussah, obwohl gerade alles seinen Gang geht; und in der
+  Karte stand zusätzlich ein Hinweissatz, der sie für die Dauer des Speicherns höher und
+  danach wieder niedriger machte — bei jedem Satz sprang dadurch die ganze Liste darunter.
+  **Wie viele Eingaben ausstehen, sagt die Leiste am oberen Rand**, und die genügt: Sie ist
+  `sticky` und damit immer im Blick.
 
   - **Nur innerhalb einer bereits laufenden Einheit.** Ohne offene Einheit bleibt es beim
     direkten Aufruf. Sonst müsste die Anzeige eine Einheit zeigen, die es serverseitig nicht
@@ -719,7 +903,10 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
     zu genau einer Einheit. Passt eines nicht, wird die Ablage verworfen — nachgeholt würde
     es sonst über `einheit_sicherstellen()` eine **neue** Einheit eröffnen.
   - **Ein Eintrag je Planposition**, der neueste gewinnt. Die Schlange kann damit nie länger
-    werden als der Plan.
+    werden als der Plan. Im Expertenmodus trägt der Eintrag zusätzlich die **vollständige
+    Satzliste** — deshalb heißt der `localStorage`-Schlüssel seit `1.1.0`
+    `trainingsplan-warteschlange-v2`: Ein alter Eintrag ohne dieses Feld liefe als „check
+    ohne Satzliste" durch und löschte damit die Sätze der Position.
   - **Endgültige Ablehnungen (4xx) fliegen aus der Schlange** und erscheinen als Zeilenfehler
     mit Wiederholen-Knopf. Bliebe der Eintrag liegen, blockierte er alle folgenden dauerhaft.
   - **Beenden ist gesperrt, solange etwas aussteht** — eine geschlossene Einheit nähme die
@@ -891,6 +1078,15 @@ Die Seite heißt `password.php` und trägt im Menü **„Konto"** — sie hat zw
     ausschließlich in `users.name` — das Umbenennen ist ein einziges `UPDATE`.
   - Kollisionen werden über den `UNIQUE`-Index abgefangen, nicht über ein `SELECT` davor:
     Dazwischen läge sonst ein Zeitfenster, in dem sich derselbe Name zweimal vergeben ließe.
+- **Trainingsansicht** (`password.php`, seit `1.1.0`): Umschalter **„Sätze einzeln erfassen
+  (Expertenmodus)"** — die Oberfläche zu `users.expert_mode` (§7.4).
+  - **Ohne Passwortabfrage**, anders als beim Benutzernamen. Der ist die Anmeldekennung, und
+    wer ihn ändert, kann den Besitzer aussperren; dieser Schalter ändert nur die Darstellung
+    der eigenen Daten und ist mit einem Tipp zurückgedreht.
+  - **Gesperrt, solange eine Einheit läuft** — Begründung in §7.4. Der Schalter erscheint
+    dann deaktiviert mit Hinweis, statt in ein sicheres 409 zu laufen.
+  - Schlägt das Speichern fehl, springt der Schalter zurück: Eine Anzeige, die etwas anderes
+    behauptet als der Server, wäre schlimmer als die Fehlermeldung.
 - **Geräte** (`devices.php`): Liste der aktiven `remember_tokens` des Benutzers (angelegt am,
   zuletzt genutzt, Gerätekennung aus `user_agent`, das aktuelle Gerät markiert), einzeln
   abmeldbar, plus **„Auf allen Geräten abmelden"**. Das ist die Oberfläche zu der in §5
@@ -912,6 +1108,28 @@ eine Filterleiste umschaltbar:
 - **Übungen**: je Übung der Gewichtsverlauf — als kleine Kurve in der Kopfzeile, aufgeklappt
   als Tabelle mit Datum und Gewicht, dazu die Veränderung gegenüber dem ersten Eintrag und
   der Bestwert. Übungen ohne Gewichtsangabe erscheinen nicht.
+
+**Satzgenau protokollierte Einheiten** (§7.4) zeigen zusätzlich:
+
+- In der Ansicht **Einheiten** eine Spalte **„Sätze"** mit der vollen Folge
+  (`12×40 · 10×40 · 9×45`). Positionen aus dem Standardmodus zeigen dort `—`; hat eine
+  Einheit überhaupt keine Sätze, entfällt die Spalte ganz — eine dauerhaft leere Spalte wäre
+  am Handy verschenkte Breite.
+- In der Ansicht **Übungen** zwei weitere Kurven **innerhalb** des aufgeklappten Bereichs,
+  jede beschriftet: **Volumen** (Σ Wiederholungen × Gewicht je Einheit) und **1RM
+  (geschätzt)**. Die Kopfzeile bleibt der Gewichtskurve vorbehalten — drei Kurven
+  nebeneinander machen sie am Handy unlesbar. Dazu die passenden Tabellenspalten; die
+  Tabelle rollt dann seitwärts in ihrem eigenen Kasten.
+- **Die Gewichtskurve bleibt unverändert** und läuft weiter über `workout_log.weight`, im
+  Expertenmodus also über den schwersten Satz. Dadurch ist der Verlauf über beide Modi
+  hinweg eine durchgehende Linie.
+- **Volumen** zeigt Fortschritt auch dann, wenn das Gewicht gleich bleibt und nur die
+  Wiederholungen steigen. Einheiten ohne Sätze sind **Lücken**, keine Nullen — eine 0 risse
+  einen Einbruch in die Kurve, den es nie gegeben hat.
+- **1RM** nach Epley (`kg × (1 + Wdh ÷ 30)`) aus dem besten Satz, **mit sichtbarem Vorbehalt
+  direkt an der Zahl**: eine Näherung, kein gemessener Wert. Der Hinweis ist nicht Zierde —
+  eine geschätzte Zahl sieht aus wie eine gemessene, und genau diese vorgetäuschte
+  Genauigkeit hat 2026-08-07 das Wiederholungsfeld gekostet.
 
 **Jeder sieht ausschließlich seine eigenen Daten — auch Admins.** Trainingsdaten sind
 persönlich. Es gibt hier bewusst keine Benutzerauswahl; die `user_id` stammt durchgehend aus
@@ -959,8 +1177,10 @@ Trainingsansicht: Sie hat noch keine Dauer.
   minütlich am Gerät stehend passiert, und die einzige, deren Endpunkt beliebig oft
   wiederholt werden darf (`api/log.php` schreibt per Upsert über
   `(session_id, plan_exercise_id)`).
-- Getrennte Erfassung mehrerer Sätze pro Übung (v1: ein Gewicht/Wiederholungen pro Übung
-  und Einheit).
+- ~~Getrennte Erfassung mehrerer Sätze pro Übung~~ — **umgesetzt in `1.1.0`** als
+  abschaltbarer Expertenmodus, siehe §7.4. (Die frühere Klammer „ein Gewicht/Wiederholungen
+  pro Übung und Einheit" war schon seit `1.0.3` falsch: Wiederholungen entfielen damals
+  ersatzlos.)
 - Passwort-Reset per E-Mail (Reset erfolgt durch den Admin; der Benutzer kann sein Passwort
   aber selbst ändern, §7.7).
 - Kalenderbasierte Wochenpläne (fester Plan je Wochentag). Die Anzahl der Pläne ist
@@ -972,7 +1192,8 @@ Trainingsansicht: Sie hat noch keine Dauer.
 
 - ~~Fortschritts-Charts je Übung~~ — **umgesetzt am 2026-08-07** als `history.php`, siehe
   §7.8.
-- Satz-genaues Logging (mehrere Sätze pro Übung).
+- ~~Satz-genaues Logging (mehrere Sätze pro Übung)~~ — **umgesetzt am 2026-08-11** als
+  Expertenmodus, siehe §7.4 und die Tabelle `workout_sets` in §4.
 - Wochentags-/Kalenderplanung (welcher Plan an welchem Tag).
 - Kalenderansicht der Einheiten (Monatsraster) — die Listenansicht in §7.8 deckt den
   Alltag ab; ein Kalender wäre Zierde.
@@ -1022,3 +1243,20 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
     das Passwort, die anderen nicht.
 17. Backup erstellen, herunterladen, wieder einspielen → Datenbestand unverändert.
 18. Container `down` + `up --build` → Daten und Bilder sind vollständig da.
+19. **Expertenmodus** (§7.4): Auf der Kontoseite „Sätze einzeln erfassen" einschalten — bei
+    laufendem Training ist der Schalter gesperrt. Training starten, bei einer Übung **ohne
+    Vorgeschichte** einmal „+ Satz" antippen → es erscheint eine leere Zeile, **kein** roter
+    Rand und **kein** „Erneut versuchen". Bei einer Übung **mit** Vorgeschichte dreimal
+    „+ Satz": Die Vorschläge entsprechen Satz für Satz der letzten Einheit, die
+    Wiederholungen lassen sich mit −/+ korrigieren. **„x/n" bleibt dabei stehen** — die
+    Position ist protokolliert, aber nicht fertig; „Tauschen" ist trotzdem schon gesperrt.
+    Erst das Häkchen lässt „x/n" springen, klappt den Satzblock zu und springt zur nächsten
+    offenen Übung. Häkchen wieder entfernen → „x/n" geht zurück, **die Sätze bleiben
+    stehen**. Handy sperren und App neu öffnen → die Sätze stehen noch. Flugmodus
+    einschalten, einen Satz ändern → der grüne Balken strichelt (er wird **nicht** orange,
+    und die Karte ändert ihre Höhe nicht), oben erscheint die Leiste mit der Anzahl, Beenden
+    ist gesperrt; Flugmodus aus → der Satz wird nachgeholt. Training beenden; im
+    Verlauf steht unter „Einheiten" die Folge `12×40 · 10×40 · 9×45`, unter „Übungen" laufen
+    Volumen- und 1RM-Kurve samt Näherungs-Hinweis. Gegenprobe: Expertenmodus wieder
+    ausschalten → die alte Ansicht ist unverändert da, die protokollierten Einheiten bleiben
+    lesbar.

@@ -153,6 +153,33 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec('ALTER TABLE exercises ADD COLUMN equipment TEXT');
     }
 
+    // 2026-08-11: Expertenmodus je Benutzer (§7.4). Rein additiv.
+    //
+    // Vorgabe 0 -- bestehende Konten sehen die Trainingsansicht unveraendert.
+    // Ohne CHECK-Constraint: ALTER TABLE kann in SQLite keines nachtragen, und
+    // ein Tabellen-Neuaufbau nur dafuer waere unverhaeltnismaessig. Der Wert
+    // kommt ausschliesslich aus api/auth.php und ist dort auf 0/1 gebunden;
+    // bei frisch angelegten Datenbanken steht das CHECK aus schema.sql ohnehin.
+    //
+    // Die neue Tabelle workout_sets braucht hier NICHTS: Sie steht als CREATE
+    // TABLE IF NOT EXISTS in schema.sql, das bei jedem Start laeuft und sie
+    // damit auch auf einer Bestandsdatenbank anlegt. Nur SPALTEN muessen den
+    // Umweg ueber PRAGMA table_info nehmen.
+    if (!column_exists($pdo, 'users', 'expert_mode')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN expert_mode INTEGER NOT NULL DEFAULT 0');
+    }
+
+    // 2026-08-11: "Erledigt" ist im Expertenmodus ein eigener Zustand (§7.4).
+    //
+    // Rein additiv, und die Vorgabe 1 ist der ganze Trick: Jede bestehende
+    // Protokollzeile gilt damit als erledigt -- genau das war sie bisher auch,
+    // denn "Zeile existiert" HIESS erledigt. Der einfache Modus schreibt
+    // weiterhin nur Einsen; nur der Expertenmodus setzt 0, solange die Uebung
+    // noch laeuft.
+    if (!column_exists($pdo, 'workout_log', 'done')) {
+        $pdo->exec('ALTER TABLE workout_log ADD COLUMN done INTEGER NOT NULL DEFAULT 1');
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die

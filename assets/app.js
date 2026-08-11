@@ -261,7 +261,18 @@ window.addEventListener('online', () => verbindung.erreichbar(true));
 
 /* --- Warteschlange ------------------------------------------------------- */
 
-const WARTESCHLANGE_SCHLUESSEL = 'trainingsplan-warteschlange-v1';
+// Die Nummer im Namen steht genau fuer solche Faelle: Aendert sich die FORM
+// eines Eintrags, bekommt der Schluessel eine neue Nummer, und die alte Ablage
+// bleibt unberuehrt liegen statt falsch verstanden zu werden.
+//
+//   v2 (1.1.0): Eintrag traegt zusaetzlich `sets`. Ohne das Feld liefe er im
+//               Expertenmodus als "check ohne Satzliste" durch -- und der
+//               loescht die Saetze der Position (api/log.php).
+//   v3 (1.1.1): Eintrag traegt zusaetzlich `done`. Ohne das Feld gilt eine
+//               Position serverseitig als erledigt, sobald ueberhaupt etwas
+//               protokolliert ist -- ein wartender erster Satz haekte die
+//               Uebung also ab, obwohl der Benutzer noch mitten drin ist.
+const WARTESCHLANGE_SCHLUESSEL = 'trainingsplan-warteschlange-v3';
 
 /** Aelter als das: Der Eintrag gehoert zu einem vergessenen Training. */
 const WARTESCHLANGE_MAX_ALTER_MS = 24 * 3600 * 1000;
