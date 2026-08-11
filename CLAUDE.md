@@ -480,6 +480,25 @@ Ablauf in `deploy/ANLEITUNG.md`, Topologie in `doku/deployment.md`.
 bash deploy/paket_bauen.sh    # Positivliste packen, lintet vorher
 ```
 
+**Das Paket wird ausschließlich auf ausdrückliche Ansage gebaut.** Nicht nach jeder
+Änderung, nicht „damit es bereitliegt". Der Benutzer gibt seine Rückmeldungen aus dem
+Praxistest in mehreren kleinen Runden durch; ein Paket nach jeder Runde verbraucht eine
+Versionsnummer für einen Stand, der nie ausgerollt wird.
+
+Daraus die Zählweise:
+
+- **Solange kein Paket gebaut ist, bleibt die Nummer stehen.** Fünf Änderungswünsche
+  nacheinander ergeben *eine* Version, nicht fünf.
+- **Sobald `paket_bauen.sh` unter einer Nummer gelaufen ist, ist sie vergeben.** Die
+  nächste Änderung an etwas, das **im Paket steckt**, hebt sofort auf die nächste Nummer —
+  sonst weicht der Arbeitsstand von einem Paket ab, das denselben Namen trägt. Genau so
+  ging am 2026-08-10 verloren, welche von zwei Fassungen als `1.0.16` ausgerollt worden war.
+- **Änderungen außerhalb des Pakets zählen nicht mit.** `doku/`, `CLAUDE.md` und
+  `LASTENHEFT.md` stehen nicht in der Positivliste von `paket_bauen.sh`; wer nur dort
+  schreibt, lässt die Nummer stehen. Eine neue Version ohne jeden Codeunterschied wäre ein
+  zweites Image mit identischem Inhalt — Verschwendung und irreführend zugleich.
+- Der Sprung selbst ist gratis und braucht keine Rückfrage; nur das **Bauen** braucht sie.
+
 - **Verwaltung über Portainer**, wie die übrigen Container auf diesem LXC (u. a.
   `solarwatch`, `/home/rezeption/Projekte/Solarwatch` — dort steht die Vorlage für
   `deploy/stack.yml`, `deploy/env-vorlage.txt` und `deploy/paket_bauen.sh`). Portainer sieht

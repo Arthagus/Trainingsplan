@@ -232,13 +232,19 @@ require __DIR__ . '/lib/view_header.php';
                         <p class="beschreibung" hidden><?= h((string)$z['description']) ?></p>
                     <?php endif; ?>
 
-                    <?php // Ohne vorherigen Wert steht hier nichts: Dass noch keiner
-                          // protokolliert wurde, sieht man am leeren Feld. ?>
-                    <?php if ($z['letztes_gewicht'] !== null): ?>
-                        <p class="matt letzter-wert">
+                    <?php // Die Zeile steht IMMER, auch ohne vorherigen Wert. Bis 1.0.18
+                          // blieb sie dann leer -- die Begruendung war, man sehe es am
+                          // leeren Gewichtsfeld. In der Praxis sieht man dort nur nichts,
+                          // und nichts ist zweideutig: kein Wert vorhanden, oder Wert
+                          // vergessen? Ein Satz beantwortet das, und die Karten behalten
+                          // dieselbe Hoehe. ?>
+                    <p class="matt letzter-wert">
+                        <?php if ($z['letztes_gewicht'] !== null): ?>
                             zuletzt <?= h(format_decimal($z['letztes_gewicht'])) ?> kg
-                        </p>
-                    <?php endif; ?>
+                        <?php else: ?>
+                            Noch kein Gewicht gespeichert
+                        <?php endif; ?>
+                    </p>
 
                     <?php // Tauschen -- Gewicht -- Erledigt in EINER Zeile. Das
                           // Gewichtsfeld war ueber die volle Breite gezogen und

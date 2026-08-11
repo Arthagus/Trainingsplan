@@ -26,13 +26,18 @@ require_once __DIR__ . '/geraete.php';
 <svg class="symbol-vorrat" aria-hidden="true" focusable="false"
      xmlns="http://www.w3.org/2000/svg"><defs>
 
-    <?php // Gewichtsblock mit Plattenfugen, darueber der Rahmenarm. ?>
+    <?php // Gewichtsblock mit Plattenfugen, daraus schraeg der Hebelarm.
+          //
+          // Der Arm lief bis 1.0.18 als abgewinkelter Rahmen oben heraus --
+          // das sah nach Handkaffeemuehle aus und war bei 13px ohnehin ein
+          // Fleck. Eine einzige Diagonale liest sich wie der Hebel einer
+          // Brustpresse und kostet einen Strich statt dreier. ?>
     <symbol id="geraet-maschine" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="7" width="7" height="12" rx="1"></rect>
         <path d="M4 11h7M4 15h7"></path>
-        <path d="M7.5 7V4h12v6"></path>
+        <path d="M7.5 10 19 3"></path>
     </symbol>
 
     <?php // Zwei Fuehrungsschienen, dazwischen die Stange mit ihren Klemmen. ?>
@@ -44,22 +49,46 @@ require_once __DIR__ . '/geraete.php';
         <path d="M9 10v4M15 10v4"></path>
     </symbol>
 
-    <?php // Umlenkrolle, Seil, Griffstange. ?>
+    <?php // Umlenkrolle, Seil, Latzugstange mit abgewinkelten Enden. Die Enden
+          // sind der Unterschied zur blossen Griffstange: Sie machen aus zwei
+          // Strichen ein erkennbares Geraet, ohne einen dritten zu kosten.
+          //
+          // Die Zeichnung fuellt die Hoehe des viewBox absichtlich aus (2.8 bis
+          // 21.2, Mitte also 12). Vorher endete sie bei 15.5 und lag damit im
+          // oberen Drittel -- das Abzeichen zentriert den KASTEN, nicht die
+          // Zeichnung darin, und das Symbol sass sichtbar zu hoch neben dem
+          // Text. Gilt fuer jedes weitere Symbol: Der Schwerpunkt der Striche
+          // gehoert auf y=12, sonst rutscht es aus der Zeile. ?>
     <symbol id="geraet-kabel" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="5" r="2.5"></circle>
-        <path d="M12 7.5V17"></path>
-        <path d="M8 17h8"></path>
+        <circle cx="12" cy="5" r="2.2"></circle>
+        <path d="M12 7.2V17.7"></path>
+        <path d="M4.5 17.7h15"></path>
+        <path d="M4.5 17.7v3.5M19.5 17.7v3.5"></path>
     </symbol>
 
-    <?php // Lange Stange, je Seite zwei Scheiben. ?>
+    <?php // Lange Stange, je Seite eine grosse Scheibe innen und eine kleinere
+          // aussen -- buendig aneinander, wie sie auf der echten Stange sitzen.
+          //
+          // Die Scheiben sitzen weit aussen, sodass nur ein Rest Stange
+          // heraussteht und in der Mitte viel blanke Stange bleibt. Das laesst
+          // das Symbol gestreckt wirken und ist der Unterschied zur Kurzhantel:
+          // Dort sitzen breite Bloecke direkt an den Enden einer kurzen Stange.
+          // Gefuellte Scheiben statt Striche, weil eine Flaeche bei 19px noch
+          // Form hat, wo duenne Striche verschmelzen. ?>
     <symbol id="geraet-langhantel" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 12h20"></path>
-        <path d="M8 6v12M5 8.5v7"></path>
-        <path d="M16 6v12M19 8.5v7"></path>
+        <path d="M0.5 12h23"></path>
+        <rect x="3.3" y="7" width="2.4" height="10" rx="0.7"
+              fill="currentColor" stroke="none"></rect>
+        <rect x="1.5" y="9" width="1.8" height="6" rx="0.5"
+              fill="currentColor" stroke="none"></rect>
+        <rect x="18.3" y="7" width="2.4" height="10" rx="0.7"
+              fill="currentColor" stroke="none"></rect>
+        <rect x="20.7" y="9" width="1.8" height="6" rx="0.5"
+              fill="currentColor" stroke="none"></rect>
     </symbol>
 
     <?php // Kurze Stange, je Seite ein Block -- die Abgrenzung zur Langhantel. ?>

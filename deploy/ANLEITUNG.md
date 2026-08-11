@@ -74,7 +74,7 @@ müssen sich alle Geräte einmal neu anmelden, mehr passiert nicht.
 2. Links auf **Images**.
 3. Oben auf **Build a new image**.
 4. **Naming**: den Namen aus der `image:`-Zeile von `stack.yml` eintragen,
-   derzeit **`trainingsplan:1.0.17`**.
+   derzeit **`trainingsplan:1.0.21`**.
    Genau diese Schreibweise — die Stack-Datei sucht nach diesem Namen.
    `paket_bauen.sh` hat ihn beim Packen als letzte Zeile ausgegeben und vorher
    geprüft, dass er zur Datei `VERSION` passt; abtippen genügt.

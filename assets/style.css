@@ -233,9 +233,19 @@ button.gefahr { background: var(--fehler); }
     color: var(--akzent-tief);
 }
 
+/* 1.5em und nicht weniger: Bei den 1.05em aus 1.0.15 rendern die Symbole mit
+   rund 13px, und dabei verlieren sie ihre Form — "Multipresse" und "Langhantel"
+   waren nicht mehr zu unterscheiden. Am 2026-08-10 in drei Größen gegen die
+   laufende Instanz verglichen. Die Strichstärke bleibt bei 1.8; sie sitzt in den
+   Symbolen selbst (lib/view_geraet_symbole.php). */
+/* 1.5em ist zugleich die Zeilenhöhe des Textes daneben (line-height 1.5 auf
+   0.8rem = 19.2px). Deshalb ist das Geräte-Abzeichen exakt so hoch wie die
+   Ausführung neben ihm — nachgemessen, beide 24.4px. Wer diesen Wert erhöht,
+   macht das Abzeichen höher als seine Nachbarn in derselben Zeile; dann gehört
+   die Zeilenhöhe mit angefasst. */
 .geraet-symbol {
-    width: 1.05em;
-    height: 1.05em;
+    width: 1.5em;
+    height: 1.5em;
     flex: none;
 }
 

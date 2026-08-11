@@ -190,8 +190,8 @@ das sieht, erwartet zu Recht, dass `Trizeps` die maßgebliche Größe ist. Dass 
 
 **Erschwerend:** Die Hauptgruppen sind derzeit **selbst anklickbar**. Man kann eine Übung
 direkt an `Arme` hängen, statt an `Trizeps`. Damit gibt es zwei Wege, dasselbe auszudrücken,
-und die Datenlage wird uneindeutig. (Live genutzt wird das nicht — alle 17 Übungen hängen
-an Untergruppen.)
+und die Datenlage wird uneindeutig. (Live genutzt wird das nicht — die Übungen hängen
+durchweg an Untergruppen.)
 
 **Entscheidung des Benutzers:** Hauptgruppen, die Untergruppen haben, sollen **nicht
 anklickbar** sein, und die Untergruppen sollen sichtbar eingerückt darunter stehen.

@@ -13,10 +13,23 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-**`trainingsplan:1.0.17`** auf `training.jadefalke.net`, eingespielt am 2026-08-10. Der
-Arbeitsstand im Repo ist derselbe. Damit ist das **Trainingsgerät** vollständig live:
-Pflichtfeld je Übung, kombinierbare Filter, Auswahl-Overlay in der Planverwaltung,
-Gerätefilter in beiden Tauschdialogen.
+**`trainingsplan:1.0.20`** ist der zuletzt gebaute Stand (2026-08-11). Damit ist das
+**Trainingsgerät** vollständig live — Pflichtfeld je Übung, kombinierbare Filter,
+Auswahl-Overlay in der Planverwaltung, Gerätefilter in beiden Tauschdialogen — und der
+Symbolsatz ist abgenommen.
+
+**Der Arbeitsstand im Repo ist `1.0.21` und noch nicht gebaut.** Inhalt bislang nur: die
+Symbolübersicht ist wieder von der Wartungsseite verschwunden. Der Service-Worker-Cache
+bleibt auf `v14`; `assets/style.css` und `app.js` sind gegenüber `1.0.19` byteweise gleich.
+
+**Die Gerätesymbole sind abgenommen** (2026-08-11). Der Weg dahin, weil er sich wiederholen
+kann: `1.0.18` brachte eine vorübergehende Auswahlhilfe auf die Wartungsseite — Größe,
+Strichstärke und je drei Formvarianten, jeweils in einem echten Abzeichen. Nach der Wahl
+wurde sie in `1.0.19` durch eine Übersicht des laufenden Satzes ersetzt, `1.0.20` brachte
+die letzten beiden Korrekturen (gestreckte Langhantel, vertikal ausgerichteter Kabelzug),
+und mit `1.0.21` fällt die Kachel wieder weg. Sie war ein Werkzeug für eine Entscheidung,
+kein Bestandteil der App; die Symbole selbst stehen unverändert in
+`lib/view_geraet_symbole.php`.
 
 **`1.0.16` ist am selben Tag gelaufen und in zwei Fassungen gepackt worden** — der Tarball
 wurde unter derselben Nummer überschrieben, als die nächste Rückmeldung kam. Welche der
@@ -45,7 +58,36 @@ einem Nachmittag (`1.0.9` bis `1.0.12` am 2026-08-08, `1.0.5` bis `1.0.8` am 202
 mal tagelang keine. Gezählt wird schlicht zur nächsten Nummer weiter, sobald ein Stand
 gepackt oder gebaut ist.
 
+**Vom Benutzer gegengeprüft** — *2026-08-10, `1.0.17`, am PC **und** am Smartphone:* keine
+Fehler aufgefallen, die Darstellung passt. Damit ist der Punkt erledigt, der seit `1.0.7`
+offen stand und den weder `curl` noch ein gerenderter Nachbau je abdecken konnte: die
+Knopfzeile in der Planverwaltung, die Aktionszeile im Training, die Bilder in den
+Tauschvorschlägen, die sieben Gerätesymbole, die Abzeichenzeile, das Auswahl-Overlay, der
+Gerätefilter in beiden Tauschdialogen, der Systemdialog hinter „Dauerhaft im Plan" und die
+einzeilige Filterleiste.
+
+**Nicht** darin enthalten und weiterhin offen: die Gegenprobe bei **schwachem Netz**
+(Warteschlange und Verbindungsleiste, siehe *Offen* Punkt 1) — die verlangt einen eigenen,
+unten beschriebenen Ablauf mit abgeschaltetem Netz und ergibt sich nicht aus normaler
+Benutzung. Ebenso die vier Abnahmekriterien aus §11.
+
 **Gegen die laufende Instanz geprüft**, per `curl`:
+
+- *2026-08-10, `1.0.17`:* `style.css`, `app.js`, `sw.js` und `manifest.json` byteweise
+  gleich dem Repo, `sw.js` auf `v13` — damit ist `1.0.17` als laufender Stand belegt.
+  Zugriffssperren stichprobenhaft, **einschließlich der beiden neuen `lib/`-Dateien**:
+  `VERSION`, `schema.sql`, `Dockerfile`, `apache-app.conf`, `docker-compose.yml`,
+  `lib/geraete.php`, `lib/view_geraet_symbole.php`, `data/*.db` allesamt 403; `.env` und
+  `deploy/` sind gar nicht erst im Image (404), `health.php` von außen 404 (nur Loopback),
+  geschützte Seiten leiten auf `login.php`.
+- *2026-08-10, Fachlichkeit gegen den echten Bestand:* Der Filter greift kombiniert — eine
+  Hauptgruppe zieht ihre Untergruppen und die nur sekundär betroffenen Übungen mit, und die
+  Verbindung mit einem Gerät schneidet die Menge wie erwartet weiter ein. Jede Trefferliste
+  gegen eine eigene `SELECT`-Zählung abgeglichen. Im Auswahl-Overlay schränken die Facetten
+  richtig ein: Eine Muskelgruppe, für die es nur Maschinen- und Körpergewichtsübungen gibt,
+  lässt genau diese beiden Geräte übrig; umgekehrt reduziert ein Gerät die Muskelgruppen auf
+  die passenden — samt ihrer Elterngruppen. Die Filterleiste steht auf dem Desktop in
+  **einer** Zeile (gegen die echte Seite mit dem vollen Bestand gerendert).
 
 - *2026-08-08, `1.0.12`:* `VERSION` liefert jetzt **403** statt der Versionsnummer — die
   Lücke aus `1.0.10` ist zu, nachgeprüft am laufenden System. `schema.sql` und
@@ -84,8 +126,8 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
 
 | | |
 |---|---|
-| Muskelgruppen | 27 — zweistufig, 6 Hauptgruppen mit 21 Untergruppen |
-| Übungen | 17, alle mit Bild |
+| Muskelgruppen | Zweistufig: Hauptgruppen mit Untergruppen darunter. Die Gliederung steht in `bestand_gruppen_uebungen.md` |
+| Übungen | Wächst laufend, **alle mit Trainingsgerät**. Der Bestand steht in der App und wird hier bewusst nicht gezählt — welche Zahl gerade gilt, ist für die Entwicklung ohne Belang, und eine notierte Zahl ist am Tag danach falsch. Genutzt werden bisher Maschine, Kabelzug, Kurzhantel und Körpergewicht; Multipresse, Langhantel und Kettlebell stehen bereit, sind aber unbenutzt |
 | Benutzer | `Oliver` (id 1, Admin) · `claude` (id 2, Admin) · `Nele` (id 3) — Namen ab `1.0.8` änderbar |
 | Pläne | `Oliver`: Push, Pull · `Nele`: Ganzkörper A, Ganzkörper B — je 8 Positionen |
 | Trainingseinheiten | 1 (Oliver, Pull, 2026-08-06) |
@@ -93,64 +135,30 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
 
 ## Offen
 
-1. **Warteschlange und Verbindungsleiste am Handy gegenprüfen** — der wichtigste offene
-   Punkt, und gegen den Dev-Server grundsätzlich nicht prüfbar: `curl` hat weder
-   Funkloch noch `localStorage`. Was zu sehen sein muss, steht unten unter *Gegenprobe
-   schwaches Netz*.
-2. **Menüpunkt heißt jetzt „Konto"** statt „Passwort" — beim nächsten Blick aufs Handy
-   mitprüfen, ob die Kopfzeile damit noch umbricht wie gewollt.
-3. **Darstellung am Handy gegenprüfen** — gegen den Dev-Server ist sie nicht
-   prüfbar: Aktionszeile *Tauschen — Gewicht — Erledigt* mit mittigem Feld, größere Bilder
-   im Training, Planpositionen mit Bild über beide Zeilen, Pfeile mittig, Kopfzeile mit
-   Namen, großes Bild schließt den Dialog. Ob die **Bilder in den Tauschvorschlägen**
-   tatsächlich ankommen, ließ sich lokal gar nicht prüfen: Dem CLI-PHP hier fehlt GD, es gab
-   kein echtes Bild zum Hochladen — nur der erzeugte Pfad ist geprüft.
+1. **Vier Abnahmekriterien am Handy**, siehe unten. Die Gegenprobe der *Darstellung* deckt
+   sie nicht ab — die Kriterien sind einzelne, benannte Abläufe.
+2. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
+   Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
+   Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
+   kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
+   Überlegungen zur Tauschregel. Der Übungsbestand steht in der App.
 
-   Dazu aus `1.0.16`/`1.0.17`: die **sieben Gerätesymbole** (erkennt man sie am Handy?), die
-   **Abzeichenzeile** aus Gerät und Ausführung (bricht sie sauber um?), das
-   **Auswahl-Overlay** beim Hinzufügen einer Übung zum Plan — ob beide Filterfelder mit
-   dem Daumen bedienbar sind, die Trefferliste in sich scrollt statt den Dialog zu
-   sprengen und der Dialog nach dem Hinzufügen richtig schließt — sowie der
-   **Gerätefilter in beiden Tauschdialogen**. Die **Filterleiste der Übungsverwaltung**
-   muss auf dem PC in *einer* Zeile stehen und am Handy sauber umbrechen.
+**Nicht mehr auf dieser Liste, auf Entscheidung des Benutzers (2026-08-11):**
 
-   Aus `1.0.17` außerdem der **Systemdialog** hinter „Dauerhaft im Plan": headless klickt
-   niemand darauf, geprüft ist nur, dass beide Übungsnamen richtig darin landen.
+- **Die Gegenprobe bei schwachem Netz** wird nicht als eigener Versuch durchgeführt. Sie
+  bleibt damit **ungeprüft** — das ist eine bewusste Entscheidung, kein bestandener Test.
+  Rückmeldung kommt aus dem laufenden Betrieb, wenn im Studio etwas klemmt. Woran man dann
+  erkennt, ob Warteschlange und Verbindungsleiste ihre Arbeit tun, steht unten unter
+  *Gegenprobe schwaches Netz*; der Abschnitt bleibt als Nachschlagestelle stehen.
+- **Die Sicherung außer Haus** liegt beim Benutzer und wird hier nicht weiter verfolgt.
 
-   Dazu aus `1.0.10` bis `1.0.14`: das **große Bild** durch Antippen in Übungs- und
-   Planverwaltung, das **rote „Archivieren"** rechts in der Übungszeile, die
-   **Positionsnummern** in der Planverwaltung und deren **Textblock** mit Muskelgruppen
-   und Ausführung.
-
-   Der wichtigste Punkt davon ist die **Knopfzeile** in der Planverwaltung. Sie geht seit
-   `1.0.14` über die ganze Kartenbreite — „Tauschen" steht bündig am linken Rand, nicht
-   mehr hinter der Positionsnummer —, und ihr Umschaltpunkt liegt jetzt bei 24rem statt
-   32rem; am Desktop schaltet sie ins Raster mit mittigen Pfeilen. Genau hier lief
-   „Entfernen" seit `1.0.7` unbemerkt aus der Karte heraus; ein Fehler, den nur der Blick
-   aufs Handy findet.
-
-   Gegen einen gerenderten Nachbau (Firefox headless, ohne Anmeldung) ist gemessen: Die
-   vier Knöpfe brauchen 289px, zur Verfügung stehen ihnen 296px schon bei 360px
-   Fensterbreite (dem schmalsten üblichen Telefon) und 326px bei 390px — sie bleiben
-   also einzeilig. Der Puffer ist mit 7px allerdings **dünn**: Wie breit eine
-   Beschriftung ausfällt, hängt an der Schrift des Geräts, und der Nachbau ersetzt den
-   Blick aufs Handy nicht. Bricht die Zeile dort doch um, geht es nur noch über kürzere
-   Beschriftungen — die Pfeile liegen mit 44px bereits auf dem Mindest-Tippziel.
-4. **Sicherung außer Haus schaffen.** Sie liegt im Datenvolume, also *neben* dem Original —
-   bei einem Volume-Verlust wäre beides weg. Einmal über *Wartung → Herunterladen* holen und
-   anderswo ablegen.
-5. **Vier Abnahmekriterien am Handy**, siehe unten.
-6. **Trainingsgerät bei den 17 Bestandsübungen nachpflegen** (neu mit `1.0.15`). Die
-   Migration setzt bewusst keinen Vorgabewert — ob eine Übung an der Maschine oder mit
-   Kurzhanteln läuft, weiß sie nicht, und „Maschine" bei allen wäre für die meisten
-   schlicht falsch. Der Weg: Jede Übung einmal *Bearbeiten → Trainingsgerät → Speichern*;
-   offen sind die mit dem Abzeichen „Gerät fehlt". Das Feld ist auch beim Bearbeiten
-   Pflicht, ohne Gerät lässt sich nicht mehr speichern. Danach
-   `bestand_gruppen_uebungen.md` um die Zuordnung ergänzen.
-
-   Der Filtereintrag *ohne Gerät* dafür ist mit `1.0.16` wieder entfallen — er kann keine
-   Treffer mehr bekommen, sobald einmal nachgepflegt ist. Über die URL greift er
-   weiterhin: `admin_exercises.php?filter=alle&equipment=_leer`.
+**Erledigt mit `1.0.19`:** Die Gerätesymbole waren bei ihrer tatsächlichen Größe zu
+undeutlich — bei `1.05em` rendern sie mit rund 13px, und dort verloren sie ihre Form;
+`Multipresse` und `Langhantel` waren nicht zu unterscheiden, `Maschine` wurde zu einem
+Fleck. Nach einer Auswahlrunde über die Wartungsseite (`1.0.18`) steht der Satz jetzt auf
+**1.5em bei Strichstärke 1.8**, der Kabelzug zeigt eine Latzugstange, die Langhantel große
+Scheiben innen und kleinere außen an einer durchlaufenden Stange, und die Maschine eine
+einzelne Diagonale aus dem Gewichtsblock statt des abgewinkelten Rahmens.
 
 Weitergehende Wünsche stehen als Erweiterungen in `LASTENHEFT.md` §10 — allen voran
 satzgenaues Protokollieren, falls sich die Frage nach den Wiederholungen erneut stellt.
@@ -186,6 +194,10 @@ geprüft.
 
 ## Gegenprobe schwaches Netz (`1.0.8`)
 
+**Nachschlagestelle, keine offene Aufgabe** (siehe *Offen*): Der Versuch wird nicht eigens
+durchgeführt. Was hier steht, ist die Beschreibung des erwarteten Verhaltens — für den Fall,
+dass im Studio etwas klemmt und man wissen muss, was eigentlich passieren sollte.
+
 Am Handy oder in den Entwicklerwerkzeugen unter *Network → Offline* bzw. *Slow 3G*. Die
 Warteschlange greift **nur bei laufender Einheit** — vorher „Training starten" drücken.
 
@@ -220,6 +232,10 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
+| `1.0.21` | Die Symbolübersicht ist wieder von der Wartungsseite verschwunden — sie war ein Werkzeug für die Symbolwahl, kein Bestandteil der App *(noch nicht gebaut)* |
+| `1.0.20` | Letzte Korrekturen am Symbolsatz: Die **Langhantel** liegt gestreckt — Scheiben bündig aneinander, weit außen, nur ein Rest Stange darüber hinaus, viel blanke Stange in der Mitte. Der **Kabelzug** war vertikal versetzt: Seine Zeichnung endete auf halber Höhe des viewBox, ihre Mitte lag bei 8.75 statt 12, das Abzeichen zentriert aber den Kasten und nicht die Zeichnung darin — 2,6px zu hoch. Jetzt füllt sie die Höhe aus. Alle sieben Symbole nachgemessen: Abweichung von der Mitte höchstens 0,8px, also unter einem Pixel |
+| `1.0.19` | Überarbeiteter Symbolsatz nach der Auswahlrunde: **1.5em statt 1.05em** bei unveränderter Strichstärke 1.8, Kabelzug als Latzugstange, Langhantel mit gestaffelten Scheiben, Maschine mit einer Diagonale aus dem Gewichtsblock statt des abgewinkelten Rahmens. Dazu die Symbolübersicht auf der Wartungsseite und im Training der Hinweis **„Noch kein Gewicht gespeichert"** dort, wo sonst „zuletzt xy kg" steht — vorher blieb die Stelle leer, und leer ist zweideutig: kein Wert vorhanden, oder Wert vergessen? |
+| `1.0.18` | Vorübergehende Auswahlhilfe für die Gerätesymbole auf der Wartungsseite: Größe, Strichstärke und je drei Formvarianten pro Gerät, jeweils in einem echten Abzeichen. Nur Entscheidungsgrundlage, ohne Wirkung auf die App |
 | `1.0.17` | Vier Punkte aus dem ersten Blick auf `1.0.16`. In der Übungsliste ist der Filterknopf **„Alle" entfallen**: Mit ihm passte die Leiste nicht in eine Zeile (715px von 688px verfügbar), ohne ihn bleiben 63px Luft — gegen breitere Schriften, 18px Schriftgröße und dreistellige Zählstände headless nachgemessen. `?filter=alle` greift weiterhin. Im **Auswahl-Overlay der Planverwaltung** schränken sich die beiden Filter jetzt **gegenseitig** ein: Nach der Wahl einer Muskelgruppe stehen nur noch die Geräte zur Verfügung, für die es dort auch eine Übung gibt, und umgekehrt. Jede der beiden Listen wird ohne ihren eigenen Filter gerechnet, sonst wäre die Einschränkung eine Sackgasse; wird eine Wahl durch die andere ungültig, springt sie auf „alle" zurück und die Liste kommt neu. Der Gerätefilter im Tauschdialog gilt jetzt auch in der **Planverwaltung**, geteilt mit dem Training über `geraetFilterFuellen()`/`geraetGefiltert()` in `assets/app.js`. Und der Knopf **„Dauerhaft im Plan"** im Training verlangt eine **Rückfrage** mit beiden Übungsnamen — er steht neben „Nur diese Einheit", und ein Fehlgriff im Studio fiele erst Wochen später auf; „Nur diese Einheit" fragt bewusst weiterhin nicht |
 | `1.0.16` | Nacharbeit zu `1.0.15` nach dem ersten Blick auf den PC: Die **Filterleiste der Übungsverwaltung** stand in drei Zeilen statt einer — die beiden `<select>` erbten das `width: 100%` aus der allgemeinen Formularregel; `.filter-form` ist jetzt selbst ein Flex-Container mit `width: auto` für die Auswahlfelder. „Kabel" heißt **„Kabelzug"** (nur die Beschriftung, der Schlüssel `kabel` bleibt — keine Migration). Der Filtereintrag **„ohne Gerät" ist raus**, in beiden Auswahlfeldern: Seit der Nachpflege kann er keine Treffer mehr bekommen, weil das Feld beim Anlegen *und* beim Bearbeiten Pflicht ist. Serverseitig bleibt `_leer` gültig, damit `?equipment=_leer` von Hand noch greift, falls eine alte Sicherung Lücken mitbringt. Neu im **Tauschdialog des Trainings**: ein Gerätefilter, der rein im Browser auf der bereits geladenen Vorschlagsliste arbeitet — die Auswahl enthält nur Geräte, die auch vorkommen, und entfällt bei weniger als zweien |
 | `1.0.15` | **Trainingsgerät** als Pflichtfeld je Übung — sieben Werte als Codeliste in `lib/geraete.php` (Maschine, Multipresse, Kabel, Langhantel, Kurzhantel, Kettlebell, Körpergewicht), angezeigt als Abzeichen mit Symbol in Übungs- und Planverwaltung, im Training und in beiden Dialogen. Die Symbole stehen als SVG-Sprite in `lib/view_geraet_symbole.php`, damit PHP und JS dieselbe Quelle nutzen. Die Übungsliste filtert jetzt nach Muskelgruppe **und** Gerät (kombinierbar, plus „ohne Gerät" für die Nachpflege). In der Planverwaltung ersetzt ein Auswahl-Overlay mit denselben zwei Filtern das Pulldown mit allen aktiven Übungen; die Treffer kommen über die neue Aktion `exercise_picker` und werden mit `vorschlagMarkup()` gerendert — dieselbe Darstellung wie beim Tausch. **Die Tauschlogik selbst ist unverändert:** Vorschläge weiter allein über die primäre Hauptgruppe, weil man meist ausweicht, *weil* ein Gerät besetzt ist |

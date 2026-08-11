@@ -45,7 +45,7 @@ Unterteilung fein sein, ohne dass die Vorschlagslisten leer laufen.
   - Abduktoren — Abductors
   - Waden — Calves
 
-6 Hauptgruppen, 21 Untergruppen.
+Sechs Hauptgruppen mit ihren Untergruppen. Die Gliederung ändert sich selten; was gerade angelegt ist, steht in der App unter *Muskelgruppen*.
 
 **Ohne Übung, für später vorgehalten:** `Rückenstrecker`, `Bauch (Seite)`, `Adduktoren`,
 `Abduktoren`, `Brust (unten)` als Primärgruppe. Sie erfordern kein Umbenennen, sobald eine
@@ -55,8 +55,7 @@ passende Übung dazukommt.
 
 ## 2. Übungen
 
-Alle 16 sind angelegt. **Bilder fehlen bei 14** — die pflegst du über
-*Übungen → Bearbeiten → Bild hinzufügen* nach.
+**Diese Liste ist ein Schnappschuss aus der Aufbauphase und wird nicht nachgeführt.** Der Übungsbestand wächst laufend; welche Übungen es gibt, steht in der App unter *Übungen* — dort mit Bild, Trainingsgerät und Muskelgruppen. Was hier trotzdem hilft, sind die Überlegungen dahinter: welche Untergruppe warum gewählt wurde und was das für den Tausch bedeutet.
 
 Zur Systematik: **primär** ist die Untergruppe, an der die Übung hängt; ihre Hauptgruppe
 entscheidet über die Tauschvorschläge. **Sekundär** wird mittrainiert. **Ausführung** trägt
@@ -112,7 +111,7 @@ Liegendes Kabeldrücken · Bizeps-Maschine · Beinpresse · Beinbeuger (sitzend)
 
 ## 4. Was der Übungstausch jetzt liefert
 
-Verteilung der 16 Übungen über die Hauptgruppen:
+Verteilung über die Hauptgruppen, Stand der Aufbauphase — nicht nachgeführt:
 
 | Hauptgruppe | Übungen | Tausch |
 |---|---|---|
