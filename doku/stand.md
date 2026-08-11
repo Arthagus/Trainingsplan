@@ -13,11 +13,11 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.3`
+> ## Live läuft `trainingsplan:1.1.4`
 >
-> Ausgerollt am 2026-08-11, das Weiterspringen nach dem Abhaken sitzt jetzt richtig.
-> **Der Arbeitsstand im Repo ist `1.1.4` und noch nicht gebaut.**
-> Alles darunter ist die Vorgeschichte, neueste zuerst.
+> Ausgerollt am 2026-08-11; die App meldet die Nummer selbst auf der Wartungsseite.
+> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
+> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
 
 **`1.1.4`: Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich bei einer
 als erledigt markierten Übung Wiederholungen und Gewicht nachträglich ändern und Sätze
@@ -33,7 +33,7 @@ bestehende Zeile, `done = false` (der Weg zum Entsperren) und — am wichtigsten
 Die Sperre gilt jetzt auch für das Gewichtsfeld im einfachen Modus, wo sie bis dahin nur eine
 Regel der Oberfläche war. Service-Worker-Cache auf `v18`.
 
-Dazu in derselben, noch ungebauten Nummer: **Die Zeile „zuletzt …" nennt im Expertenmodus die ganze Satzfolge** — `zuletzt 3 Sätze (12×45 · 10×45 · 8×50)` statt einer einzelnen Zahl, in derselben Form wie die Zusammenfassung im Satzblock darunter. Im Standardmodus bleibt es bei „zuletzt 45 kg". **Beide Zusammenfassungen benutzen dieselbe Schreibweise** — sie stehen am Handy direkt übereinander, und zwei Formen liest man dort als Unterschied in der Sache. Gebaut wird sie an einer Stelle je Seite: `saetze_zusammenfassung()` und `saetzeZusammenfassung()`.
+Dazu in derselben Nummer: **Die Zeile „zuletzt …" nennt im Expertenmodus die ganze Satzfolge** — `zuletzt 3 Sätze (12×45 · 10×45 · 8×50)` statt einer einzelnen Zahl, in derselben Form wie die Zusammenfassung im Satzblock darunter. Im Standardmodus bleibt es bei „zuletzt 45 kg". **Beide Zusammenfassungen benutzen dieselbe Schreibweise** — sie stehen am Handy direkt übereinander, und zwei Formen liest man dort als Unterschied in der Sache. Gebaut wird sie an einer Stelle je Seite: `saetze_zusammenfassung()` und `saetzeZusammenfassung()`.
 
 **`1.1.3`: Beim Weiterspringen wurde die Karte von der Verbindungsleiste verdeckt.** Nach dem
 Abhaken sprang die Ansicht zur nächsten Übung, deren Name aber oben abgeschnitten war. Grund:
@@ -244,11 +244,11 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
 |---|---|
 | Muskelgruppen | Zweistufig: Hauptgruppen mit Untergruppen darunter. Die Gliederung steht in `bestand_gruppen_uebungen.md` |
 | Übungen | Wächst laufend, **alle mit Trainingsgerät**. Der Bestand steht in der App und wird hier bewusst nicht gezählt — welche Zahl gerade gilt, ist für die Entwicklung ohne Belang, und eine notierte Zahl ist am Tag danach falsch. Genutzt werden bisher Maschine, Kabelzug, Kurzhantel und Körpergewicht; Multipresse, Langhantel und Kettlebell stehen bereit, sind aber unbenutzt |
-| Benutzer | `Oliver` (id 1, Admin) · `claude` (id 2, Admin) · `Nele` (id 3) — Namen ab `1.0.8` änderbar. **Alle auf `expert_mode = 0`**, solange niemand umschaltet |
+| Benutzer | `Oliver` (id 1, Admin) · `claude` (id 2, Admin) · `Nele` (id 3) — Namen ab `1.0.8` änderbar. Wer den Expertenmodus eingeschaltet hat, steht in `users.expert_mode` und wird hier nicht mitgeführt: Es ist eine persönliche Einstellung, die sich jederzeit ändert |
 | Pläne | `Oliver`: Push, Pull · `Nele`: Ganzkörper A, Ganzkörper B — je 8 Positionen |
 | Trainingseinheiten | 4, mit 25 Protokollzeilen (Wartungsseite, 2026-08-11) |
-| Sätze (`workout_sets`) | 0 — die Tabelle entsteht mit `1.1.0` leer und füllt sich erst, wenn jemand den Expertenmodus einschaltet und damit trainiert |
-| Sicherungen | 1 (ZIP mit Bildern, 774 KB, 2026-08-07) — **inzwischen deutlich älter als der Datenstand**, siehe *Offen* |
+| Sätze (`workout_sets`) | Entsteht mit `1.1.0` leer und füllt sich, sobald jemand im Expertenmodus trainiert. **Die Wartungsseite zählt sie nicht** — dort stehen nur die Protokollzeilen; wer den Bestand wissen will, fragt die Datenbank |
+| Sicherungen | 2 — **frisch: 2026-08-11 16:13, 1,5 MB mit Bildern**; daneben die alte vom 2026-08-07 (774 KB) |
 
 Zahlen vom 2026-08-11, abgelesen auf der Wartungsseite: 3 Benutzer, 27 Muskelgruppen,
 31 Übungen, 4 Pläne, 4 Einheiten, 25 Protokollzeilen, 62 Bilder (1,6 MB), Datenbank 164 KB.
@@ -256,9 +256,14 @@ Sie veralten schnell und stehen hier nur als Größenordnung.
 
 ## Offen
 
-1. **Vier Abnahmekriterien am Handy**, siehe unten. Die Gegenprobe der *Darstellung* deckt
-   sie nicht ab — die Kriterien sind einzelne, benannte Abläufe.
-2. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
+1. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden) und die Gerätehälfte von 19
+   (Expertenmodus). Die Gegenprobe der *Darstellung* deckt sie nicht ab; es sind einzelne,
+   benannte Abläufe. **2, 3 und 6 sind am 2026-08-11 bestanden.**
+2. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
+   frische Sicherung *mit* Bildern vor, und damit erstmals eine, deren Einspielen den
+   aktuellen Datenstand wiederherstellen würde statt ihn zurückzudrehen. Bisher fehlte genau
+   dieses Stück. Wer es durchspielt, sollte danach ab- und neu anmelden (Fallstrick 14).
+3. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
    Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
    Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
    kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
@@ -288,8 +293,14 @@ den Expertenmodus einschalten. Weitergehende Wünsche stehen weiter in `LASTENHE
 
 ## Prüfstand der 19 Abnahmekriterien (`LASTENHEFT.md` §11)
 
-**Bestanden:** 1, 4–15. Die Kriterien 4–13 gegen den Dev-Server durchgespielt, 1 und 15 auf
+**Bestanden:** 1–15. Die Kriterien 4–13 gegen den Dev-Server durchgespielt, 1 und 15 auf
 dem Live-System.
+
+**Kriterien 2, 3 und 6 am Handy bestanden (2026-08-11).** Damit ist der ganze Weg belegt, der
+sich nur mit echter Hardware prüfen ließ: PWA über „Zum Startbildschirm hinzufügen"
+installiert, Browser geschlossen, App vom Startbildschirm geöffnet — **kein erneuter Login**
+(Remember-Me mit Selector/Validator und Rotation, §5). Und das Handy mitten im Training
+gesperrt, App neu geöffnet — Häkchen und Fortschritt standen noch (§7.4).
 
 **Kriterium 14 (Upload-Sicherheit), live bestanden am 2026-08-07:** Eine als `.jpg` getarnte
 PHP-Datei wird abgelehnt — der Typ kommt aus dem Inhalt, nicht aus der Endung. Ein *gültiges*
@@ -303,9 +314,8 @@ JPEG neu; am gespeicherten Bild nachgeprüft, dass kein Code übrig ist.
 
 | # | Was |
 |---|---|
-| 2, 3 | PWA installieren, Browser schließen, App vom Startbildschirm öffnen → kein erneuter Login |
-| 6 | Handy während des Trainings sperren, App neu öffnen → Häkchen und Fortschritt erhalten |
 | 16 | Ein Gerät unter *Geräte* abmelden → dieses verlangt wieder das Passwort, die anderen nicht |
+| 19 | Die Gerätehälfte des Expertenmodus: Stepper zwischen zwei Sätzen treffen, Verhalten im Flugmodus (gestrichelter Balken, gesperrtes Beenden, Nachholen) |
 
 **Kriterium 17 (Restore) — teilweise:** Der gesamte *Prüfpfad* ist auf dem Live-System
 bestätigt (ZIP öffnen, Datenbank finden, entpacken, `integrity_check`, Tabellenabgleich) —
@@ -374,7 +384,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
-| `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(noch nicht gebaut)* |
+| `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(live seit 2026-08-11)* |
 | `1.1.3` | Beim Weiterspringen nach dem Abhaken landete die nächste Übungskarte **unter der Verbindungsleiste** — sie ist `position: sticky; top: 0` und wird genau in diesem Moment sichtbar, weil die Eingabe in die Warteschlange geht; `scrollIntoView({block:'start'})` setzt das Ziel exakt an den Viewport-Rand und damit darunter. `zurAktivenSpringen()` zieht ihre **gemessene** Höhe ab (`offsetHeight`, 0 wenn ausgeblendet — der Text kann auf schmalen Geräten zweizeilig werden) und lässt 8 px Luft. Nur `index.js` betroffen, deshalb **kein** Cache-Hochzählen: Der Service Worker fasst ausschließlich `/assets/` an *(live seit 2026-08-11)* |
 | `1.1.2` | Feinschliff aus dem zweiten Einsatz, alles zur Bedienung am Gerät. **Farbleitsystem** am linken Kartenrand: grün = hier bist du, blau = erledigt, grau = kommt noch — vorher war Grün „erledigt", aber Grün zieht den Blick, und den soll ziehen, was als Nächstes dran ist. **Aktive Markierung und aufgeklappter Satzblock nur während eines Trainings**; „Training starten" öffnet die erste Übung und scrollt dorthin (Merker in `sessionStorage`, weil die Seite dazwischen neu lädt). **Der Wartezustand strichelt die vorhandene Balkenfarbe**, statt orange zu werden — das sah nach Fehler aus; der Hinweissatz in der Karte entfällt ersatzlos, weil er die Kartenhöhe änderte und die Liste bei jedem Satz springen ließ. **Fokusrahmen im Stepper freigestellt** (3 px Abstand plus `outline-offset: 0`), dazu das Breitenbudget der Satzzeile nachgerechnet und die Staffelung für schmale Geräte zweistufig gemacht. Cache `v17` *(live seit 2026-08-11)* |
 | `1.1.1` | Drei Korrekturen aus dem ersten Einsatz von `1.1.0`. **„Erledigt" ist ein Schalter** statt eines Nebeneffekts der Sätze — neue Spalte `workout_log.done` (Vorgabe 1) trennt „protokolliert" von „fertig"; „x/n" zählt `done = 1`, die **Tauschsperre** dagegen die bloße Existenz der Zeile (zwei Sätze Bankdrücken sind zwei Sätze Bankdrücken). Abhaken klappt den Satzblock zu und springt zur nächsten offenen Übung; Ab-wählen löscht die Sätze nicht mehr. **Eine noch leere Satzzeile wird nicht abgeschickt** — „+ Satz" ohne Vorlage lief sonst in ein 422 und markierte die Zeile als fehlerhaft. **Farblogik**: `.saetze-block > .saetze-kopf` schlägt jetzt `.summary-knopf` (gleiche Spezifität, aber später in der Datei — die leise Fassung kam nie an), und **alle** `:hover`-Regeln stehen hinter `@media (hover: hover)`, weil Hover auf dem Touchscreen am zuletzt angetippten Element klebt und die Knöpfe ihre Blautöne tauschen ließ. Cache `v16`, Warteschlange `v3` *(live seit 2026-08-11)* |

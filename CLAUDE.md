@@ -23,7 +23,7 @@ korrigieren, nicht zu befolgen. Im Zweifel nachfragen statt raten.
 
 | Datei | Inhalt |
 |---|---|
-| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 18 Abnahmekriterien |
+| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 19 Abnahmekriterien |
 | `doku/stand.md` | **Flüchtig:** laufende Version, Datenstand, offene Punkte |
 | `doku/deployment.md` | Topologie, Portainer-Ablauf, Fehlersuche |
 | `deploy/ANLEITUNG.md` | Schritt-für-Schritt-Anleitung zum Ausrollen |
@@ -50,12 +50,15 @@ Werte aus dem Stack; lokal muss man sie selbst setzen:
 ```bash
 php -r 'putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
         require "lib/db.php"; db();
-        db()->prepare("UPDATE users SET must_change_password = 0")->execute();'
+        db()->prepare("UPDATE users SET must_change_password = 0,
+                                        expert_mode = 1")->execute();'
 ```
 
 Das `UPDATE` ist kein Schönheitsfehler, sondern nötig: Ohne es sperrt
 `require_passwort_gesetzt_api()` **jeden** Endpunkt außer `api/auth.php` (Fallstrick 3),
-und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht.
+und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht. `expert_mode = 1`
+nur, wenn die Satzerfassung geprüft werden soll — im Standardmodus rendert `index.php` gar
+keinen Satzblock, und man sucht den Fehler an der falschen Stelle.
 
 Danach `data/trainingsplan.db*` wieder löschen — die Datei gehört nicht in den
 Arbeitsstand, und ein liegengebliebener Testbestand verfälscht die nächste Prüfung.
@@ -79,8 +82,26 @@ node --check assets/app.js
 ```
 
 **Geprüft wird gegen den Dev-Server per `curl`**: Sitzung aufbauen, Endpunkt aufrufen,
-Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 18 manuellen Kriterien
+Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 19 manuellen Kriterien
 in `LASTENHEFT.md` §11.
+
+Der Sitzungsaufbau, weil das Token die einzige fummelige Stelle ist:
+
+```bash
+J=/tmp/kekse.txt; rm -f $J
+tok() { curl -s -b $J -c $J "http://127.0.0.1:8100/$1" \
+        | grep -o 'name="csrf-token" content="[^"]*"' | sed 's/.*content="//;s/"//'; }
+TOK=$(tok login.php)
+curl -s -b $J -c $J -X POST http://127.0.0.1:8100/api/auth.php \
+     -H "Content-Type: application/json" -H "X-CSRF-Token: $TOK" \
+     -d '{"action":"login","name":"tester","password":"geheim12345"}'
+```
+
+**Das Muster muss `name="csrf-token"` enthalten.** Ein bloßes `content="[^"]*"` greift den
+ersten Treffer im `<head>`, und das ist der Viewport — die Anmeldung scheitert dann mit
+„Nicht angemeldet", obwohl Benutzername und Passwort stimmen. Nach jedem Neuladen liefert
+`tok` das aktuelle Token; `-b` **und** `-c` gehören an jeden Aufruf, sonst geht die Sitzung
+verloren.
 
 **Was dieser Weg nicht abdeckt** — hier sind schon zwei echte Fehler durchgerutscht:
 
@@ -181,6 +202,18 @@ $pdo->exec('PRAGMA busy_timeout = 5000');
 - **Ausschließlich Prepared Statements.** Kein String-Interpolieren in SQL, nirgends.
 - **Zeitstempel immer in PHP erzeugen** (`date('Y-m-d H:i:s')`), nie `CURRENT_TIMESTAMP` —
   SQLite liefert dort UTC, die App läuft auf `Europe/Vienna`.
+- **Die `sqlite3`-Kommandozeile erzwingt KEINE Fremdschlüssel.** Das `PRAGMA foreign_keys =
+  ON` oben gilt für die PDO-Verbindung der App, nicht für ein Werkzeug daneben; im CLI ist
+  die Vorgabe `OFF`. Wer beim Prüfen von Hand etwas löscht, muss es selbst voranstellen:
+
+  ```bash
+  sqlite3 data/trainingsplan.db "PRAGMA foreign_keys=ON; DELETE FROM sessions WHERE id = 3;"
+  ```
+
+  Ohne das bleiben die `workout_log`-Zeilen der Einheit als Waisen stehen, und die
+  anschließende Zählung stimmt nicht mehr — was wie ein Fehler im CASCADE aussieht, aber
+  keiner ist. Genau so ist beim Prüfen von `workout_sets` einmal ein falscher Befund
+  entstanden.
 - **Sicherungen über `VACUUM INTO`, nie als Dateikopie** (`lib/backup.php`). Im WAL-Modus ist
   ein `cp` der `.db` ohne `-wal`/`-shm` im besten Fall veraltet, im schlechteren unbrauchbar.
   Gilt auch für Portainers Dateibrowser und Volume-Backup-Werkzeuge.
