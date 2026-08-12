@@ -13,17 +13,18 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.5` — `1.1.6` ist **gepackt, aber noch nicht ausgerollt**
+> ## Live läuft `trainingsplan:1.1.6`
 >
-> `1.1.5` ist am 2026-08-11 ausgerollt; die App meldet die Nummer selbst auf der
-> Wartungsseite. **`deploy/trainingsplan-build-1.1.6.tar.gz` liegt seit 2026-08-12 bereit**
-> und wartet auf Portainer (Image bauen, dann Stack auf `trainingsplan:1.1.6`). Damit ist
-> die Nummer `1.1.6` **vergeben**: Jede weitere Änderung an etwas, das im Paket steckt,
-> hebt auf `1.1.7`. Alles darunter ist die Vorgeschichte, neueste zuerst.
+> Ausgerollt am 2026-08-12; die App meldet die Nummer selbst auf der Wartungsseite.
+> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
+> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
 >
-> **Noch offen für `1.1.6`: die Gegenprobe am Bildschirm.** Geprüft ist alles per `curl`
-> und gegen die Datenbank; wie der orange Balken neben Blau und Grün wirkt und ob die
-> gesperrten Bedienelemente vor dem Start verständlich aussehen, sagt nur der Blick darauf.
+> **`1.1.6` ist noch nicht im Studio erprobt.** Die drei Änderungen sind per `curl` und
+> gegen die Datenbank belegt, aber alle drei zielen auf die Bedienung am Gerät: der orange
+> Balken neben Blau und Grün, die gesperrten Bedienelemente vor dem Start, und ob die neue
+> Definition von „aktiv" beim tatsächlichen Überspringen einer besetzten Maschine das tut,
+> was man erwartet. Der Benutzer prüft es beim nächsten Training (angekündigt für
+> 2026-08-13). Bis dahin gilt: ausgerollt, nicht abgenommen.
 
 **`1.1.6` bringt drei Dinge**, alle aus derselben Rückmeldung vom 2026-08-12.
 
@@ -254,6 +255,13 @@ Benutzung. Ebenso die vier Abnahmekriterien aus §11.
 
 **Gegen die laufende Instanz geprüft**, per `curl`:
 
+- *2026-08-12, `1.1.6`:* Die Wartungsseite meldet **`1.1.6`** — damit ist der neue Container
+  belegt und nicht bloß das Stack-Update. `style.css`, `app.js`, `sw.js` und `manifest.json`
+  byteweise gleich dem Repo, `sw.js` auf `v19`, und `.zeile-uebersprungen { border-left: 4px
+  solid #ff6600; }` steht im ausgelieferten CSS. Zugriffssperren stichprobenhaft:
+  `VERSION`, `schema.sql`, `Dockerfile`, `lib/training.php` und `data/trainingsplan.db`
+  allesamt 403. Zählstände unverändert (5 Einheiten, 34 Protokollzeilen, 28 Sätze) — seit
+  dem Rollout ist nicht trainiert worden.
 - *2026-08-10, `1.0.17`:* `style.css`, `app.js`, `sw.js` und `manifest.json` byteweise
   gleich dem Repo, `sw.js` auf `v13` — damit ist `1.0.17` als laufender Stand belegt.
   Zugriffssperren stichprobenhaft, **einschließlich der beiden neuen `lib/`-Dateien**:
@@ -298,8 +306,8 @@ Benutzung. Ebenso die vier Abnahmekriterien aus §11.
   `must_change_password` sperrt die neuen Aktionen.
 
 **Noch nicht gegengeprüft** — alles nur am Handy prüfbar, Einzelheiten unter *Offen*:
-Warteschlange und Verbindungsleiste aus `1.0.8` (das Wichtigste), dazu die Darstellung
-aus `1.0.10` bis `1.0.17`.
+Warteschlange und Verbindungsleiste aus `1.0.8` (das Wichtigste), die Darstellung
+aus `1.0.10` bis `1.0.17` und **die drei Änderungen aus `1.1.6`**.
 
 ## Datenstand
 
@@ -339,14 +347,27 @@ Fremde Trainingsdaten stillschweigend aufzuräumen ist nicht Sache der Entwicklu
 
 ## Offen
 
-1. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden) und die Gerätehälfte von 19
+1. **`1.1.6` im Studio erproben** — angekündigt für 2026-08-13, das nächste Training. Worauf
+   zu achten ist, weil `curl` es nicht sehen kann:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Plan öffnen, ohne zu starten | „Erledigt", „+ Satz" und das Gewichtsfeld sind grau und reagieren nicht; „Tauschen" geht |
+   | Vor dem Start „Tauschen" antippen | Nur **„Dauerhaft im Plan"** steht da, dazu der Hinweissatz — und danach läuft **kein** Training |
+   | Eine besetzte Maschine auslassen, an der nächsten den ersten Satz eintragen | Die nächste wird **grün**, die ausgelassene **orange** (`#ff6600`) — und die Ansicht springt nach vorn, nicht zurück |
+   | Zur ausgelassenen zurückgehen | Sie wird grün, das Orange verschwindet |
+   | Nach dem Training | Der Vorschlag ist der **andere** Plan |
+
+   Der orange Ton neben Blau und Grün ist dabei die einzige reine Geschmacksfrage — alles
+   andere ist überprüfbares Verhalten.
+2. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden) und die Gerätehälfte von 19
    (Expertenmodus). Die Gegenprobe der *Darstellung* deckt sie nicht ab; es sind einzelne,
    benannte Abläufe. **2, 3 und 6 sind am 2026-08-11 bestanden.**
-2. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
+3. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
    frische Sicherung *mit* Bildern vor, und damit erstmals eine, deren Einspielen den
    aktuellen Datenstand wiederherstellen würde statt ihn zurückzudrehen. Bisher fehlte genau
    dieses Stück. Wer es durchspielt, sollte danach ab- und neu anmelden (Fallstrick 14).
-3. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
+4. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
    Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
    Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
    kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
@@ -474,7 +495,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
-| `1.1.6` | Drei Punkte aus der Rückmeldung vom 2026-08-12. **Die Plan-Rotation liest ihren Ausgangspunkt aus der Historie** statt aus `users.last_plan_id` — die Spalte wurde nur beim *Beenden* geschrieben und beim *Löschen* nie zurückgenommen, eine gelöschte Testeinheit verstellte den Vorschlag also dauerhaft. Gezählt wird **jede** Einheit, auch eine leere: Die Rotation richtet sich starr nach der Historie, sauber halten ist Sache des Benutzers. **Ein Training beginnt ausschließlich mit „Training starten"** — `einheit_sicherstellen()` hat genau einen Aufrufer, `api/log.php` und `api/swap.php` antworten mit 409, und vor dem Start sind „Erledigt", „+ Satz" und das Gewichtsfeld gesperrt; dauerhaft tauschen bleibt möglich, „nur diese Einheit" nicht. **Übersprungene Übungen sind orange** (`#ff6600`), und „aktiv" heißt jetzt „wo gerade protokolliert wird" statt „die erste offene" — `positions_zustaende()` in PHP, `aktiveMarkieren()` in JS. Cache `v19` *(gepackt 2026-08-12, noch nicht ausgerollt)* |
+| `1.1.6` | Drei Punkte aus der Rückmeldung vom 2026-08-12. **Die Plan-Rotation liest ihren Ausgangspunkt aus der Historie** statt aus `users.last_plan_id` — die Spalte wurde nur beim *Beenden* geschrieben und beim *Löschen* nie zurückgenommen, eine gelöschte Testeinheit verstellte den Vorschlag also dauerhaft. Gezählt wird **jede** Einheit, auch eine leere: Die Rotation richtet sich starr nach der Historie, sauber halten ist Sache des Benutzers. **Ein Training beginnt ausschließlich mit „Training starten"** — `einheit_sicherstellen()` hat genau einen Aufrufer, `api/log.php` und `api/swap.php` antworten mit 409, und vor dem Start sind „Erledigt", „+ Satz" und das Gewichtsfeld gesperrt; dauerhaft tauschen bleibt möglich, „nur diese Einheit" nicht. **Übersprungene Übungen sind orange** (`#ff6600`), und „aktiv" heißt jetzt „wo gerade protokolliert wird" statt „die erste offene" — `positions_zustaende()` in PHP, `aktiveMarkieren()` in JS. Cache `v19` *(live seit 2026-08-12)* |
 | `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(live seit 2026-08-11)* |
 | `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(live seit 2026-08-11)* |
 | `1.1.3` | Beim Weiterspringen nach dem Abhaken landete die nächste Übungskarte **unter der Verbindungsleiste** — sie ist `position: sticky; top: 0` und wird genau in diesem Moment sichtbar, weil die Eingabe in die Warteschlange geht; `scrollIntoView({block:'start'})` setzt das Ziel exakt an den Viewport-Rand und damit darunter. `zurAktivenSpringen()` zieht ihre **gemessene** Höhe ab (`offsetHeight`, 0 wenn ausgeblendet — der Text kann auf schmalen Geräten zweizeilig werden) und lässt 8 px Luft. Nur `index.js` betroffen, deshalb **kein** Cache-Hochzählen: Der Service Worker fasst ausschließlich `/assets/` an *(live seit 2026-08-11)* |
