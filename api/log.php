@@ -377,11 +377,26 @@ function aktion_abhaken(array $eingabe): never {
     $planId = (int)$position['plan_id'];
     $planUebungId = (int)$position['exercise_id'];
 
+    // Protokollieren setzt eine LAUFENDE Einheit voraus (§7.6). Bis 1.1.5 legte
+    // einheit_sicherstellen() hier stillschweigend eine an -- ein einziger
+    // Fehlgriff auf ein Haekchen begann damit ein Training, und started_at hielt
+    // nicht den Trainingsbeginn fest, sondern den Fehlgriff. Eine Einheit
+    // beginnt jetzt ausschliesslich mit "Training starten".
+    //
+    // 409 und nicht 403: Der Aufruf ist erlaubt, nur der Zustand passt nicht.
+    // index.js zeigt die Meldung unveraendert an -- sie sagt, was zu tun ist.
+    $laufende = offene_einheit($userId);
+    if ($laufende === null) {
+        json_err('Es läuft kein Training — bitte zuerst „Training starten" drücken.', 409);
+    }
+    $sessionIdOffen = (int)$laufende['id'];
+
     $sessionId = db_transaction(
         static function () use (
-            $userId, $planId, $peId, $planUebungId, $gewicht, $saetze, $erledigt
+            $userId, $planId, $peId, $planUebungId, $gewicht, $saetze, $erledigt,
+            $sessionIdOffen
         ): int {
-            $sessionId = einheit_sicherstellen($userId, $planId);
+            $sessionId = $sessionIdOffen;
             $uebungId  = angezeigte_uebung($peId, $planUebungId, $sessionId);
 
             // Ein Eintrag je Einheit UND Planposition -- nicht je Uebung. Der

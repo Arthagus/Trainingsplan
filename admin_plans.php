@@ -20,7 +20,7 @@ require_admin();
  */
 
 $benutzer = db()->query(
-    'SELECT id, name, is_admin, last_plan_id FROM users ORDER BY name'
+    'SELECT id, name, is_admin FROM users ORDER BY name'
 )->fetchAll();
 
 $gewaehlt = to_int_or_null($_GET['user'] ?? null);
@@ -46,16 +46,14 @@ $positionen        = [];
 $gruppenZuPosition = [];
 $offeneEinheit     = null;
 $vorschlag         = null;
+$zuletzt           = null;
 $aktiveUebungen    = 0;
 
 if ($aktuellerBenutzer !== null) {
     $plaene        = plaene_von($gewaehlt);
     $offeneEinheit = offene_einheit($gewaehlt);
-    $vorschlag     = naechster_plan(
-        $gewaehlt,
-        to_int_or_null($aktuellerBenutzer['last_plan_id']),
-        $plaene
-    );
+    $vorschlag     = naechster_plan($gewaehlt, $plaene);
+    $zuletzt       = zuletzt_trainierter_plan($gewaehlt);
 
     if ($plaene !== []) {
         $planIds = array_map(static fn(array $p): int => (int)$p['id'], $plaene);
@@ -171,8 +169,8 @@ require __DIR__ . '/lib/view_header.php';
             <?php if ($vorschlag !== null): ?>
                 Als Nächstes wird <strong><?= h((string)$vorschlag['name']) ?></strong> vorgeschlagen.
             <?php endif; ?>
-            <?php if (empty($aktuellerBenutzer['last_plan_id'])): ?>
-                (Noch keine Einheit abgeschlossen — die Rotation beginnt vorne.)
+            <?php if ($zuletzt === null): ?>
+                (Noch nichts protokolliert — die Rotation beginnt vorne.)
             <?php endif; ?>
         </p>
     <?php endif; ?>

@@ -746,20 +746,28 @@ button.gefahr { background: var(--fehler); }
 /* --- Zustaende einer Uebungszeile ---------------------------------------- */
 
 /* Der Balken am linken Rand ist das Leitsystem beim Scrollen durch acht Karten.
-   Drei Zustaende, und die Zuordnung ist bewusst so herum:
+   Vier Zustaende, und die Zuordnung ist bewusst so herum:
 
-     gruen  = HIER BIST DU. Die erste noch nicht erledigte Uebung, waehrend ein
+     gruen  = HIER BIST DU. Die Uebung, an der man gerade steht, waehrend ein
               Training laeuft. Das ist die Information, die man beim Blick aufs
               Handy zuerst sucht -- nicht, was schon fertig ist.
      blau   = erledigt. Abgeschlossen und abgelegt, in der ruhigen Hausfarbe.
+     orange = UEBERSPRUNGEN. Noch offen, obwohl man schon weiter ist -- das
+              belegte Geraet, zu dem man zurueckwill.
      grau   = kommt noch.
 
    Frueher war Gruen die Farbe fuer "erledigt". Das ist verlockend, aber falsch
    herum: Gruen zieht den Blick, und den soll das ziehen, was als Naechstes zu
-   tun ist. */
-.zeile-offen      { border-left: 4px solid var(--linie); }
-.zeile-aktiv      { border-left: 4px solid var(--gut); }
-.zeile-erledigt   { border-left: 4px solid var(--akzent); }
+   tun ist.
+
+   Orange ist bewusst NICHT --warnung (#a15c00): Der Balken ist 4px breit, und
+   ein abgedunkeltes Braunorange ist auf diesem Streifen nicht mehr von Grau zu
+   unterscheiden. Hier zaehlt Signalwirkung ueber vier Pixel, nicht Lesbarkeit
+   von Text -- deshalb Safety-Orange und nur an dieser einen Stelle. */
+.zeile-offen         { border-left: 4px solid var(--linie); }
+.zeile-aktiv         { border-left: 4px solid var(--gut); }
+.zeile-erledigt      { border-left: 4px solid var(--akzent); }
+.zeile-uebersprungen { border-left: 4px solid #ff6600; }
 
 /* Ein fehlgeschlagenes Speichern bleibt sichtbar stehen, bis es geklappt hat --
    es wird nie stillschweigend verschluckt. */

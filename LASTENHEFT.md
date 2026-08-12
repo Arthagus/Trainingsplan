@@ -391,7 +391,10 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
 **users** — Benutzer
 - `id`, `name` (eindeutiger Login-Name), `password_hash`, `is_admin` (bool),
-  `must_change_password` (bool, Default 0), `last_plan_id` (FK → plans, nullable), `created_at`
+  `must_change_password` (bool, Default 0), `expert_mode` (bool, Default 0),
+  `last_plan_id` (FK → plans, nullable — **seit 2026-08-12 unbenutzt**, siehe §7.6;
+  die Spalte bleibt nur stehen, weil ihr Entfernen eine löschende Migration ohne
+  Gegenwert wäre), `created_at`
 
 **remember_tokens** — „Angemeldet bleiben"-Tokens (siehe §5)
 - `id`, `user_id` (FK), `selector` (eindeutig), `validator_hash`, `expires_at`,
@@ -492,7 +495,7 @@ laufenden Einheit** — Begründung in §7.4.
 |---|---|
 | Übung löschen | Regelfall: kein hartes Löschen, sondern `archived = 1` (§6.3) — Historie bleibt vollständig. Hartes Löschen nur, wenn die Übung weder in einem Plan referenziert wird noch `workout_log`-Einträge hat; dann inkl. Bilddatei und Thumbnail. |
 | Muskelgruppe löschen | Nur zulässig, wenn keine Zuordnung in `exercise_muscle_groups` auf sie zeigt — auch keine von archivierten Übungen. Sonst Hinweis mit der Liste der betroffenen Übungen. Umbenennen und Umsortieren sind immer erlaubt. |
-| Plan löschen | Verboten, solange eine offene Einheit auf ihn zeigt. Sonst: `plan_exercises` kaskadiert, `users.last_plan_id` → `ON DELETE SET NULL`, `sessions`/`workout_log` bleiben erhalten. |
+| Plan löschen | Verboten, solange eine offene Einheit auf ihn zeigt. Sonst: `plan_exercises` kaskadiert, `sessions.plan_id` → `ON DELETE SET NULL`, `sessions`/`workout_log` bleiben erhalten. Eine Einheit ohne Plan zählt für die Rotation nicht mehr mit (§7.6). |
 | Planposition entfernen | Verboten, solange eine offene Einheit läuft (§6.4). Sonst bleibt der `workout_log` erhalten; die Historie zeigt weiter auf `exercise_id`. |
 | Benutzer löschen | Löscht `remember_tokens` und `plans` kaskadierend, entfernt aber **nicht** `sessions`/`workout_log` — der Admin bekommt vor dem Löschen die Anzahl betroffener Einheiten angezeigt und bestätigt explizit. |
 
@@ -763,12 +766,29 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
     darunter, was gerade entsteht. Im Standardmodus bleibt es bei „zuletzt 45 kg".
 - **Der Balken am linken Rand jeder Karte ist das Leitsystem beim Scrollen** — bei acht
   Übungen weiß man sonst nicht mehr, an welchem Gerät man steht:
-  - **grün = hier bist du.** Die **aktive** Position, also die erste noch nicht erledigte.
+  - **grün = hier bist du.** Die **aktive** Position.
   - **blau = erledigt.** Abgeschlossen, in der ruhigen Hausfarbe.
+  - **orange (`#ff6600`) = übersprungen.** Noch offen, obwohl man schon weiter ist.
   - **grau = kommt noch.**
 
   Grün für „erledigt" wäre naheliegend und falsch herum: Grün zieht den Blick, und den soll
   das ziehen, was als Nächstes zu tun ist.
+
+  **Aktiv ist nicht „die erste noch nicht erledigte"** (Änderung vom 2026-08-12). Das war es
+  bis dahin und geht schief, sobald man eine Übung auslässt, weil das Gerät besetzt ist: Die
+  Markierung blieb auf der ausgelassenen Übung stehen, während man längst zwei Geräte weiter
+  war, und dass die ausgelassene noch aussteht, war von „kommt noch" nicht zu unterscheiden.
+  Die Regel lautet, in dieser Reihenfolge:
+
+  1. die Position, an der **gerade protokolliert wird** — sie hat einen Eintrag, ist aber
+     noch nicht abgehakt (bei mehreren die spätere);
+  2. sonst die **erste offene nach der letzten mit Eintrag**;
+  3. sonst die **erste offene überhaupt** — der Rückweg zu dem, was ausgelassen wurde.
+
+  **Orange ist jede offene Position vor der aktiven.** Beispiel: Push, die Dip-Maschine ist
+  fertig, die Beinpresse besetzt, also geht es mit dem Beinstrecker weiter. Sobald dort der
+  erste Satz steht, ist der Beinstrecker grün und die Beinpresse orange — sie ist nicht
+  „kommt noch", sondern „steht noch aus".
 - **Aktive Position und aufgeklappter Satzblock gibt es nur während eines Trainings.** Wer
   den Plan bloß anschaut, sieht eine ruhige Liste — beides wäre sonst eine Aussage über
   einen Ablauf, der noch gar nicht läuft. **„Training starten" öffnet den Block der ersten
@@ -973,7 +993,9 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
     abgehakt, protokolliert der Log die Ersatzübung in `exercise_id` bei unveränderter
     `plan_exercise_id`. **Der Plan bleibt unverändert** — in der nächsten Einheit steht wieder
     die Original-Übung.
-    **Existiert noch keine offene Einheit, startet dieser Tausch die Einheit** (siehe §7.6).
+    **Existiert noch keine offene Einheit, wird dieser Tausch abgelehnt** (409) und gar nicht
+    erst angeboten — er startet ausdrücklich **keine** Einheit (siehe §7.6). Vor dem Start
+    bleibt der dauerhafte Tausch möglich; er braucht keine `session_id`.
   - **Dauerhaft (neue Default-Übung):** Der `plan_exercises`-Eintrag wird geändert
     (`exercise_id` = Ersatzübung). Ab sofort fester Bestandteil des Plans.
 
@@ -1007,21 +1029,29 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Übung geführt).
 
 **7.6 Trainingseinheit (Session) & Plan-Alternation**
-- **Start — auf drei Wegen:**
-  1. **Ausdrücklich über den Knopf „Training starten"** auf der Vorschlagsseite. Das ist der
-     Regelfall und der einzige Weg, bei dem `started_at` wirklich den *Beginn* des Trainings
-     festhält.
-  2. eine Übung als „erledigt" markieren, **oder**
-  3. eine Übung „nur für diese Einheit" tauschen (§7.5).
+- **Start — auf genau einem Weg:** über den Knopf **„Training starten"** auf der
+  Vorschlagsseite. Sonst nichts.
 
-  **Warum es Weg 1 gibt:** Ohne ihn entstand die Einheit frühestens beim Abhaken der ersten
-  Übung — der Zeitstempel hielt damit deren *Ende* fest. Bei drei Sätzen sind das leicht zehn
-  Minuten, und jede Auswertung der Trainingsdauer (§10) wäre systematisch zu kurz.
+  **Warum ausdrücklich:** Ohne den Knopf entstand die Einheit frühestens beim Abhaken der
+  ersten Übung — der Zeitstempel hielt damit deren *Ende* fest. Bei drei Sätzen sind das
+  leicht zehn Minuten, und jede Auswertung der Trainingsdauer (§10) wäre systematisch zu
+  kurz.
 
-  Die Wege 2 und 3 bleiben bestehen, damit niemand feststeckt, der den Knopf übersieht.
-  Bloßes Anschauen startet weiterhin **keine** Einheit. Punkt 2 ist notwendig, weil ein
-  `exercise_swaps`-Eintrag eine `session_id` benötigt — und der reale Ablauf im Studio lautet:
-  Plan öffnen, Gerät besetzt vorfinden, tauschen, *dann* trainieren.
+  **Warum ausschließlich** (Änderung vom 2026-08-12): Bis dahin startete auch das erste
+  „Erledigt" und ein Tausch „nur für diese Einheit" eine Einheit — als Auffangnetz für den,
+  der den Knopf übersieht. Das Netz fing das Falsche: Ein Fehlgriff beim bloßen Durchsehen
+  des Plans begann ein Training, das niemand wollte, und die versehentliche Einheit stand
+  danach im Verlauf und verstellte die Rotation. Beide Wege sind deshalb geschlossen.
+
+  Daraus folgt für die Trainingsansicht: **Solange keine Einheit läuft, sind „Erledigt",
+  „+ Satz" und das Gewichtsfeld deaktiviert.** Serverseitig antworten `api/log.php` und
+  `api/swap.php` (Modus „nur diese Einheit") mit **409**; die deaktivierten Bedienelemente
+  sind nur die Bequemlichkeit davor.
+
+  **Tauschen bleibt vor dem Start möglich, aber nur dauerhaft im Plan.** Ein dauerhafter
+  Tausch schreibt in `plan_exercises` und braucht keine `session_id`; „nur diese Einheit"
+  braucht eine und wird deshalb vorher nicht angeboten — mit einem Hinweissatz im Dialog,
+  sonst wirkt der fehlende Knopf wie ein Fehler.
 - **Mitternachts-Robustheit:** Die Einheit ist die Einheit der Logik, nicht der Kalendertag.
   Eine offene Einheit bleibt aktiv, auch wenn das Datum während des Trainings wechselt.
 - **Ende — auf zwei Wegen:**
@@ -1033,7 +1063,8 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   2. **Manuell** über den **„Training beendet"-Button** — nötig, wenn absichtlich Übungen
      ausgelassen werden (z. B. aus Zeitmangel).
 
-  Beim Ende wird `ended_at` = jetzt gesetzt und `users.last_plan_id` = dieser Plan.
+  Beim Ende wird `ended_at` = jetzt gesetzt. Sonst nichts — die Rotation merkt sich nichts,
+  sie liest die Historie (siehe unten).
 - Pro Benutzer ist **höchstens eine** Einheit offen. Der „Training beendet"-Button ist während
   einer offenen Einheit stets erreichbar, sodass eine vergessene offene Einheit jederzeit
   geschlossen werden kann.
@@ -1042,17 +1073,28 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   mit beiden Buttons. Es gibt **kein** automatisches Schließen (das würde §7.2 aushebeln), aber
   ohne diesen Hinweis blockiert eine einmal vergessene Einheit dauerhaft die Plan-Alternation.
 - **Plan-Rotation:** Liegt keine offene Einheit vor, schlägt die App den Plan vor, der in
-  der Sortierreihenfolge (§6.4) **auf `users.last_plan_id` folgt** — zyklisch, nach dem
-  letzten kommt wieder der erste.
+  der Sortierreihenfolge (§6.4) **auf den Plan der letzten Einheit in der Historie folgt** —
+  zyklisch, nach dem letzten kommt wieder der erste.
   - Bei **einem** Plan ist das immer derselbe.
   - Bei **zwei** Plänen ergibt die Regel exakt die frühere Alternation: vorgeschlagen wird
     der jeweils andere.
   - Bei **drei und mehr** (Push/Pull/Legs) läuft die Rotation der Reihe nach durch.
-  - Ist `last_plan_id` leer (noch nie trainiert) oder zeigt auf einen gelöschten Plan, wird
-    der **erste** Plan der Sortierung vorgeschlagen.
+  - Gibt es **noch keine Einheit** oder zeigt die letzte auf einen gelöschten Plan, wird der
+    **erste** Plan der Sortierung vorgeschlagen.
 
-  `users.last_plan_id` genügt dafür — es braucht keinen Rotationszähler, weil die Position
-  in der Reihenfolge den Nachfolger eindeutig bestimmt.
+  **Maßgeblich ist die Historie, nicht ein gemerkter Wert** (Änderung vom 2026-08-12). Bis
+  dahin stand der Ausgangspunkt in `users.last_plan_id` — geschrieben nur beim *Beenden*
+  einer Einheit, zurückgenommen beim *Löschen* nie. Eine gelöschte Testeinheit verstellte
+  den Vorschlag dauerhaft: Die Einheit war weg, ihre Wirkung blieb. Die Spalte bleibt in der
+  Tabelle stehen, wird aber weder gelesen noch geschrieben.
+
+  **Gezählt wird jede Einheit, auch eine ohne Protokollzeile.** Die Rotation richtet sich
+  starr nach der Historie; eine leere Einheit steht in der Historie und zählt deshalb mit.
+  Wer das nicht will, löscht sie — **die Historie sauber zu halten ist Sache des
+  Benutzers**. Eine zweite, stille Regel wäre am Verlauf nicht ablesbar.
+
+  Ein Rotationszähler ist nicht nötig: Die Position in der Reihenfolge bestimmt den
+  Nachfolger eindeutig.
 - Der Vorschlag ist vor dem Start **manuell auf jeden anderen Plan umschaltbar**. Bei mehr
   als zwei Plänen ist dafür eine Auswahl nötig, kein bloßes Umschalten.
 

@@ -241,22 +241,70 @@
     }
 
     /**
-     * Zieht die „hier bist du"-Markierung auf die erste noch offene Position.
+     * Hat diese Position einen Protokolleintrag?
      *
-     * Ohne sie weiss man beim Scrollen durch acht Karten nicht mehr, an welchem
-     * Geraet man eigentlich steht. Nur waehrend eines Trainings: Wer den Plan
-     * bloss anschaut, bekommt eine ruhige Liste ohne Aussage darueber, wo er
-     * angeblich gerade ist.
+     * Serverseitig steht die Antwort in `data-eintrag`; im Betrieb ändert sie
+     * sich unter den Händen, deshalb wird sie hier aus dem gerechnet, was
+     * tatsächlich in der Karte steht. Die Regel ist dieselbe wie in
+     * `api/log.php`: Eine Zeile existiert, solange sie abgehakt ist ODER noch
+     * mindestens einen Satz trägt.
+     */
+    function hatEintrag(karte) {
+        if (istErledigt(karte)) return true;
+
+        const saetze = saetzeFuerServer(karte);
+        if (saetze !== null) return saetze.length > 0;
+
+        return karte.dataset.eintrag === '1';
+    }
+
+    /**
+     * Zieht Grün und Orange über die ganze Liste nach.
+     *
+     * DIESELBE REGEL WIE positions_zustaende() IN lib/training.php — dort steht
+     * sie ausgeschrieben samt Begründung. Beide Hälften gehören zusammen
+     * geändert, sonst springt die Farbe beim nächsten Neuladen.
+     *
+     * Kurzfassung: grün ist die Position, an der gerade protokolliert wird
+     * (Eintrag, aber noch nicht erledigt); sonst die erste offene nach der
+     * letzten mit Eintrag; sonst die erste offene überhaupt. Orange ist jede
+     * offene Position davor — das übersprungene Gerät, zu dem man zurückwill.
+     *
+     * Nur während eines Trainings: Wer den Plan bloß anschaut, bekommt eine
+     * ruhige Liste ohne Aussage darüber, wo er angeblich gerade ist.
      */
     function aktiveMarkieren() {
         const karten = qsa('.position-karte', liste);
-        const aktive = sessionId > 0 ? karten.find((k) => !istErledigt(k)) : null;
 
-        karten.forEach((k) => {
-            const istAktiv = k === aktive;
+        let aktiv = -1;
+        if (sessionId > 0) {
+            let letzterEintrag = -1;
+            karten.forEach((k, i) => {
+                if (hatEintrag(k)) {
+                    letzterEintrag = i;
+                    if (!istErledigt(k)) aktiv = i;
+                }
+            });
+
+            if (aktiv < 0) {
+                for (let i = letzterEintrag + 1; i < karten.length; i++) {
+                    if (!istErledigt(karten[i])) { aktiv = i; break; }
+                }
+            }
+            if (aktiv < 0) {
+                aktiv = karten.findIndex((k) => !istErledigt(k));
+            }
+        }
+
+        karten.forEach((k, i) => {
+            const erledigt = istErledigt(k);
+            const istAktiv = i === aktiv;
+            const uebersprungen = !erledigt && !istAktiv && aktiv >= 0 && i < aktiv;
+
             k.classList.toggle('zeile-aktiv', istAktiv);
-            // Grau bleibt, was weder erledigt noch dran ist.
-            k.classList.toggle('zeile-offen', !istAktiv && !istErledigt(k));
+            k.classList.toggle('zeile-uebersprungen', uebersprungen);
+            // Grau bleibt, was weder erledigt noch dran noch übersprungen ist.
+            k.classList.toggle('zeile-offen', !erledigt && !istAktiv && !uebersprungen);
         });
     }
 
@@ -275,6 +323,11 @@
         const saetze = saetzeFuerServer(karte);
         const protokolliert = erledigt || (saetze !== null && saetze.length > 0);
 
+        // `data-eintrag` kam vom Server und veraltet, sobald hier etwas
+        // passiert — im einfachen Modus verschwindet die Zeile beim Ab-wählen.
+        // hatEintrag() liest es als Rückfall, also muss es mitwandern.
+        karte.dataset.eintrag = protokolliert ? '1' : '';
+
         // Abgehakt heißt: Der Wert steht fest. Ändern geht nur über Häkchen
         // entfernen, korrigieren, neu abhaken (§7.4).
         //
@@ -284,7 +337,7 @@
         // müsste, um Satz 2 einzutragen, käme keine drei Übungen weit. Fest
         // stehen die Werte mit dem Ende der Einheit.
         const gewicht = qs('.gewicht', karte);
-        if (gewicht) gewicht.readOnly = erledigt;
+        if (gewicht) gewicht.readOnly = erledigt || sessionId <= 0;
 
         // Aus demselben Grund lässt sich eine abgehakte Position nicht tauschen
         // (§7.5) — der Protokolleintrag hält fest, was tatsächlich gemacht
@@ -470,8 +523,13 @@
         const block = qs('.saetze-block', karte);
         if (!block) return;
 
-        const fest = istErledigt(karte);
-        const grund = 'Erst das Häkchen entfernen';
+        // Zwei Gründe, warum an einer Satzliste nichts zu ändern ist, und sie
+        // brauchen zwei verschiedene Erklärungen: abgehakt (§7.4) — oder es
+        // läuft überhaupt kein Training (§7.6). Der zweite ist der häufigere,
+        // wenn jemand seinen Plan bloß durchsieht.
+        const laeuft = sessionId > 0;
+        const fest = istErledigt(karte) || !laeuft;
+        const grund = laeuft ? 'Erst das Häkchen entfernen' : 'Erst das Training starten';
 
         qsa('.satz-reps, .satz-gewicht', block).forEach((feld) => {
             feld.readOnly = fest;
@@ -496,6 +554,13 @@
             weight: s.weight === '' ? null : zahlAusEingabe(s.weight),
         })));
         saetzeZeichnen(karte, saetze, zeilenNeu);
+
+        // Mit dem ersten Satz wandert Grün hierher, und die Position, die man
+        // dafür ausgelassen hat, wird orange. Das gehört an diese Stelle und
+        // nicht an die einzelnen Aufrufer: Sätze ändern sich an mehreren
+        // (Tippen, Stepper, „+ Satz", „✕"), und eine vergessene Stelle wäre
+        // eine Farbe, die erst beim nächsten Neuladen stimmt.
+        aktiveMarkieren();
     }
 
     /**
@@ -591,7 +656,12 @@
      * Trainings. Beide Male ist die Frage dieselbe — „wo geht es weiter?".
      */
     function zurAktivenSpringen() {
-        const aktive = qsa('.position-karte', liste).find((k) => !istErledigt(k));
+        // Die markierte Karte, nicht „die erste noch nicht erledigte": Seit die
+        // Regel Übersprungenes kennt, sind das zwei verschiedene Karten — nach
+        // dem Auslassen einer Übung spränge die Ansicht sonst zurück auf das
+        // belegte Gerät, statt weiterzugehen. aktiveMarkieren() ist vorher
+        // gelaufen; im Zweifel wird eben nicht gescrollt.
+        const aktive = qs('.zeile-aktiv', liste);
         if (!aktive) return;
 
         const block = qs('.saetze-block', aktive);
@@ -940,17 +1010,32 @@
 
     qs('#tausch-schliessen').addEventListener('click', () => tauschDialog.close());
 
-    // Im Training gibt es beide Wege: nur heute oder dauerhaft.
-    const TAUSCH_KNOEPFE =
-        '<button type="button" class="waehlen" data-modus="session">'
-        + 'Nur diese Einheit</button>'
-        + '<button type="button" class="leise waehlen" data-modus="permanent">'
-        + 'Dauerhaft im Plan</button>';
+    // Im laufenden Training gibt es beide Wege: nur heute oder dauerhaft.
+    //
+    // VOR dem Start nur den dauerhaften. „Nur diese Einheit" braucht eine
+    // session_id und legte dafür früher stillschweigend eine Einheit an — genau
+    // das soll ein Tausch nicht mehr tun (§7.6). Der Knopf wird deshalb gar
+    // nicht erst angeboten; api/swap.php lehnt es zusätzlich ab. Dauerhaft
+    // tauschen bleibt möglich: Das ändert den Plan und nicht das Protokoll.
+    const TAUSCH_KNOEPFE = sessionId > 0
+        ? '<button type="button" class="waehlen" data-modus="session">'
+          + 'Nur diese Einheit</button>'
+          + '<button type="button" class="leise waehlen" data-modus="permanent">'
+          + 'Dauerhaft im Plan</button>'
+        : '<button type="button" class="waehlen" data-modus="permanent">'
+          + 'Dauerhaft im Plan</button>';
+
+    // Ohne diesen Satz sieht der fehlende zweite Knopf wie ein Fehler aus.
+    const TAUSCH_HINWEIS = sessionId > 0
+        ? ''
+        : '<p class="matt">Nur für heute tauschen geht, sobald das Training läuft. '
+          + 'Vorher lässt sich der Plan dauerhaft ändern.</p>';
 
     /** Zeichnet die Vorschlagsliste, gefiltert auf das gewählte Gerät. */
     function tauschZeichnen() {
-        tauschListe.innerHTML = geraetGefiltert(tauschVorschlaege, tauschGeraet.value)
-            .map((v) => vorschlagMarkup(v, TAUSCH_KNOEPFE)).join('');
+        tauschListe.innerHTML = TAUSCH_HINWEIS
+            + geraetGefiltert(tauschVorschlaege, tauschGeraet.value)
+                .map((v) => vorschlagMarkup(v, TAUSCH_KNOEPFE)).join('');
     }
 
     async function tauschOeffnen(karte) {

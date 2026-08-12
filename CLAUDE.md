@@ -347,10 +347,27 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
 Die Stellen, an denen eine naive Umsetzung falsch wird. Jede steht hier, weil sie schon
 einmal zugeschlagen hat.
 
-1. **Eine Einheit startet auch durch einen Tausch**, nicht nur durch das erste „Erledigt"
-   (§7.6). `exercise_swaps` braucht eine `session_id`, und im Studio wird oft getauscht,
-   bevor die erste Übung gemacht ist. Seit `1.0.3` gibt es zusätzlich den ausdrücklichen
-   Knopf „Training starten" — siehe Fallstrick 11.
+1. **Eine Einheit entsteht AUSSCHLIESSLICH über „Training starten"** (§7.6, seit `1.1.6`).
+   `einheit_sicherstellen()` hat genau **einen** Aufrufer: `api/session.php → start`. Wer
+   einen zweiten ergänzt, hebt die Zusicherung auf.
+
+   Bis `1.1.5` war es umgekehrt: Auch das erste „Erledigt" (`api/log.php`) und ein Tausch
+   „nur diese Einheit" (`api/swap.php`) legten stillschweigend eine Einheit an. Die
+   Begründung war der reale Ablauf im Studio — Plan öffnen, Gerät besetzt vorfinden,
+   tauschen, *dann* trainieren. In der Praxis überwog der andere Fall: Ein Fehlgriff beim
+   bloßen Durchsehen begann ein Training, das niemand wollte, und `started_at` hielt dann
+   den Fehlgriff fest statt des Trainingsbeginns. Beide Endpunkte antworten deshalb mit
+   **409**, statt anzulegen.
+
+   Daraus folgt die Sperre in der Oberfläche: **Vor dem Start sind „Erledigt", „+ Satz"
+   und das Gewichtsfeld deaktiviert** (`index.php` über `$laeuft`, `index.js` über
+   `sessionId > 0`). Das ist nur die Bequemlichkeit davor — verboten wird es serverseitig.
+
+   **Der dauerhafte Tausch bleibt vor dem Start möglich**, und das ist kein Versehen: Er
+   schreibt in `plan_exercises` und braucht überhaupt keine `session_id`. Nur „Nur diese
+   Einheit" braucht eine und wird deshalb vorher gar nicht erst angeboten (`TAUSCH_KNOEPFE`
+   in `index.js`) — mit einem Hinweissatz, sonst sieht der fehlende zweite Knopf wie ein
+   Fehler aus.
 
 2. **Eine Einheit gehört zu genau einem Plan.** Jeder Endpunkt, der eine
    `plan_exercise_id` entgegennimmt, prüft neben der Eigentümerschaft auch, dass die Position
@@ -416,10 +433,10 @@ einmal zugeschlagen hat.
     die Übung macht; sekundär = wird mittrainiert. Beim Umsetzen erst alle auf 0, dann die
     neue auf 1 — **in einer Transaktion**, sonst schlägt der Index zwischendurch zu.
 
-11. **Eine Einheit kann ausdrücklich gestartet werden** (§7.6, `api/session.php` → `start`).
-    Das ist der Regelfall; Abhaken und Tausch bleiben als Auslöser bestehen. Ohne den Knopf
-    hielt `started_at` das *Ende* der ersten Übung fest — für jede Auswertung der
-    Trainingsdauer systematisch zu kurz.
+11. **Eine Einheit wird ausdrücklich gestartet** (§7.6, `api/session.php` → `start`) — seit
+    `1.1.6` ist das nicht mehr der Regelfall, sondern der **einzige** Weg; siehe
+    Fallstrick 1. Ohne den Knopf hielt `started_at` das *Ende* der ersten Übung fest — für
+    jede Auswertung der Trainingsdauer systematisch zu kurz.
 
 12. **Der Service-Worker-Cache friert Assets ein, wenn `sw.js` unverändert bleibt.** Ein
     Service Worker wird **nur neu installiert, wenn sich seine eigene Datei ändert**. Bleibt
@@ -609,13 +626,27 @@ einmal zugeschlagen hat.
     Eingaben ausstehen, sagt die `sticky` Leiste am oberen Rand — eine Anzeige genügt.
 
     **Und die Farbe des Balkens ist ein Leitsystem, keine Dekoration:** grün = hier bist du
-    (`.zeile-aktiv`, die erste noch nicht erledigte Position), blau = erledigt, grau = kommt
-    noch. Grün für „erledigt" ist der naheliegende Griff und falsch herum — Grün zieht den
-    Blick, und den soll ziehen, was als Nächstes zu tun ist. **`.zeile-aktiv` gibt es nur bei
-    laufender Einheit**, ebenso den aufgeklappten Satzblock: Beides ist eine Aussage über
-    einen Ablauf, und ohne Training läuft keiner. Serverseitig entscheidet das
-    `$aktivePosition` in `index.php`, im Betrieb zieht `aktiveMarkieren()` in `index.js` es
-    nach.
+    (`.zeile-aktiv`), blau = erledigt, **orange = übersprungen** (`.zeile-uebersprungen`,
+    `#ff6600`), grau = kommt noch. Grün für „erledigt" ist der naheliegende Griff und falsch
+    herum — Grün zieht den Blick, und den soll ziehen, was als Nächstes zu tun ist.
+    **`.zeile-aktiv` gibt es nur bei laufender Einheit**, ebenso Orange und den aufgeklappten
+    Satzblock: Alles drei ist eine Aussage über einen Ablauf, und ohne Training läuft keiner.
+
+    **Grün ist NICHT „die erste noch nicht erledigte Position".** Das war es bis `1.1.5` und
+    ist falsch, sobald man eine Übung auslässt, weil das Gerät besetzt ist: Die Markierung
+    blieb auf der ausgelassenen Übung stehen, während man längst zwei Geräte weiter war. Die
+    Regel steht ausgeschrieben in **`positions_zustaende()`** (`lib/training.php`); kurz:
+    grün ist die Position, an der gerade protokolliert wird (Eintrag, aber noch nicht
+    erledigt), sonst die erste offene *nach* der letzten mit Eintrag, sonst die erste offene
+    überhaupt. Orange ist jede offene Position **davor** — das übersprungene Gerät, zu dem
+    man zurückwill.
+
+    **Die Regel steht zwangsläufig zweimal:** `positions_zustaende()` in PHP für den
+    Seitenaufbau, `aktiveMarkieren()` in `index.js` für den Betrieb. Beide Hälften gehören
+    zusammen geändert, sonst springt die Farbe beim nächsten Neuladen. Dasselbe gilt für
+    `zurAktivenSpringen()`: Es muss auf `.zeile-aktiv` zielen und darf nicht selbst „die
+    erste nicht erledigte" suchen — sonst springt die Ansicht nach dem Auslassen zurück auf
+    das besetzte Gerät.
 
     **Und beim Scrollen an eine Position gehört die Verbindungsleiste eingerechnet.** Sie
     hängt als **erstes Element im `<body>`** (`assets/app.js`, `verbindung._element()`) und
@@ -671,6 +702,33 @@ einmal zugeschlagen hat.
     der Sache. Klammer statt `3 Sätze · 12×40`, weil der Mittelpunkt schon die Sätze
     untereinander trennt: Als Trenner zwischen Anzahl und Liste gelesen, sieht „3 Sätze" aus
     wie ein weiterer Listeneintrag.
+
+21. **Die Plan-Rotation liest ihren Stand aus der Historie, sie merkt ihn sich nicht**
+    (`zuletzt_trainierter_plan()` in `lib/training.php`, §7.6). Bis `1.1.5` stand der
+    Ausgangspunkt in `users.last_plan_id` — geschrieben **nur beim Beenden** einer Einheit,
+    zurückgenommen **nie**. Wer eine Einheit zum Ausprobieren startete, beendete und wieder
+    löschte, bekam von da an dauerhaft den falschen Plan vorgeschlagen: Die Einheit war weg,
+    ihre Wirkung auf die Rotation blieb. Aufgefallen am 2026-08-12, als nach einer
+    Pull-Einheit wieder *Pull* vorgeschlagen wurde.
+
+    Die allgemeine Form des Fehlers: **Was sich aus der Historie ableiten lässt, gehört nicht
+    zusätzlich in eine Spalte.** Zwei Quellen für dieselbe Aussage laufen auseinander, sobald
+    ein Löschpfad die eine anfasst und die andere nicht — und der Löschpfad wird immer
+    vergessen, weil er anderswo steht. Ein `SELECT … ORDER BY started_at DESC LIMIT 1` kostet
+    nichts und kann gar nicht veralten.
+
+    Zwei Feinheiten, die dabei entschieden wurden:
+
+    - **Gezählt wird JEDE Einheit, auch eine ohne einzige Protokollzeile.** Das ist eine
+      ausdrückliche Entscheidung des Benutzers (2026-08-12) gegen den naheliegenden
+      Gegenentwurf: Die Rotation richtet sich **starr** nach der Historie, und eine leere
+      Einheit *steht* in der Historie. Wer sie nicht gezählt haben will, löscht sie — die
+      Historie sauber zu halten ist Sache des Benutzers. Eine zweite, stille Regel („zählt
+      nur mit Protokollzeile") sähe man beim Blick auf den Verlauf nicht, und dann wäre
+      wieder unerklärlich, warum ein Plan vorgeschlagen wird.
+    - **`users.last_plan_id` bleibt als Spalte stehen**, wird aber weder gelesen noch
+      geschrieben. Sie zu entfernen wäre eine löschende Migration ohne Gegenwert; sie ist
+      deshalb in `schema.sql` als tot gekennzeichnet. **Nicht wieder in Betrieb nehmen.**
 
 ## Deployment
 

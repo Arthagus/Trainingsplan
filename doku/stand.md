@@ -7,24 +7,66 @@ was offen ist. Dauerhaftes Wissen — Architektur, Konventionen, Fallstricke —
 **Diese Datei nach jedem Rollout nachziehen.** Sie ist die einzige Stelle mit
 Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends sonst falsch.
 
-*Letzte Aktualisierung: 2026-08-11*
+*Letzte Aktualisierung: 2026-08-12*
 
 ---
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.5`
+> ## Live läuft `trainingsplan:1.1.5` — `1.1.6` ist **gepackt, aber noch nicht ausgerollt**
 >
-> Ausgerollt am 2026-08-11; die App meldet die Nummer selbst auf der Wartungsseite.
-> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
-> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
+> `1.1.5` ist am 2026-08-11 ausgerollt; die App meldet die Nummer selbst auf der
+> Wartungsseite. **`deploy/trainingsplan-build-1.1.6.tar.gz` liegt seit 2026-08-12 bereit**
+> und wartet auf Portainer (Image bauen, dann Stack auf `trainingsplan:1.1.6`). Damit ist
+> die Nummer `1.1.6` **vergeben**: Jede weitere Änderung an etwas, das im Paket steckt,
+> hebt auf `1.1.7`. Alles darunter ist die Vorgeschichte, neueste zuerst.
+>
+> **Noch offen für `1.1.6`: die Gegenprobe am Bildschirm.** Geprüft ist alles per `curl`
+> und gegen die Datenbank; wie der orange Balken neben Blau und Grün wirkt und ob die
+> gesperrten Bedienelemente vor dem Start verständlich aussehen, sagt nur der Blick darauf.
 
-**Die neue Satz-Kachel sagt: `0 Sätze`.** Der Expertenmodus ist über fünf Nummern hinweg
-gebaut und ausgerollt worden, aber **noch keine einzige Trainingseinheit ist damit
-protokolliert** — die 25 Protokollzeilen stammen sämtlich aus dem Standardmodus. Das ist
-kein Fehler, sondern der Stand: Geprüft ist der Modus gegen den Dev-Server und über ein
-Testkonto auf dem Live-System, im echten Training war er noch nicht. Damit steht die
-eigentliche Bewährungsprobe (§11.19, Gerätehälfte) weiterhin aus.
+**`1.1.6` bringt drei Dinge**, alle aus derselben Rückmeldung vom 2026-08-12.
+
+**1. Die Plan-Rotation merkt sich nichts mehr, sie sieht nach.** Vorgeschlagen wird der Plan
+nach dem zuletzt trainierten — den Ausgangspunkt las bisher `users.last_plan_id`, eine
+Spalte, die **nur beim Beenden** einer Einheit geschrieben und beim **Löschen** nie
+zurückgenommen wurde. Wer eine Einheit zum Ausprobieren startete, beendete und wieder
+löschte, hatte danach dauerhaft den falschen Vorschlag stehen: die Einheit war weg, ihre
+Wirkung auf die Rotation blieb. Genau so kam am 2026-08-12 nach einer Pull-Einheit wieder
+*Pull*.
+
+`zuletzt_trainierter_plan()` (`lib/training.php`) fragt stattdessen die **jüngste Einheit in
+der Historie** ab — jede, auch eine ohne einzige Protokollzeile. Das ist ausdrücklich so
+entschieden: Die Rotation richtet sich **starr** nach der Historie, und eine leere Einheit
+steht in der Historie. Wer sie nicht gezählt haben will, löscht sie; die Historie sauber zu
+halten ist Sache des Benutzers. `users.last_plan_id` wird **weder gelesen noch geschrieben**;
+die Spalte bleibt stehen, weil ihr Entfernen eine löschende Migration ohne Gegenwert wäre,
+und ist in `schema.sql` als tot gekennzeichnet.
+
+**2. Ein Training beginnt ausschließlich mit „Training starten".** Bis `1.1.5` legten auch
+das erste „Erledigt" und ein Tausch „nur diese Einheit" stillschweigend eine Einheit an —
+gedacht als Auffangnetz, praktisch fing es das Falsche: Ein Fehlgriff beim bloßen Durchsehen
+des Plans begann ein Training, das niemand wollte, und die versehentliche Einheit stand
+danach im Verlauf und verstellte die Rotation. `einheit_sicherstellen()` hat jetzt **genau
+einen Aufrufer** (`api/session.php → start`); `api/log.php` und `api/swap.php` antworten mit
+409. In der Ansicht sind vor dem Start **„Erledigt", „+ Satz" und das Gewichtsfeld
+deaktiviert**. **Tauschen bleibt vorher möglich, aber nur dauerhaft im Plan** — das braucht
+keine `session_id`; „Nur diese Einheit" wird gar nicht erst angeboten, mit Hinweissatz im
+Dialog.
+
+**3. Übersprungene Übungen sind orange** (`#ff6600`). Wer die Beinpresse besetzt vorfindet
+und mit dem Beinstrecker weitermacht, sieht den Beinstrecker grün, sobald dort der erste Satz
+steht — und die Beinpresse orange statt grau. Dafür ist „aktiv" neu definiert: nicht mehr
+„die erste noch nicht erledigte", sondern die Position, an der gerade protokolliert wird,
+sonst die erste offene *nach* der letzten mit Eintrag, sonst die erste offene überhaupt. Die
+Regel steht in `positions_zustaende()` (`lib/training.php`) und wird von `aktiveMarkieren()`
+(`index.js`) im Betrieb nachgezogen; `zurAktivenSpringen()` zielt jetzt auf `.zeile-aktiv`,
+sonst spränge die Ansicht nach dem Auslassen zurück auf das besetzte Gerät.
+Service-Worker-Cache auf `v19` (`assets/style.css` geändert).
+
+**Der Expertenmodus ist zum ersten Mal im echten Training benutzt worden** (2026-08-11,
+`Oliver`, Plan *Pull*, 21:45–23:43): 9 Positionen, 28 Sätze. Damit sagt die Satz-Kachel
+nicht mehr `0`. Die Daten sind nachgeprüft und in Ordnung — Einzelheiten unter *Datenstand*.
 
 **`1.1.5`: Die Wartungsseite zählt jetzt auch die Sätze.** Seit `1.1.0` liegt im
 Expertenmodus das eigentliche Trainingsvolumen in `workout_sets` und nicht in
@@ -269,13 +311,31 @@ Einzelheiten in `bestand_gruppen_uebungen.md`.
 | Übungen | Wächst laufend, **alle mit Trainingsgerät**. Der Bestand steht in der App und wird hier bewusst nicht gezählt — welche Zahl gerade gilt, ist für die Entwicklung ohne Belang, und eine notierte Zahl ist am Tag danach falsch. Genutzt werden bisher Maschine, Kabelzug, Kurzhantel und Körpergewicht; Multipresse, Langhantel und Kettlebell stehen bereit, sind aber unbenutzt |
 | Benutzer | `Oliver` (id 1, Admin) · `claude` (id 2, Admin) · `Nele` (id 3) — Namen ab `1.0.8` änderbar. Wer den Expertenmodus eingeschaltet hat, steht in `users.expert_mode` und wird hier nicht mitgeführt: Es ist eine persönliche Einstellung, die sich jederzeit ändert |
 | Pläne | `Oliver`: Push, Pull · `Nele`: Ganzkörper A, Ganzkörper B — je 8 Positionen |
-| Trainingseinheiten | 4, mit 25 Protokollzeilen (Wartungsseite, 2026-08-11) |
-| Sätze (`workout_sets`) | **0** (Wartungsseite, 2026-08-11) — der Expertenmodus ist ausgerollt, aber noch nicht im echten Training benutzt worden. Seit `1.1.5` zählt die Wartungsseite sie mit |
-| Sicherungen | 2 — **frisch: 2026-08-11 16:13, 1,5 MB mit Bildern**; daneben die alte vom 2026-08-07 (774 KB) |
+| Trainingseinheiten | 5, mit 34 Protokollzeilen (Wartungsseite, 2026-08-12) |
+| Sätze (`workout_sets`) | **28** (2026-08-12) — sämtlich aus der ersten echten Expertenmodus-Einheit vom 2026-08-11 |
+| Sicherungen | 3 — die jüngste vom 2026-08-12 17:03 (1,6 MB mit Bildern), davor 2026-08-11 16:13 und 2026-08-07 |
 
-Zahlen vom 2026-08-11, abgelesen auf der Wartungsseite: 3 Benutzer, 27 Muskelgruppen,
-31 Übungen, 4 Pläne, 4 Einheiten, 25 Protokollzeilen, 62 Bilder (1,6 MB), Datenbank 164 KB.
-Sie veralten schnell und stehen hier nur als Größenordnung.
+Zahlen vom 2026-08-12, abgelesen auf der Wartungsseite: 3 Benutzer, 27 Muskelgruppen,
+31 Übungen, 4 Pläne, 5 Einheiten, 34 Protokollzeilen, 28 Sätze, 62 Bilder (1,6 MB),
+Datenbank 164 KB. Sie veralten schnell und stehen hier nur als Größenordnung.
+
+**Die erste Expertenmodus-Einheit ist gegen die Datenbank geprüft** (2026-08-12, aus der
+Sicherung von 17:03): Einheit 19, `Oliver`, Plan *Pull*, 2026-08-11 21:45–23:43, alle
+**9 von 9** Planpositionen protokolliert, `done = 1` durchgehend, 28 Sätze. Nachgemessen und
+ohne Befund: `integrity_check` und `foreign_key_check` sauber, keine verwaisten Sätze, keine
+Satzzeile ohne Wiederholungen *und* Gewicht, Satznummern lückenlos `1..n`, **`workout_log.weight`
+trägt in jeder Zeile den schwersten Satz**, `plan_id`/`user_id` jeder Zeile stimmen mit der
+Einheit überein, keine Position aus einem fremden Plan, kein Tausch. Die Reihenfolge der
+`performed_at` weicht von der Planreihenfolge ab (Position 10 nach Position 20) — das ist
+Bedienung, kein Datenfehler.
+
+**Nebenbefund:** Einheit 8 (`Nele`, *Ganzkörper B*, gestartet 2026-08-10 23:54, beendet
+2026-08-11 11:20) hat **null** Protokollzeilen — gestartet und ohne Eintrag beendet, mit
+hoher Wahrscheinlichkeit ein Fehlgriff der Sorte, die `1.1.6` künftig verhindert. Sie zählt
+für die Rotation **mit** (siehe dort), Neles Vorschlag bleibt damit *Ganzkörper A*. Der
+Benutzer hat angekündigt, Nele zu bitten, die Einheit vor ihrem nächsten Training zu
+löschen — dann steht dort wieder *Ganzkörper B*. **Bis dahin absichtlich nicht angefasst:**
+Fremde Trainingsdaten stillschweigend aufzuräumen ist nicht Sache der Entwicklung.
 
 ## Offen
 
@@ -361,6 +421,13 @@ antwortet bei offener Einheit mit 409. Zusätzlich geprüft: Die Vorbelegung zei
 Flugmodus (gestrichelter Rand, gesperrtes Beenden, Nachholen) und die Darstellung des
 Satzblocks auf einem schmalen Gerät.
 
+**Ein vollständiges Training im Expertenmodus hat inzwischen stattgefunden** (2026-08-11,
+9 Positionen, 28 Sätze über knapp zwei Stunden), und die dabei entstandenen Daten sind
+fehlerfrei — siehe *Datenstand*. Damit ist der **Datenpfad** am echten Gerät belegt. Ob
+Stepper und Satzblock sich dabei gut bedienen ließen, ist eine Aussage, die nur der
+Benutzer treffen kann; der **Flugmodus** blieb ungeprüft. Das Kriterium bleibt deshalb
+offen, steht aber nicht mehr ganz am Anfang.
+
 ## Gegenprobe schwaches Netz (`1.0.8`)
 
 **Nachschlagestelle, keine offene Aufgabe** (siehe *Offen*): Der Versuch wird nicht eigens
@@ -407,6 +474,7 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
+| `1.1.6` | Drei Punkte aus der Rückmeldung vom 2026-08-12. **Die Plan-Rotation liest ihren Ausgangspunkt aus der Historie** statt aus `users.last_plan_id` — die Spalte wurde nur beim *Beenden* geschrieben und beim *Löschen* nie zurückgenommen, eine gelöschte Testeinheit verstellte den Vorschlag also dauerhaft. Gezählt wird **jede** Einheit, auch eine leere: Die Rotation richtet sich starr nach der Historie, sauber halten ist Sache des Benutzers. **Ein Training beginnt ausschließlich mit „Training starten"** — `einheit_sicherstellen()` hat genau einen Aufrufer, `api/log.php` und `api/swap.php` antworten mit 409, und vor dem Start sind „Erledigt", „+ Satz" und das Gewichtsfeld gesperrt; dauerhaft tauschen bleibt möglich, „nur diese Einheit" nicht. **Übersprungene Übungen sind orange** (`#ff6600`), und „aktiv" heißt jetzt „wo gerade protokolliert wird" statt „die erste offene" — `positions_zustaende()` in PHP, `aktiveMarkieren()` in JS. Cache `v19` *(gepackt 2026-08-12, noch nicht ausgerollt)* |
 | `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(live seit 2026-08-11)* |
 | `1.1.4` | **Abgehakte Übungen sind festgeschrieben.** Im Expertenmodus ließen sich Wiederholungen und Gewicht einer erledigten Übung nachträglich ändern und Sätze hinzufügen oder löschen — ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte. Mit dem Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig** (`abgeschlossene_position_schuetzen()`), die ausgegrauten Felder sind nur die Bequemlichkeit davor; **eine unveränderte Nutzlast geht ausdrücklich durch**, sonst zerbräche die Idempotenz der Warteschlange. Gilt jetzt auch für das Gewichtsfeld im einfachen Modus. Dazu nennt die Zeile „zuletzt …" im Expertenmodus die ganze Satzfolge (`zuletzt 3 Sätze (12×45 · 10×45 · 8×50)`) — in **derselben Schreibweise** wie der Kopf des Satzblocks darunter, gebaut von `saetze_zusammenfassung()` bzw. `saetzeZusammenfassung()`. Cache `v18` *(live seit 2026-08-11)* |
 | `1.1.3` | Beim Weiterspringen nach dem Abhaken landete die nächste Übungskarte **unter der Verbindungsleiste** — sie ist `position: sticky; top: 0` und wird genau in diesem Moment sichtbar, weil die Eingabe in die Warteschlange geht; `scrollIntoView({block:'start'})` setzt das Ziel exakt an den Viewport-Rand und damit darunter. `zurAktivenSpringen()` zieht ihre **gemessene** Höhe ab (`offsetHeight`, 0 wenn ausgeblendet — der Text kann auf schmalen Geräten zweizeilig werden) und lässt 8 px Luft. Nur `index.js` betroffen, deshalb **kein** Cache-Hochzählen: Der Service Worker fasst ausschließlich `/assets/` an *(live seit 2026-08-11)* |

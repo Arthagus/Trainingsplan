@@ -26,7 +26,7 @@
 
 // Beim Ändern dieser Datei hochzählen. Ein neuer Name wirft den alten Cache
 // beim Aktivieren weg (siehe 'activate') und erzwingt frische Assets.
-const CACHE = 'trainingsplan-assets-v18';
+const CACHE = 'trainingsplan-assets-v19';
 
 const ASSETS = [
     'style.css',

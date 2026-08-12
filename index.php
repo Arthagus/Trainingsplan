@@ -36,7 +36,7 @@ if ($offen !== null) {
     if ($gewuenscht !== null && in_array($gewuenscht, $erlaubt, true)) {
         $planId = $gewuenscht;
     } else {
-        $vorschlag = naechster_plan($userId, to_int_or_null($benutzer['last_plan_id']), $plaene);
+        $vorschlag = naechster_plan($userId, $plaene);
         $planId    = $vorschlag === null ? null : (int)$vorschlag['id'];
     }
 }
@@ -57,24 +57,21 @@ $positionen = ($planId === null)
 $erledigt   = count(array_filter($positionen, static fn(array $z): bool => $z['erledigt']));
 $gesamt     = count($positionen);
 
-// Die AKTIVE Position: die erste noch nicht erledigte -- die Uebung, an der man
-// gerade steht. Sie traegt den gruenen Balken und, im Expertenmodus, den einzig
-// aufgeklappten Satzblock. Alles andere bleibt zu, sonst waere die Seite bei
-// acht Uebungen eine einzige lange Rolle. Der Zustand wird bewusst nirgends
-// gespeichert: Er wandert von selbst mit, waehrend man den Plan durcharbeitet.
+// Laeuft gerade ein Training? Davon haengt mehr ab als die Farbe: Vor dem
+// Start ist die ganze Erfassung gesperrt (siehe unten bei den Bedienelementen).
+$laeuft = $offen !== null;
+
+// Die AKTIVE Position traegt den gruenen Balken und, im Expertenmodus, den
+// einzig aufgeklappten Satzblock. Alles andere bleibt zu, sonst waere die Seite
+// bei acht Uebungen eine einzige lange Rolle. Uebersprungene Positionen tragen
+// den orangen Balken. Beides rechnet positions_zustaende() aus -- die Regel
+// steht dort samt Begruendung, weil index.js sie nachziehen muss.
 //
-// NUR WAEHREND EINES TRAININGS. Wer den Plan bloss anschaut, sieht eine ruhige
-// Liste: kein aufgeklappter Satzblock, keine "hier bist du"-Markierung. Beides
-// waere eine Aussage ueber einen Ablauf, der noch gar nicht laeuft.
-$aktivePosition = null;
-if ($offen !== null) {
-    foreach ($positionen as $z) {
-        if (!$z['erledigt']) {
-            $aktivePosition = $z['plan_exercise_id'];
-            break;
-        }
-    }
-}
+// Der Zustand wird bewusst nirgends gespeichert: Er ergibt sich jedes Mal neu
+// aus dem, was protokolliert ist.
+$zustaende      = positions_zustaende($positionen, $laeuft);
+$aktivePosition = $zustaende['aktiv'];
+$uebersprungen  = $zustaende['uebersprungen'];
 
 // Eine offene Einheit, die aelter als 12 Stunden ist, ist mit hoher
 // Wahrscheinlichkeit vergessen worden -- sie blockiert sonst dauerhaft die
@@ -210,11 +207,18 @@ require __DIR__ . '/lib/view_header.php';
                       // waeren irgendwann verschieden -- derselbe Grund, aus dem sich
                       // die beiden Tauschdialoge vorschlagMarkup() teilen. ?>
                 <?php
-                // Drei Zustaende, drei Farben am linken Rand (§7.3):
-                //   erledigt -> blau, aktiv -> gruen, sonst -> grau
-                $zustandKlasse = $z['erledigt']
-                    ? 'zeile-erledigt'
-                    : ($z['plan_exercise_id'] === $aktivePosition ? 'zeile-aktiv' : 'zeile-offen');
+                // Vier Zustaende, vier Farben am linken Rand (§7.3):
+                //   erledigt -> blau, aktiv -> gruen, uebersprungen -> orange,
+                //   sonst -> grau
+                if ($z['erledigt']) {
+                    $zustandKlasse = 'zeile-erledigt';
+                } elseif ($z['plan_exercise_id'] === $aktivePosition) {
+                    $zustandKlasse = 'zeile-aktiv';
+                } elseif (in_array((int)$z['plan_exercise_id'], $uebersprungen, true)) {
+                    $zustandKlasse = 'zeile-uebersprungen';
+                } else {
+                    $zustandKlasse = 'zeile-offen';
+                }
                 ?>
                 <li class="karte position-karte <?= $zustandKlasse ?>"
                     data-pe="<?= $z['plan_exercise_id'] ?>"
@@ -313,7 +317,14 @@ require __DIR__ . '/lib/view_header.php';
                             <?php // Wird von index.js aus data-saetze gefuellt. ?>
                             <ol class="satz-liste"></ol>
 
-                            <button type="button" class="satz-hinzu">+ Satz</button>
+                            <?php // Vor dem Start gesperrt (§7.6): Ein Satz waere die
+                                  // erste Eingabe, und die legte frueher stillschweigend
+                                  // eine Einheit an. Wer den Plan nur durchsieht, soll
+                                  // mit einem Fehlgriff kein Training beginnen.
+                                  // api/log.php lehnt es ohnehin ab; der graue Knopf ist
+                                  // die Bequemlichkeit davor. ?>
+                            <button type="button" class="satz-hinzu"
+                                    <?= $laeuft ? '' : 'disabled title="Erst das Training starten"' ?>>+ Satz</button>
                         </details>
                     <?php endif; ?>
 
@@ -351,14 +362,26 @@ require __DIR__ . '/lib/view_header.php';
                                        id="w<?= $z['plan_exercise_id'] ?>" class="gewicht"
                                        value="<?= h(format_decimal($z['weight'])) ?>"
                                        placeholder="—" enterkeyhint="done"
-                                       <?= $z['erledigt'] ? 'readonly' : '' ?>>
+                                       <?php // Vor dem Start ebenfalls gesperrt: Das Feld
+                                             // allein speichert zwar nichts -- gespeichert
+                                             // wird erst mit dem Haekchen --, aber ein Wert,
+                                             // den man eintippt und der beim Neuladen weg
+                                             // ist, sieht wie Datenverlust aus. ?>
+                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
                                 <span class="wert-einheit" aria-hidden="true">kg</span>
                             </span>
                         <?php endif; ?>
 
-                        <label class="zeile-wahl erledigt-wahl">
+                        <?php // Vor dem Start gesperrt (§7.6). Das Haekchen war der
+                              // urspruengliche Ausloeser einer Einheit -- genau das soll
+                              // es nicht mehr sein: Ein Training beginnt ausschliesslich
+                              // mit "Training starten", sonst haelt started_at nicht den
+                              // Beginn fest, sondern irgendeinen Fehlgriff davor. ?>
+                        <label class="zeile-wahl erledigt-wahl"
+                               <?= $laeuft ? '' : 'title="Erst das Training starten"' ?>>
                             <input type="checkbox" class="erledigt"
-                                   <?= $z['erledigt'] ? 'checked' : '' ?>>
+                                   <?= $z['erledigt'] ? 'checked' : '' ?>
+                                   <?= $laeuft ? '' : 'disabled' ?>>
                             Erledigt
                         </label>
 

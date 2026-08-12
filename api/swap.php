@@ -201,12 +201,25 @@ function aktion_tauschen(array $eingabe): never {
         json_ok(['mode' => 'permanent', 'exercise_id' => $neueId]);
     }
 
-    // "Nur diese Einheit": Der Tausch braucht eine session_id -- und startet
-    // damit die Einheit, falls noch keine laeuft (§7.6).
+    // "Nur diese Einheit" braucht eine session_id -- und bis 1.1.5 legte es
+    // dafuer stillschweigend eine Einheit an (§7.6, Fallstrick 1). Das ist
+    // seit 1.1.6 vorbei: Eine Einheit beginnt ausschliesslich mit "Training
+    // starten", sonst haelt started_at nicht den Trainingsbeginn fest.
+    //
+    // Der DAUERHAFTE Tausch oben braucht keine Einheit und bleibt deshalb auch
+    // vor dem Start moeglich -- er aendert den Plan, nicht das Protokoll.
     //
     // Ein Umschreiben vorhandener Log-Eintraege gibt es hier bewusst nicht:
     // Eine abgehakte Position kommt gar nicht bis hierher.
-    $sessionId = einheit_sicherstellen($userId, (int)$position['plan_id']);
+    $offen = offene_einheit($userId);
+    if ($offen === null) {
+        json_err(
+            'Für heute tauschen geht erst, wenn das Training läuft — bitte zuerst '
+            . '„Training starten" drücken. Dauerhaft im Plan tauschen geht auch vorher.',
+            409
+        );
+    }
+    $sessionId = (int)$offen['id'];
 
     db()->prepare(
         'INSERT INTO exercise_swaps

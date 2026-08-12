@@ -100,7 +100,7 @@ function current_user(): ?array {
 
     $stmt = db()->prepare(
         'SELECT id, name, is_admin, must_change_password, expert_mode,
-                last_plan_id, created_at
+                created_at
            FROM users WHERE id = ?'
     );
     $stmt->execute([$id]);

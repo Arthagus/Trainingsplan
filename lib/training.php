@@ -24,6 +24,47 @@ function plaene_von(int $userId): array {
 }
 
 /**
+ * Der Plan der zuletzt begonnenen Einheit (§7.6).
+ *
+ * Die Rotation liest ihren Ausgangspunkt hier aus der Historie und nicht mehr
+ * aus users.last_plan_id. Der Unterschied ist kein Schoenheitsfehler: Die
+ * Spalte wurde nur beim BEENDEN geschrieben und beim Loeschen einer Einheit
+ * nie zurueckgenommen. Wer eine Einheit zum Ausprobieren startete, beendete
+ * und wieder loeschte, hatte danach dauerhaft den falschen Vorschlag stehen --
+ * die Einheit war weg, ihre Wirkung auf die Rotation blieb. Genau so ist am
+ * 2026-08-12 nach einer Pull-Einheit wieder Pull vorgeschlagen worden.
+ *
+ * Aus der Historie gelesen heilt sich der Fall von selbst: Was geloescht ist,
+ * zaehlt nicht mehr mit.
+ *
+ * Gezaehlt wird JEDE Einheit, auch eine ohne einzige Protokollzeile. Das ist
+ * eine bewusste Entscheidung des Benutzers (2026-08-12) und nicht die
+ * naheliegende: Die Rotation richtet sich starr nach der Historie, und eine
+ * leere Einheit STEHT in der Historie. Wer sie nicht gezaehlt haben will,
+ * loescht sie -- die Historie sauber zu halten ist Sache des Benutzers. Der
+ * Gegenentwurf (nur Einheiten mit Protokollzeile) waere eine zweite, stille
+ * Regel gewesen, die man beim Blick auf den Verlauf nicht sieht.
+ *
+ * Sortiert wird nach started_at UND id absteigend, aus demselben Grund wie in
+ * letztes_gewicht(): Zeitstempel haben Sekundenaufloesung.
+ *
+ * @return int|null Plan-ID oder null, wenn es noch keine Einheit gibt
+ */
+function zuletzt_trainierter_plan(int $userId): ?int {
+    $stmt = db()->prepare(
+        'SELECT s.plan_id
+           FROM sessions s
+          WHERE s.user_id = ?
+            AND s.plan_id IS NOT NULL
+          ORDER BY s.started_at DESC, s.id DESC
+          LIMIT 1'
+    );
+    $stmt->execute([$userId]);
+
+    return to_int_or_null($stmt->fetchColumn());
+}
+
+/**
  * Der Plan, der als naechstes vorgeschlagen wird (§7.6).
  *
  * Die Regel ist eine Rotation entlang der Sortierreihenfolge: vorgeschlagen
@@ -31,30 +72,33 @@ function plaene_von(int $userId): array {
  * ergibt das genau die fruehere Alternation ("der jeweils andere"), bei
  * Push/Pull/Legs laeuft sie der Reihe nach durch.
  *
- * Kein Rotationszaehler noetig: die Position von last_plan_id in der
- * Reihenfolge bestimmt den Nachfolger eindeutig. Ist sie leer oder zeigt auf
- * einen geloeschten Plan, faengt die Rotation vorne an.
+ * Kein Rotationszaehler noetig: die Position des zuletzt trainierten Plans in
+ * der Reihenfolge bestimmt den Nachfolger eindeutig. Ist noch nichts
+ * protokolliert oder zeigt der Eintrag auf einen geloeschten Plan, faengt die
+ * Rotation vorne an.
  *
  * @param array|null $plaene Bereits geladene Plaene, spart eine Abfrage
  * @return array|null Der vorgeschlagene Plan oder null, wenn keiner existiert
  */
-function naechster_plan(int $userId, ?int $lastPlanId, ?array $plaene = null): ?array {
+function naechster_plan(int $userId, ?array $plaene = null): ?array {
     $plaene ??= plaene_von($userId);
 
     if ($plaene === []) {
         return null;
     }
-    if ($lastPlanId === null) {
+
+    $zuletzt = zuletzt_trainierter_plan($userId);
+    if ($zuletzt === null) {
         return $plaene[0];
     }
 
     foreach ($plaene as $i => $plan) {
-        if ((int)$plan['id'] === $lastPlanId) {
+        if ((int)$plan['id'] === $zuletzt) {
             return $plaene[($i + 1) % count($plaene)];
         }
     }
 
-    // last_plan_id zeigt ins Leere (Plan geloescht) -- vorne anfangen.
+    // Der zuletzt trainierte Plan existiert nicht mehr -- vorne anfangen.
     return $plaene[0];
 }
 
@@ -407,6 +451,103 @@ function plan_positionen(
 }
 
 /**
+ * Welche Position gruen ist und welche orange (§7.3).
+ *
+ * Das Leitsystem am linken Kartenrand hat vier Zustaende. Blau (erledigt) und
+ * grau (kommt noch) ergeben sich von selbst; die beiden anderen brauchen einen
+ * Vergleich ueber die ganze Liste und stehen deshalb hier:
+ *
+ *   gruen  = die Uebung, an der man GERADE steht.
+ *   orange = uebersprungen: noch offen, obwohl man schon weiter ist.
+ *
+ * Bis 1.1.5 war gruen schlicht "die erste noch nicht erledigte Position". Das
+ * ist falsch, sobald man eine Uebung auslaesst, weil das Geraet belegt ist: Die
+ * Markierung blieb auf der ausgelassenen Uebung stehen, waehrend man laengst
+ * zwei Geraete weiter war -- und dass die ausgelassene noch aussteht, war von
+ * "kommt noch" nicht zu unterscheiden.
+ *
+ * Die Regel jetzt, in dieser Reihenfolge:
+ *
+ *   1. Gibt es eine Position MIT Eintrag, die noch nicht erledigt ist, ist das
+ *      die aktive -- dort wird gerade protokolliert. Bei mehreren gewinnt die
+ *      spaetere: Man arbeitet sich nach unten durch.
+ *   2. Sonst die erste offene Position NACH der letzten mit Eintrag. Ohne
+ *      Auslassung ist das genau die alte Regel; nach einer Auslassung ist es
+ *      die naechste, statt zurueckzuspringen.
+ *   3. Ist dahinter alles erledigt, die erste offene ueberhaupt -- der
+ *      Rueckweg zu dem, was man ausgelassen hat.
+ *
+ * Orange ist danach jede offene Position VOR der aktiven. "Vor" ist dabei die
+ * Planreihenfolge, nicht die Uhrzeit: Der Balken beantwortet die Frage "wo bin
+ * ich in der Liste", und die stellt man sich beim Scrollen.
+ *
+ * Ohne laufende Einheit gibt es beides nicht (seit 1.1.2): Wer den Plan bloss
+ * anschaut, sieht eine ruhige Liste -- eine Aussage ueber einen Ablauf, der
+ * nicht laeuft, waere geraten.
+ *
+ * ACHTUNG: aktiveMarkieren() in index.js zieht dieselbe Regel im Betrieb nach.
+ * Beide Haelften gehoeren zusammen geaendert, sonst springt die Farbe beim
+ * naechsten Neuladen.
+ *
+ * @param array $positionen Ergebnis von plan_positionen(), in Planreihenfolge
+ * @return array{aktiv:int|null,uebersprungen:int[]} plan_exercise_id-Werte
+ */
+function positions_zustaende(array $positionen, bool $laeuft): array {
+    $leer = ['aktiv' => null, 'uebersprungen' => []];
+    if (!$laeuft || $positionen === []) {
+        return $leer;
+    }
+
+    $letzterEintrag = -1;
+    $inArbeit       = null;
+    foreach ($positionen as $i => $z) {
+        if ($z['hat_eintrag']) {
+            $letzterEintrag = $i;
+            if (!$z['erledigt']) {
+                $inArbeit = $i;
+            }
+        }
+    }
+
+    $aktiv = $inArbeit;
+
+    if ($aktiv === null) {
+        for ($i = $letzterEintrag + 1; $i < count($positionen); $i++) {
+            if (!$positionen[$i]['erledigt']) {
+                $aktiv = $i;
+                break;
+            }
+        }
+    }
+
+    if ($aktiv === null) {
+        foreach ($positionen as $i => $z) {
+            if (!$z['erledigt']) {
+                $aktiv = $i;
+                break;
+            }
+        }
+    }
+
+    if ($aktiv === null) {
+        // Alles erledigt -- die Rueckfrage zum Beenden steht ohnehin schon da.
+        return $leer;
+    }
+
+    $uebersprungen = [];
+    foreach ($positionen as $i => $z) {
+        if ($i < $aktiv && !$z['erledigt']) {
+            $uebersprungen[] = (int)$z['plan_exercise_id'];
+        }
+    }
+
+    return [
+        'aktiv'         => (int)$positionen[$aktiv]['plan_exercise_id'],
+        'uebersprungen' => $uebersprungen,
+    ];
+}
+
+/**
  * Die Uebungen, die im Plan gerade tatsaechlich angezeigt werden.
  *
  * Beruecksichtigt die Taeusche der laufenden Einheit: Steht an einer Position
@@ -454,13 +595,20 @@ function position_passt_zur_einheit(int $userId, int $planId): bool {
 /**
  * Sorgt dafuer, dass eine offene Einheit existiert, und liefert ihre ID.
  *
- * Eine Einheit entsteht durch die erste zustandsaendernde Trainingsaktion --
- * das ist entweder ein "Erledigt" ODER ein Tausch "nur diese Einheit" (§7.6).
- * Der zweite Fall ist keine Spitzfindigkeit: Im Studio lautet der reale Ablauf
- * Plan oeffnen, Geraet besetzt vorfinden, tauschen, DANN trainieren. Und ein
- * exercise_swaps-Eintrag braucht zwingend eine session_id.
+ * GENAU EIN AUFRUFER, und das ist die Aussage dieser Funktion: api/session.php
+ * → start, also der Knopf "Training starten" (§7.6). Nichts sonst darf eine
+ * Einheit anlegen.
  *
- * Blosses Anschauen startet keine Einheit.
+ * Bis 1.1.5 war das anders: Auch das erste "Erledigt" (api/log.php) und ein
+ * Tausch "nur diese Einheit" (api/swap.php) riefen hier herein und begannen
+ * damit stillschweigend ein Training. Die Begruendung war der reale Ablauf im
+ * Studio -- Plan oeffnen, Geraet besetzt vorfinden, tauschen, DANN trainieren.
+ * In der Praxis ueberwog der andere Fall: Ein Fehlgriff beim blossen
+ * Durchsehen des Plans begann eine Einheit, die niemand wollte, und started_at
+ * hielt dann nicht den Trainingsbeginn fest, sondern den Fehlgriff. Beide
+ * Aufrufer lehnen seit 1.1.6 mit 409 ab, statt anzulegen.
+ *
+ * Wer einen dritten Aufrufer ergaenzt, hebt die Zusicherung auf.
  */
 function einheit_sicherstellen(int $userId, int $planId): int {
     $offen = offene_einheit($userId);
@@ -495,17 +643,12 @@ function einheit_beenden(int $userId): ?int {
         return null;
     }
 
-    db_transaction(function (PDO $pdo) use ($offen, $userId): void {
-        $pdo->prepare('UPDATE sessions SET ended_at = ? WHERE id = ?')
-            ->execute([now(), $offen['id']]);
-
-        // last_plan_id traegt die Rotation. Ohne diesen Schritt bekaeme der
-        // Benutzer beim naechsten Start wieder denselben Plan vorgeschlagen.
-        if ($offen['plan_id'] !== null) {
-            $pdo->prepare('UPDATE users SET last_plan_id = ? WHERE id = ?')
-                ->execute([$offen['plan_id'], $userId]);
-        }
-    });
+    // Nur noch ein einziger Schreibvorgang, deshalb ohne Transaktion: Die
+    // Rotation merkt sich nichts mehr, sie liest ihren Stand in
+    // zuletzt_trainierter_plan() aus der Historie. users.last_plan_id wird
+    // damit weder gelesen noch geschrieben.
+    db()->prepare('UPDATE sessions SET ended_at = ? WHERE id = ?')
+        ->execute([now(), $offen['id']]);
 
     return (int)$offen['id'];
 }

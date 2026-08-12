@@ -108,9 +108,16 @@ CREATE INDEX IF NOT EXISTS idx_emg_group
 -- Benutzer und Anmeldung
 -- ---------------------------------------------------------------------------
 
--- last_plan_id zeigt auf plans, das weiter unten erst angelegt wird. SQLite
--- prueft Fremdschluessel-Ziele nicht beim CREATE, sondern erst beim Schreiben --
--- die Reihenfolge ist also unkritisch.
+-- last_plan_id ist seit 1.1.6 UNBENUTZT und wird weder gelesen noch
+-- geschrieben. Die Rotation liest ihren Ausgangspunkt in
+-- zuletzt_trainierter_plan() aus der Historie, weil die Spalte nur beim
+-- Beenden einer Einheit gepflegt wurde und deren Loeschen nicht mitbekam --
+-- eine geloeschte Testeinheit verstellte den Vorschlag dauerhaft. Die Spalte
+-- bleibt trotzdem stehen: Sie zu entfernen waere eine loeschende Migration
+-- ohne Gegenwert. Nicht wieder in Betrieb nehmen.
+-- Sie zeigt auf plans, das weiter unten erst angelegt wird. SQLite prueft
+-- Fremdschluessel-Ziele nicht beim CREATE, sondern erst beim Schreiben -- die
+-- Reihenfolge ist also unkritisch.
 -- expert_mode schaltet die satzgenaue Erfassung ein (§7.4). Die Spalte steuert
 -- ausschliesslich die DARSTELLUNG -- api/log.php nimmt Saetze unabhaengig davon
 -- entgegen. Auf Bestandsdatenbanken kommt sie ueber apply_migrations() dazu,
