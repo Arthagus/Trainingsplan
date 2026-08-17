@@ -28,6 +28,75 @@ function csrfToken() {
 }
 
 /**
+ * Das Merkmal, mit dem lib/csrf.php ein totes Token kennzeichnet.
+ * Muss mit CSRF_FEHLER_CODE dort uebereinstimmen.
+ */
+const CSRF_FEHLER_CODE = 'csrf_ungueltig';
+
+/** Laeuft gerade eine Erneuerung? Dann warten alle auf dieselbe. */
+let tokenErneuerung = null;
+
+/**
+ * Holt ein frisches CSRF-Token und schreibt es in den <meta>-Tag.
+ *
+ * Warum das ueberhaupt noetig ist, steht in api/token.php und in Fallstrick 23:
+ * Die serverseitige Sitzung kann unter einer offenen Seite verschwinden, und
+ * die Seite haelt dann ein Token, das zu niemandem mehr gehoert.
+ *
+ * Hier steht ausnahmsweise ein nacktes fetch() statt apiFetch() -- das waere
+ * eine Rekursion, denn apiFetch ist ja gerade der Aufrufer. Die Regel "kein
+ * direkter fetch()-Aufruf" gilt fuer SEITEN-Skripte; dies hier ist der
+ * Wrapper selbst.
+ *
+ * Die gemeinsame Zusage verhindert, dass mehrere gleichzeitig gescheiterte
+ * Aufrufe -- etwa zwei Eintraege der Warteschlange hintereinander -- jeder fuer
+ * sich ein Token holen und sich dabei gegenseitig ueberschreiben.
+ *
+ * @returns {Promise<boolean>} true, wenn ein neues Token gesetzt wurde
+ */
+function tokenErneuern() {
+    if (tokenErneuerung) {
+        return tokenErneuerung;
+    }
+
+    tokenErneuerung = (async () => {
+        try {
+            const antwort = await fetch('api/token.php', {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { 'Accept': 'application/json' },
+            });
+            if (!antwort.ok) {
+                return false;
+            }
+
+            const nutzlast = await antwort.json();
+            const neu = (nutzlast && nutzlast.ok === true && nutzlast.data)
+                ? String(nutzlast.data.token || '')
+                : '';
+            if (neu === '') {
+                return false;
+            }
+
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (!meta) {
+                return false;
+            }
+            meta.setAttribute('content', neu);
+            return true;
+        } catch (e) {
+            // Netzproblem: Der Aufrufer faellt auf seinen normalen Fehlerweg
+            // zurueck, die Warteschlange behaelt ihren Eintrag.
+            return false;
+        } finally {
+            tokenErneuerung = null;
+        }
+    })();
+
+    return tokenErneuerung;
+}
+
+/**
  * Zeitlimit fuer einen einzelnen Serveraufruf.
  *
  * Der Grund ist der schlechte Empfang im Studio, nicht die Sparsamkeit:
@@ -69,6 +138,7 @@ function schlafen(ms) {
  *     gesetzter Content-Type macht den Upload kaputt)
  *   - den Umschlag {ok, data} auspacken
  *   - bei 401 zur Anmeldung schicken
+ *   - ein totes CSRF-Token einmalig erneuern und den Aufruf wiederholen
  *   - nach API_ZEITLIMIT_MS abbrechen, statt beliebig lange zu haengen
  *   - den Verbindungszustand fuer die Leiste am Seitenkopf fortschreiben
  *
@@ -112,6 +182,10 @@ async function apiFetch(url, options = {}) {
     if (opt.body !== undefined && !opt.method) {
         opt.method = 'POST';
     }
+
+    // Die Token-Erneuerung gibt es EINMAL je Aufruf. Sonst liefe der Aufruf im
+    // Kreis, wenn der Server das frische Token ebenfalls ablehnt.
+    let tokenErneuert = false;
 
     for (let versuch = 0; ; versuch++) {
         const letzterVersuch = versuch >= versuche - 1;
@@ -161,10 +235,34 @@ async function apiFetch(url, options = {}) {
             nutzlast = null;
         }
 
+        // Ein totes Token ist KEINE fachliche Ablehnung, sondern ein
+        // reparabler Zustand: Die Sitzung ist unter der offenen Seite
+        // verschwunden, "Angemeldet bleiben" hat laengst eine neue aufgemacht,
+        // und ihr fehlt nur das Token. Frueher scheiterte von da an JEDER
+        // Schreibaufruf mit 403, bis jemand von Hand neu lud -- im Studio am
+        // 2026-08-16 genau so passiert (Fallstrick 23).
+        //
+        // Das kostet ausdruecklich KEINEN der Versuche aus `wiederholen`:
+        // Die sind fuer schlechtes Netz gedacht, und der Aufruf hier ist gar
+        // nicht gescheitert, er war nur falsch adressiert.
+        if (antwort.status === 403
+            && nutzlast && nutzlast.code === CSRF_FEHLER_CODE
+            && !tokenErneuert) {
+            tokenErneuert = true;
+            if (await tokenErneuern()) {
+                opt.headers['X-CSRF-Token'] = csrfToken();
+                // Das versuch-- gleicht das versuch++ der Schleife aus, dieser
+                // Durchgang zaehlt also nicht mit. `tokenErneuert` deckelt es.
+                versuch--;
+                continue;
+            }
+        }
+
         if (!antwort.ok || !nutzlast || nutzlast.ok !== true) {
             const fehler = new Error((nutzlast && nutzlast.error) || 'Unerwarteter Serverfehler.');
             fehler.status = antwort.status;
             fehler.fields = (nutzlast && nutzlast.fields) || {};
+            fehler.code   = (nutzlast && nutzlast.code) || '';
             throw fehler;
         }
 
@@ -230,7 +328,34 @@ const verbindung = {
             // keine Meldung, die den Screenreader unterbrechen sollte.
             el.setAttribute('role', 'status');
             el.hidden = true;
-            document.body.insertBefore(el, document.body.firstChild);
+
+            // In den Leisten-Stapel aus lib/view_header.php, und zwar ganz
+            // nach UNTEN.
+            //
+            // In 1.1.14 stand sie oben, mit der Begruendung "ist das Netz weg,
+            // ist das die wichtigste Information auf dem Bildschirm". Das war
+            // falsch herum, und es ist im Studio sofort aufgefallen: Diese
+            // Leiste erscheint bei JEDEM Abhaken fuer den Bruchteil einer
+            // Sekunde. Stand sie oben, schob sie die Trainingsleiste jedes Mal
+            // nach unten und gleich wieder hinauf -- ausgerechnet die Zeile,
+            // die man staendig abliest, zappelte bei jeder Eingabe.
+            //
+            // Das ist dieselbe Regel wie bei .zeile-wartet (Fallstrick 19):
+            // Was von selbst kommt und geht, darf nichts verschieben, was
+            // stehen bleiben soll. Unten angehaengt bleibt die Trainingsleiste
+            // ruhig; sichtbar und sticky ist die Verbindungsleiste weiterhin,
+            // sie sitzt nur eine Zeile tiefer.
+            //
+            // Der Rueckfall auf body ist fuer den Fall, dass eine Seite den
+            // Stapel nicht rendert (etwa ohne Kopf-Partial). Dann klebt die
+            // Leiste wie bisher selbst; die Regel dafuer steht im Stylesheet.
+            const stapel = qs('#leisten');
+            if (stapel) {
+                stapel.appendChild(el);
+            } else {
+                el.classList.add('leiste-allein');
+                document.body.insertBefore(el, document.body.firstChild);
+            }
         }
         return el;
     },

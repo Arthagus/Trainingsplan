@@ -201,9 +201,25 @@ function json_ok(array $data = [], int $status = 200): never {
 /**
  * Sendet eine JSON-Fehlerantwort und beendet das Skript.
  *
+ * $code ist ein MASCHINENLESBARES Merkmal fuer die wenigen Faelle, in denen der
+ * Client mehr tun muss als die Meldung anzuzeigen. Es steht neben `error` und
+ * ersetzt es nicht: Der Text bleibt die Auskunft an den Benutzer, der Code die
+ * an das Skript. Die Alternative waere, im Browser auf den deutschen Wortlaut
+ * zu pruefen -- eine Kopplung, die beim ersten Umformulieren einer Meldung
+ * lautlos bricht.
+ *
+ * Bisher gibt es genau einen: CSRF_FEHLER_CODE aus lib/csrf.php, an dem
+ * apiFetch() ein totes Token erkennt und sich selbst repariert.
+ *
  * @param array<string,string> $fields Feldbezogene Meldungen fuer das Formular
+ * @param string|null          $code   Merkmal fuer den Client, siehe oben
  */
-function json_err(string $error, int $status = 400, array $fields = []): never {
+function json_err(
+    string $error,
+    int $status = 400,
+    array $fields = [],
+    ?string $code = null
+): never {
     http_response_code($status);
     if (!headers_sent()) {
         header('Content-Type: application/json; charset=utf-8');
@@ -211,6 +227,9 @@ function json_err(string $error, int $status = 400, array $fields = []): never {
     $resp = ['ok' => false, 'error' => $error];
     if ($fields !== []) {
         $resp['fields'] = $fields;
+    }
+    if ($code !== null) {
+        $resp['code'] = $code;
     }
     echo json_encode($resp, JSON_UNESCAPED_UNICODE);
     exit;

@@ -11,6 +11,20 @@ require_once __DIR__ . '/auth.php';
  */
 
 /**
+ * Merkmal, an dem der Client ein TOTES Token von einer echten Ablehnung
+ * unterscheidet.
+ *
+ * Der Unterschied ist wesentlich: Ein abgelehnter Tausch bleibt bei jedem
+ * weiteren Versuch abgelehnt, ein totes Token dagegen ist ein reparabler
+ * Zustand -- die Sitzung ist unter der offenen Seite verschwunden, und ein
+ * frisches Token loest das Problem vollstaendig. apiFetch() holt sich daraufhin
+ * ueber api/token.php ein neues und wiederholt den Aufruf einmal.
+ *
+ * Der Wortlaut der Meldung taugt dafuer nicht -- siehe json_err().
+ */
+const CSRF_FEHLER_CODE = 'csrf_ungueltig';
+
+/**
  * Liefert das Token der Sitzung und erzeugt es beim ersten Aufruf.
  */
 function csrf_token(): string {
@@ -35,7 +49,8 @@ function csrf_check(): void {
     $stored = (string)($_SESSION['csrf_token'] ?? '');
 
     if ($sent === '' || $stored === '' || !hash_equals($stored, $sent)) {
-        json_err('Sicherheits-Token ungültig — bitte die Seite neu laden.', 403);
+        json_err('Sicherheits-Token ungültig — bitte die Seite neu laden.', 403,
+                 [], CSRF_FEHLER_CODE);
     }
 }
 

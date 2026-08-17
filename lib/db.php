@@ -204,6 +204,30 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec("ALTER TABLE exercises ADD COLUMN image_crop TEXT NOT NULL DEFAULT 'mitte'");
     }
 
+    // 2026-08-17: Ein Konto sperren, ohne seine Daten anzufassen (§6.1).
+    //
+    // Rein additiv, und NULL ist die richtige Vorgabe: Nach der Migration ist
+    // niemand gesperrt, der Bestand verhaelt sich also unveraendert.
+    //
+    // Ein TEXT-Zeitstempel statt eines 0/1-Flags -- die Begruendung steht bei
+    // der Spalte in schema.sql. Kurz: Zwei Spalten fuer dieselbe Aussage koennen
+    // auseinanderlaufen, und das Sperrdatum wird in der Benutzerliste ohnehin
+    // angezeigt.
+    if (!column_exists($pdo, 'users', 'blocked_at')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN blocked_at TEXT');
+    }
+
+    // 2026-08-17: Jeder waehlt selbst, woher die Vorbelegung eines neuen
+    // Satzes kommt (§7.4).
+    //
+    // Rein additiv, und die Vorgabe ist entscheidend: 'gleicher_satz' ist
+    // exakt das Verhalten von vor dieser Migration. Kein Bestandsbenutzer
+    // merkt vom Rollout etwas, bis er selbst umstellt -- dieselbe Ueberlegung
+    // wie bei workout_log.done DEFAULT 1 und exercises.image_crop 'mitte'.
+    if (!column_exists($pdo, 'users', 'satz_vorlage')) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN satz_vorlage TEXT NOT NULL DEFAULT 'gleicher_satz'");
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die

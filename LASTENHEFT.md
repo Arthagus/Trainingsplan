@@ -394,7 +394,12 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   `must_change_password` (bool, Default 0), `expert_mode` (bool, Default 0),
   `last_plan_id` (FK → plans, nullable — **seit 2026-08-12 unbenutzt**, siehe §7.6;
   die Spalte bleibt nur stehen, weil ihr Entfernen eine löschende Migration ohne
-  Gegenwert wäre), `created_at`
+  Gegenwert wäre), `blocked_at` (nullable, siehe §6.1),
+  `satz_vorlage` (Codeliste, Default `gleicher_satz`, siehe §7.4), `created_at`
+- **`blocked_at` ist ein Zeitstempel und kein Flag:** `NULL` heißt aktiv, sonst steht dort
+  der Zeitpunkt der Sperre. Ein Paar aus `blocked` und `blocked_at` — wie es
+  `exercises.archived`/`archived_at` vorexerziert — könnte sich widersprechen, und dann
+  hinge das Verhalten davon ab, welche der beiden Spalten gerade gelesen wird.
 
 **remember_tokens** — „Angemeldet bleiben"-Tokens (siehe §5)
 - `id`, `user_id` (FK), `selector` (eindeutig), `validator_hash`, `expires_at`,
@@ -577,6 +582,23 @@ Nur für Benutzer mit `is_admin`.
   sind umbenennbar. Ein Name ändert an den Rechten nichts, und wer umbenennt, kennt den neuen
   Namen und sperrt sich damit nicht aus. Der Benutzer meldet sich danach mit dem neuen Namen
   an; angemeldete Geräte bleiben angemeldet, weil die Tokens an der `user_id` hängen.
+- **Konten sperren und wieder freigeben.** Ein Admin kann jedes andere Konto sperren —
+  normale Benutzer **und** Admins. Ein gesperrtes Konto kommt nicht mehr herein: weder
+  über Benutzername und Passwort noch über ein angemeldetes Gerät, und eine laufende
+  Sitzung endet beim nächsten Seitenaufruf. **Sämtliche Daten bleiben erhalten** — Pläne,
+  Einheiten, Protokoll, Sätze; ein Entsperren stellt den vorherigen Zustand vollständig
+  wieder her, nur anmelden muss sich der Benutzer neu (die Remember-Me-Tokens werden beim
+  Sperren widerrufen).
+  - **Das eigene Konto ist ausgenommen** — dieselbe Begründung wie beim Löschen und beim
+    Adminrecht: Die Sperre wirkt sofort, man wäre also im selben Klick ausgesperrt und
+    könnte sie nicht zurücknehmen.
+  - Eine Letzter-Admin-Regel braucht es hier **nicht**: Sperren darf nur ein angemeldeter
+    Admin, und sich selbst kann er nicht sperren — es bleibt also zwangsläufig immer
+    mindestens ein aktiver Admin übrig.
+  - Der Anwendungsfall ist ein Konto, das nur zeitweise gebraucht wird — etwa ein
+    Wartungszugang, der zwischen zwei Arbeitsrunden nichts zu suchen hat. Löschen und neu
+    anlegen wäre der falsche Weg, weil es die Daten mitnimmt.
+  - Sichtbar in der Benutzerliste als Abzeichen **Gesperrt** samt Sperrdatum.
 
 **6.2 Muskelgruppen**
 - Liste einsehen, erweitern, umbenennen und sortieren (Standardwerte vorgeseedet).
@@ -830,13 +852,32 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   wird jeder Satz mit Wiederholungen und Gewicht eingetragen — 12×40, 10×40, 9×45. Der
   Standardmodus bleibt unverändert bestehen.
 
-  - **Ein Tipp je Satz.** `+ Satz` legt eine Zeile an, die schon gefüllt ist: **Satz k wird
-    mit Satz k der letzten Einheit vorbelegt** — nicht mit dem vorherigen Satz von heute.
-    Genau das macht den Modus im Studio schnell: Wer 12/10/9 gewohnt ist, bekommt beim
-    dritten Antippen 9 vorgeschlagen und nicht 10. Hatte das letzte Mal weniger Sätze, gilt
-    der vorherige Satz von heute; gibt es gar keine Vorlage, das zuletzt bekannte Gewicht
-    dieser Übung mit leerem Wiederholungsfeld. Der Vorschlag steht im Knopf („+ Satz
-    (9 × 45)"), damit vor dem Tippen sichtbar ist, was entsteht.
+  - **Ein Tipp je Satz.** `+ Satz` legt eine Zeile an, die schon gefüllt ist. **Woher die
+    Vorbelegung kommt, wählt jeder Benutzer selbst** (`users.satz_vorlage`, Codeliste
+    `SATZ_VORLAGE` in `lib/training.php`, eingestellt auf der Kontoseite neben dem
+    Expertenmodus):
+
+    | | Satz 1 | Satz 2 | Satz 3 |
+    |---|---|---|---|
+    | `gleicher_satz` — „Wie beim letzten Training" *(Vorgabe)* | 12×40 | 10×40 | 9×45 |
+    | `letzter_satz` — „Wie der Satz davor" | 12×40 | 12×40 | 12×40 |
+
+    *(Beispiel: Die letzte Einheit dieser Übung war 12×40 · 10×40 · 9×45.)*
+
+    **`gleicher_satz`** ist schnell für eine feste Satzfolge: Wer 12/10/9 gewohnt ist,
+    bekommt beim dritten Antippen 9 vorgeschlagen und nicht 10. **`letzter_satz`** ist
+    schnell für alle, die sich herantasten — eine Korrektur trägt sich von selbst weiter.
+
+    Gemeinsam ist beiden: **Der erste Satz kommt immer vom letzten Mal**, der Unterschied
+    beginnt ab Satz 2. Reicht die Vorlage nicht (heute mehr Sätze als letztes Mal), gilt der
+    vorherige Satz von heute; gibt es gar keine Vorlage, das zuletzt bekannte Gewicht dieser
+    Übung mit leerem Wiederholungsfeld. Der Vorschlag steht im Knopf („+ Satz (9 × 45)"),
+    damit vor dem Tippen sichtbar ist, was entsteht.
+
+    Die Auswahl ist **im einfachen Modus sichtbar, aber abgeblendet** — dort gibt es keine
+    Sätze. Versteckt wird sie nicht: Eine Einstellung, die nur unter einer Bedingung
+    erscheint, findet niemand. Ein Umschalten ist **auch während eines laufenden Trainings
+    erlaubt**, anders als beim Expertenmodus; die Begründung steht in §7.4 weiter unten.
   - **Wiederholungen mit −/+**, Gewicht als Textfeld. Die Wiederholungen weichen fast immer
     nur um ±1 vom Vorschlag ab — dafür sind zwei große Tippziele schneller und sicherer als
     die Zifferntastatur mit feuchten Fingern. Das Gewicht ändert sich selten und dann in

@@ -131,6 +131,74 @@ require __DIR__ . '/lib/view_header.php';
             Expertenmodus der schwerste Satz.
         </p>
 
+        <?php // Die Wahl der Satz-Vorbelegung (§7.4). Sie steht INNERHALB der
+              // Expertenkarte und eingerückt, weil sie ohne Expertenmodus keine
+              // Wirkung hat -- versteckt wird sie aber nicht: Eine Einstellung,
+              // die nur unter einer Bedingung sichtbar ist, findet niemand.
+              //
+              // Abgeblendet statt versteckt, und die Sperre setzt password.js
+              // beim Umschalten sofort nach: Die Seite laedt dabei nicht neu.
+              //
+              // Die Tabelle ist der eigentliche Erklaertext. An ihr sieht man
+              // den Unterschied in zwei Sekunden; die Saetze darunter muss man
+              // nur lesen, wenn man es genau wissen will. Die Zahlen sind ein
+              // festes Beispiel und nicht die eigenen Daten -- bei einem neuen
+              // Konto staende dort sonst nichts. ?>
+        <fieldset class="vorlage-wahl" <?= $experte ? '' : 'disabled' ?>>
+            <legend>Vorbelegung neuer Sätze</legend>
+
+            <p class="matt">
+                Tippst du auf „+ Satz“, steht schon etwas in den Feldern. Woher
+                dieser Vorschlag kommt, wählst du hier.
+            </p>
+
+            <p class="matt vorlage-beispiel">
+                Beispiel — letztes Training dieser Übung:
+                <strong>12×40 · 10×40 · 9×45</strong>
+            </p>
+
+            <?php foreach (SATZ_VORLAGE as $schluessel => $beschriftung): ?>
+                <?php
+                // Die Beispielwerte je Verfahren. Sie stehen hier und nicht in
+                // der Codeliste: Die Liste beantwortet "welche Werte gibt es",
+                // nicht "wie erklaert man sie".
+                $beispiel = $schluessel === 'letzter_satz'
+                    ? ['12×40', '12×40', '12×40']
+                    : ['12×40', '10×40', '9×45'];
+                ?>
+                <label class="zeile-wahl vorlage-zeile">
+                    <input type="radio" name="satz_vorlage" value="<?= h($schluessel) ?>"
+                           <?= satz_vorlage_normalisieren($benutzer['satz_vorlage'] ?? null) === $schluessel ? 'checked' : '' ?>>
+                    <span>
+                        <strong><?= h($beschriftung) ?></strong>
+                        <span class="vorlage-saetze">
+                            <?php foreach ($beispiel as $i => $wert): ?>
+                                <span><span class="matt">Satz <?= $i + 1 ?></span> <?= h($wert) ?></span>
+                            <?php endforeach; ?>
+                        </span>
+                    </span>
+                </label>
+            <?php endforeach; ?>
+
+            <p class="matt">
+                Der erste Satz kommt in beiden Fällen vom letzten Training — der
+                Unterschied beginnt ab Satz 2. „Wie der Satz davor“ übernimmt
+                immer, was du gerade eingetragen hast: Korrigierst du Satz 2 auf
+                10×40, schlägt Satz 3 ebenfalls 10×40 vor.
+            </p>
+
+            <p id="vorlage-fehler" class="feld-fehler" role="alert" hidden></p>
+        </fieldset>
+
+        <?php // Steht unabhaengig vom Zustand da und wird nicht ein- und
+              // ausgeblendet: Der Satz stimmt in beiden Faellen, und eine
+              // Zeile, die beim Umschalten erscheint und verschwindet, laesst
+              // die Karte springen. ?>
+        <p class="matt">
+            Die Vorbelegung wirkt nur im Expertenmodus — im einfachen Modus gibt
+            es keine einzelnen Sätze.
+        </p>
+
         <?php if ($laeuftEinheit): ?>
             <p class="hinweis-warnung">
                 <strong>Gerade läuft ein Training.</strong>

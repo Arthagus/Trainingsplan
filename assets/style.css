@@ -13,6 +13,27 @@
     --gut:          #1a7f4b;
     --warnung:      #a15c00;
     --fehler:       #b3261e;
+    /* Signalorange. Zwei Verwendungen, und beide meinen dasselbe: „hier stimmt
+       etwas nicht, aber es ist nichts kaputt und nichts gelöscht" — die
+       übersprungene Übung im Training und das gesperrte Konto in der
+       Benutzerverwaltung. Bewusst NICHT --warnung (#a15c00): Auf einem 4 px
+       breiten Balken ist ein abgedunkeltes Braunorange nicht mehr von Grau zu
+       unterscheiden.
+
+       ACHTUNG bei Text darauf: Weiß kommt auf 2,94:1, dunkle Schrift auf
+       5,03:1. Zum Vergleich --fehler: 6,54:1 auf Weiß — das Rot ist dunkler,
+       als es wirkt, deshalb funktioniert Weiß dort und hier nicht von selbst.
+
+       Trotzdem steht auf diesem Ton überall #fff — Knopf wie Abzeichen.
+       Ausdrückliche Entscheidung des Benutzers am 2026-08-17, getroffen
+       NACHDEM er beide Fassungen am eigenen Gerät gesehen hat: erst den Knopf,
+       dann das Abzeichen nachgezogen, damit zwei gleichfarbige Elemente
+       nebeneinander nicht unterschiedlich beschriftet sind.
+
+       Das liegt unter WCAG AA. Nicht stillschweigend zurückdrehen, sondern
+       nachfragen — die App hat genau einen Benutzerkreis, und der hat das
+       am eigenen Bildschirm beurteilt. */
+    --signal:       #ff6600;
     --radius:       10px;
     /* Fingerkuppe, nicht Mauszeiger: nichts Antippbares kleiner als das. */
     --tippziel:     44px;
@@ -824,11 +845,13 @@ button.gefahr { background: var(--fehler); }
    Orange ist bewusst NICHT --warnung (#a15c00): Der Balken ist 4px breit, und
    ein abgedunkeltes Braunorange ist auf diesem Streifen nicht mehr von Grau zu
    unterscheiden. Hier zaehlt Signalwirkung ueber vier Pixel, nicht Lesbarkeit
-   von Text -- deshalb Safety-Orange und nur an dieser einen Stelle. */
+   von Text -- deshalb Safety-Orange, definiert als --signal in :root. Seit
+   1.1.12 traegt das gesperrte Konto (§6.1) denselben Ton, aus demselben Grund:
+   auffaellig, aber ausdruecklich nicht rot. Rot bleibt dem Loeschen. */
 .zeile-offen         { border-left: 4px solid var(--linie); }
 .zeile-aktiv         { border-left: 4px solid var(--gut); }
 .zeile-erledigt      { border-left: 4px solid var(--akzent); }
-.zeile-uebersprungen { border-left: 4px solid #ff6600; }
+.zeile-uebersprungen { border-left: 4px solid var(--signal); }
 
 /* Ein fehlgeschlagenes Speichern bleibt sichtbar stehen, bis es geklappt hat --
    es wird nie stillschweigend verschluckt. */
@@ -844,14 +867,26 @@ button.gefahr { background: var(--fehler); }
    entscheidet also die Reihenfolge im Stylesheet. */
 .zeile-wartet     { border-left-style: dashed; }
 
-/* --- Verbindungsleiste ---------------------------------------------------- */
+/* --- Leisten-Stapel ------------------------------------------------------- */
 
-/* Steht ueber allem, auch ueber dem Kopf: Wenn das Netz weg ist, ist das die
-   wichtigste Information auf dem Bildschirm. */
-.verbindungs-leiste {
+/* Der Stapel klebt, die Leisten darin nicht. Warum, steht ausführlich in
+   lib/view_header.php; kurz: Zwei Elemente mit `top: 0` legen sich übereinander,
+   und zurAktivenSpringen() braucht EINE Höhe, die von selbst stimmt.
+
+   Die Reihenfolge darin ist nach Beständigkeit sortiert — oben, was dauerhaft
+   dasteht (Trainingsleiste), unten, was kurz aufblitzt (Verbindungsleiste).
+   Andersherum zappelt bei jedem Abhaken die Zeile, die man abliest.
+
+   Steht über allem, auch über dem Kopf. */
+.leisten-stapel {
     position: sticky;
     top: 0;
     z-index: 20;
+}
+
+/* --- Verbindungsleiste ---------------------------------------------------- */
+
+.verbindungs-leiste {
     padding: 0.5rem 1rem;
     background: var(--warnung);
     color: #fff;
@@ -860,6 +895,52 @@ button.gefahr { background: var(--fehler); }
 }
 
 .verbindungs-leiste.verbindung-weg { background: var(--fehler); }
+
+/* Rückfall für Seiten ohne Leisten-Stapel: Dann klebt die Leiste selbst, so
+   wie bis 1.1.13. Greift heute nirgends — alle Seiten binden view_header.php
+   ein —, kostet aber nichts und verhindert, dass die Meldung bei einer neuen
+   Seite ohne Kopf lautlos wegscrollt. */
+.verbindungs-leiste.leiste-allein {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+/* --- Trainingsleiste (§7.4) ----------------------------------------------- */
+
+/* Nur bei laufender Einheit, sonst gäbe es nichts zu zählen. Dunkel wie der
+   Kopf: Orange und Rot sind der Verbindungsleiste vorbehalten, und zwei
+   farbige Balken übereinander wären Jahrmarkt.
+
+   `justify-content: space-between` ist hier keine Kosmetik: Der Text rechts
+   wechselt im Minutentakt zwischen „seit 9 min" und „seit 10 min" und wird
+   dabei breiter. Läge alles in einem Fluss, ruckte die linke Hälfte mit —
+   und was sich von selbst ändert, darf nichts verschieben (Fallstrick 19).
+   So wächst die rechte Hälfte in die Lücke hinein und sonst bewegt sich
+   nichts. `tabular-nums` hält zusätzlich die Ziffern gleich breit. */
+.training-leiste {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 1rem;
+    background: var(--schrift);
+    color: #fff;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.training-leiste .leiste-dauer { white-space: nowrap; }
+
+/* Die offenen Übungen sind die Nebenauskunft — sie stehen da, damit man nicht
+   selbst rechnen muss, sollen aber nicht mit der Hauptzahl konkurrieren. */
+.training-leiste .leiste-offen { opacity: 0.75; }
+
+@media (max-width: 22rem) {
+    /* Auf sehr schmalen Geräten weicht zuerst die Nebenauskunft, nicht der
+       Umbruch: Eine zweizeilige Leiste änderte die Höhe von allem darunter. */
+    .training-leiste .leiste-offen { display: none; }
+}
 
 /* --- Kurzmeldung --------------------------------------------------------- */
 
@@ -900,7 +981,83 @@ button.gefahr { background: var(--fehler); }
     color: #fff;
 }
 
+/* Gesperrtes Konto (§6.1). Dasselbe Muster wie .ist-archiviert bei den
+   Übungen: gedämpft und mit Balken am linken Rand, damit die Zeile in einer
+   langen Liste auch ohne Lesen des Abzeichens auffällt.
+
+   ORANGE UND NICHT ROT, und das ist der Kern: Rot gehört in dieser Liste dem
+   Löschen, und die beiden Dinge sind gegensätzlich — das eine nimmt die Daten
+   mit, das andere lässt sie ausdrücklich stehen. Zwei rote Knöpfe nebeneinander
+   luden dazu ein, sie für gleich gefährlich zu halten. Derselbe Ton wie die
+   übersprungene Übung im Training (--signal): auffällig, aber nicht endgültig.
+
+   Weiße Schrift wie am Knopf daneben — siehe die Notiz bei --signal. */
+.abzeichen-gesperrt {
+    background: var(--signal);
+    border-color: var(--signal);
+    color: #fff;
+}
+
+.ist-gesperrt {
+    opacity: 0.75;
+    border-left: 4px solid var(--signal);
+}
+
+/* Der Sperren-/Entsperren-Knopf trägt dieselbe Farbe wie das, was er auslöst.
+   Beim eigenen Konto ist er deaktiviert und damit über das globale
+   button:disabled ohnehin blass — es braucht dafür keine eigene Regel.
+
+   Weiße Schrift auf Wunsch des Benutzers (2026-08-17), obwohl der Kontrast mit
+   2,94:1 rechnerisch zu niedrig ist — Begründung und Messwerte oben bei
+   --signal. Das Abzeichen daneben trägt dasselbe Weiß. */
+button.sperr-knopf {
+    background: var(--signal);
+    border-color: var(--signal);
+    color: #fff;
+}
+
 .reset-formular { margin-top: 0.75rem; }
+
+/* --- Vorbelegung neuer Sätze (§7.4) --------------------------------------- */
+
+/* Eingerückt und mit Linie: Die Wahl gehört zum Expertenmodus darüber und ist
+   ohne ihn wirkungslos. `fieldset[disabled]` blendet die Bedienelemente selbst
+   ab; die Blässe des ganzen Blocks kommt hier dazu, damit auch der Erklärtext
+   als „gerade nicht in Kraft" zu lesen ist. */
+.vorlage-wahl {
+    margin: 1rem 0 0;
+    padding: 0 0 0 1rem;
+    border: 0;
+    border-left: 3px solid var(--linie);
+}
+
+.vorlage-wahl legend { padding: 0; font-weight: 600; }
+.vorlage-wahl[disabled] { opacity: 0.55; }
+
+.vorlage-beispiel { margin-bottom: 0.25rem; }
+
+/* Der Radiobutton oben, die Beschriftung samt Beispiel daneben — nicht
+   mittig, sonst steht der Knopf bei zwei Zeilen Text in der Luft. */
+.vorlage-zeile {
+    align-items: flex-start;
+    min-height: 0;
+    padding: 0.4rem 0;
+}
+
+/* Die drei Beispielsätze. Als Flex mit Umbruch statt als Tabelle: Auf einem
+   schmalen Gerät rutscht „Satz 3" dann unter die anderen beiden, statt die
+   Karte seitlich zu sprengen. Feste Mindestbreite, damit die zwei Zeilen
+   untereinander bündig stehen und der Unterschied ins Auge springt. */
+.vorlage-saetze {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.9rem;
+    margin-top: 0.15rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.vorlage-saetze > span { min-width: 5.5rem; }
+.vorlage-saetze .matt { margin-right: 0.2rem; font-size: 0.85em; }
 
 /* --- Handy-Ansicht ------------------------------------------------------- */
 

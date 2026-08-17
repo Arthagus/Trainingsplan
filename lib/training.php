@@ -13,6 +13,57 @@ require_once __DIR__ . '/helpers.php';
  */
 
 /**
+ * Woher die Vorbelegung eines neu hinzugefuegten Satzes kommt (§7.4).
+ *
+ * Eine persoenliche Einstellung, weil beide Verfahren fuer verschiedene Leute
+ * das jeweils schnellere sind:
+ *
+ *   gleicher_satz  Satz k bekommt Satz k vom letzten Mal. Wer eine feste
+ *                  Satzfolge faehrt (12/10/9), hat sie mit drei Tipps stehen.
+ *   letzter_satz   Jeder neue Satz uebernimmt den vorigen von HEUTE. Wer sich
+ *                  von Satz zu Satz herantastet, korrigiert einmal und traegt
+ *                  die Korrektur automatisch weiter.
+ *
+ * Der ERSTE Satz kommt in beiden Faellen vom letzten Training -- der
+ * Unterschied beginnt ab Satz 2.
+ *
+ * Codeliste statt Tabelle und ohne CHECK, aus demselben Grund wie bei GERAETE
+ * und ZUSCHNITT (Fallstrick 16): Die Menge ist klein, geschlossen und haengt
+ * nicht am Datenbestand. Eine dritte Variante soll eine Zeile hier kosten.
+ *
+ * Die Codeliste steht bewusst NICHT in lib/geraete.php. Dort liegt zwar schon
+ * ZUSCHNITT, das mit Traningsgeraeten ebenso wenig zu tun hat -- aber eine
+ * dritte fachfremde Liste wuerde den irrefuehrenden Dateinamen endgueltig
+ * zementieren. Saetze sind Fachlichkeit aus §7 und gehoeren hierher.
+ *
+ * ANGEWENDET wird die Regel ausschliesslich im Browser, in naechsterSatz()
+ * (index.js). Es gibt hier bewusst KEIN Gegenstueck: Der Server erfindet nie
+ * einen neuen Satz, er liefert nur die Vorlage (letzte_saetze()) und das
+ * zuletzt bekannte Gewicht. Wer nach der zweiten Haelfte sucht -- wie bei
+ * positions_zustaende()/aktiveMarkieren() oder saetze_text()/saetzeText() --,
+ * sucht vergebens.
+ */
+const SATZ_VORLAGE = [
+    'gleicher_satz' => 'Wie beim letzten Training',
+    'letzter_satz'  => 'Wie der Satz davor',
+];
+
+const SATZ_VORLAGE_STANDARD = 'gleicher_satz';
+
+/**
+ * Normalisiert einen gespeicherten oder eingegebenen Wert.
+ *
+ * Faellt auf den Standard zurueck statt zu werfen: Ein unbekannter Wert kann
+ * nur aus einer aelteren Sicherung oder einem Eingriff von Hand stammen, und
+ * dann ist das bisherige Verhalten die richtige Antwort -- nicht ein Fehler
+ * mitten im Training. Die EINGABE prueft api/auth.php dagegen streng.
+ */
+function satz_vorlage_normalisieren(mixed $wert): string {
+    $s = is_string($wert) ? $wert : '';
+    return array_key_exists($s, SATZ_VORLAGE) ? $s : SATZ_VORLAGE_STANDARD;
+}
+
+/**
  * Alle Plaene eines Benutzers in Rotationsreihenfolge.
  */
 function plaene_von(int $userId): array {

@@ -13,16 +13,361 @@ Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends 
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.8` — im Arbeitsstand liegt `1.1.9`
+> ## Live läuft `trainingsplan:1.1.14` — im Arbeitsstand liegt `1.1.15`
 >
-> `1.1.8` ist am 2026-08-17 ausgerollt und **vom Benutzer am Smartphone bestätigt**:
-> Der Cache-Fehler ist weg, und damit ist auch das Layout aus `1.1.7` erstmals
-> tatsächlich zu sehen gewesen — es passt. `1.1.9` ist als
-> **`deploy/trainingsplan-build-1.1.9.tar.gz` gebaut** (2026-08-17), aber noch nicht
-> ausgerollt. Die Nummer ist damit vergeben; jede weitere Änderung an etwas, das im Paket
-> steckt, hebt auf `1.1.10`.
+> **Nachgemessen, nicht aus der Erinnerung:** `curl` auf `login.php` liefert
+> `app.js?v=1.1.14`. Die Asset-Adressen tragen seit `1.1.8` die Version und sind ohne
+> Anmeldung lesbar — das ist die verlässliche Auskunft darüber, was wirklich läuft.
+>
+> - `1.1.11` (2026-08-17) brachte die Sperre samt Migration `users.blocked_at` und ist
+>   **am Live-System durchgeprüft** — die Belege stehen unten beim jeweiligen Punkt.
+> - `1.1.13` (2026-08-17): Orange statt Rot für „gesperrt", weiße
+>   Schrift im Knopf. `1.1.12` steckt darin.
+> - `1.1.14` (2026-08-17) bündelte drei Dinge: die weiße Schrift auch im
+>   „Gesperrt"-Abzeichen, die Trainingsleiste am oberen Rand und die wählbare
+>   Satz-Vorbelegung. Damit lief auch die Migration `users.satz_vorlage`.
+> - **`1.1.15` ist noch nicht gebaut** und sammelt zwei Rückmeldungen: die
+>   Verbindungsleiste rutscht unter die Trainingsleiste (die obere Zeile springt beim
+>   Abhaken nicht mehr), und im Verlauf steht bei den Einheiten das 1RM statt des
+>   Maximalgewichts, dazu drei getrennte Erklärungen. Reine Anzeige, kein Schema.
+>
+> **Die Nummer `1.1.14` ist am 2026-08-17 ein zweites Mal vergeben worden**, und zwar
+> bewusst: Das erste Paket unter dieser Nummer war zwar gebaut, aber **nie ausgerollt** —
+> und dann ist Überschreiben richtig, genau dafür warnt `paket_bauen.sh` nur, statt
+> abzubrechen. Wäre es draußen gewesen, hätte es auf `1.1.15` gehen müssen: Zwei
+> verschiedene Stände unter einem Namen sind der Fehler, den die Nummer verhindern soll.
+>
+> **Ebenfalls am 2026-08-17: `1.1.15` wurde einmal ungefragt gepackt.** Ein Paket entsteht
+> ausschließlich auf ausdrückliche Ansage — das steht in `CLAUDE.md` unter *Deployment* und
+> war hier übersehen worden. Weil das Paket den Rechner nie verlassen hat, ist die Nummer
+> **wieder frei**: Sie ist gelöscht und der laufende Arbeitsstand führt sie weiter.
+> **Nummern werden nicht übersprungen, wenn dazwischen nichts gebaut wurde** — der Sprung
+> auf `1.1.16` wäre eine Lücke ohne Gegenstück gewesen.
+>
+> **Diese Liste war am 2026-08-17 einmal falsch** (sie nannte `1.1.11` als live, während
+> `1.1.13` lief), weil nach einem Rollout niemand nachgezogen hat. Wenn Zweifel bestehen:
+> die Versionsnummer aus der Asset-Adresse holen, nicht schätzen.
+>
+> **`1.1.9` ist nie ausgerollt worden.** Die Nummer war durch ein gebautes Paket vergeben,
+> die Sitzungs-Korrektur hat deshalb auf `1.1.10` aufgesetzt — `1.1.9` steckt vollständig
+> darin, und `paket_bauen.sh` hat das ältere Paket beim Bauen selbst weggeräumt.
 >
 > Alles darunter ist die Vorgeschichte, neueste zuerst.
+
+**`1.1.15`: 1RM statt Maximalgewicht im Verlauf, und drei getrennte Erklärungen.**
+Rückmeldungen vom 2026-08-17.
+
+**Bei den Einheiten** steht am Zeilenende jetzt das geschätzte **1RM** statt des schwersten
+Gewichts. Der Grund ist keine Vorliebe: Das schwerste Gewicht steht bei satzgenauen
+Einheiten schon in der Satz-Spalte daneben — die Zahl war doppelt. Das 1RM ist die einzige
+Kennzahl, die Gewicht **und** Wiederholungen zusammenfasst und sich damit über verschiedene
+Wiederholungszahlen hinweg vergleichen lässt.
+
+**Die Spalte hängt am selben Schalter wie die Satz-Spalte** (`$mitSaetzen`): Wo Sätze
+protokolliert sind, steht dort `1RM`, sonst weiterhin `Gewicht`. Ohne Wiederholungen lässt
+sich kein 1RM schätzen, und eine Spalte, die über eine ganze im einfachen Modus
+protokollierte Einheit hinweg nur Striche zeigt, wäre schlechter als die Zahl, die es gibt.
+
+**Bei den Übungen** sind aus einem Fließtext drei Absätze geworden — es sind drei Spalten
+und drei Begriffe, und untereinander findet man den gesuchten, ohne den ganzen Block zu
+lesen. Dazu zwei Sprachkorrekturen des Benutzers: „Volumen … **es** steigt" (nicht „sie"),
+und die Erklärung zum Gewicht heißt jetzt „**der Höchstwert dieser Einheit** — also das
+Gewicht des schwersten Satzes" statt der schiefen Gleichsetzung „das Gewicht ist der
+schwerste Satz".
+
+*Abweichung vom Wortlaut des Benutzers:* Er schlug „Höchstwert in diesem Tag" vor; die
+Tabelle führt aber **eine Zeile je Einheit** samt Uhrzeit. Zwei Trainings an einem Tag
+wären zwei Zeilen mit zwei verschiedenen Werten — „dieser Einheit" ist deshalb genauer und
+ebenso natürlich.
+
+**Nachgemessen** am Dev-Server mit zwei Einheiten derselben Übung, einer mit Sätzen
+(12×40 · 10×40 · 9×45) und einer ohne (50 kg):
+
+| Ansicht | Kopf | Zeile |
+|---|---|---|
+| Einheiten, ohne Sätze | Übung \| Gewicht | Bankdrücken \| 50 kg |
+| Einheiten, mit Sätzen | Übung \| Sätze \| **1RM** | Bankdrücken \| 12×40 10×40 9×45 \| **58,5 kg** |
+| Übungen | Datum \| Sätze \| Volumen \| 1RM \| Gewicht | … \| 1285 kg \| 58,5 kg \| 45 kg |
+
+Beide Zahlen von Hand gegengerechnet: 1RM = 45 × (1 + 9/30) = **58,5**, Volumen =
+480 + 400 + 405 = **1285**. Die drei Erklärungen rendern als drei getrennte Absätze.
+
+---
+
+**`1.1.15` bringt außerdem: die Verbindungsleiste rutscht unter die Trainingsleiste.** Rückmeldung aus dem
+Betrieb, unmittelbar nach dem Rollout von `1.1.14`: Beim Abhaken einer Übung blitzt die
+Verbindungsleiste kurz auf — und schob dabei die Trainingsleiste nach unten und gleich
+wieder hinauf. Ausgerechnet die Zeile, die man ständig abliest, zappelte bei jeder Eingabe.
+
+Ursache war meine Sortierung in `1.1.14`: Ich hatte die Verbindungsleiste **oben**
+eingehängt, mit der Begründung „ist das Netz weg, ist das die wichtigste Information auf
+dem Bildschirm". Das ist als Priorität richtig und als Reihenfolge falsch.
+
+**Die Reihenfolge im Stapel geht nach Beständigkeit, nicht nach Wichtigkeit** — oben, was
+dauerhaft dasteht, unten, was kommt und geht. Das ist dieselbe Regel, die schon
+`.zeile-wartet` auf einen gestrichelten Rand reduziert hat: Was sich von selbst ändert,
+darf nichts verschieben. Sichtbar und sticky bleibt die Verbindungsleiste unverändert, sie
+sitzt nur eine Zeile tiefer. Geändert hat sich genau ein Aufruf in `assets/app.js`
+(`insertBefore` → `appendChild`); `zurAktivenSpringen()` misst weiterhin den ganzen Stapel
+und braucht nichts.
+
+**Geprüft** mit der echten `verbindung._element()` aus `assets/app.js`, ausgeführt gegen
+einen nachgebildeten Stapel, in dem die Trainingsleiste schon steht: Ergebnis
+`training-leiste → verbindungs-leiste`. Nicht am Quelltext abgelesen, sondern ausgeführt.
+
+**Offen:** die Gegenprobe im Studio — beim Abhaken darf die obere Zeile jetzt stillstehen.
+
+---
+
+**`1.1.14`: Eine Leiste, die während des Trainings oben stehen bleibt.** Rückmeldung vom
+2026-08-17: „5/8 erledigt" stand ganz oben in der Karte — man musste an allen Übungen vorbei
+hochscrollen, um zu sehen, wie weit man ist. Jetzt klebt am oberen Rand eine dunkle Leiste
+mit **`5/8 erledigt · 3 offen`** links und der **Trainingsdauer** rechts.
+
+Vier Entscheidungen des Benutzers dazu:
+
+- **Minuten und Stunden, keine Sekunden** (`seit 47 min`, `seit 1 h 05 min`). Eine Uhr im
+  Sekundentakt wäre nicht nur unruhig — sie ändert bei `59:59 → 1:00:00` ihre Breite und
+  schöbe die halbe Zeile mit.
+- **Das alte „x/n erledigt" in der Karte ist entfallen.** Zwei Anzeigen derselben Zahl sind
+  doppelte Pflege ohne Gegenwert; die id `#fortschritt-text` ist einfach mitgewandert, die
+  beiden Funktionen in `index.js` schreiben unverändert dorthin.
+- **Kein Beenden-Knopf in der Leiste** — etwas Rotes, das dauerhaft unter dem Daumen klebt,
+  wird irgendwann versehentlich getroffen.
+- **Stattdessen ein Kasten unter der letzten Übung** mit Hinweissatz und Knopf. Nach der
+  letzten Übung steht man ganz unten; bis `1.1.13` musste man zum Beenden wieder hoch. Der
+  Kasten oben bleibt, wer mittendrin abbricht, sucht ihn dort. Beide Knöpfe hängen an
+  derselben Funktion, ergänzt um den bestehenden Notfall-Knopf sind es drei Auslöser und
+  eine Logik.
+
+**Die Leisten teilen sich einen `sticky`-Behälter** (`#leisten` in `lib/view_header.php`) —
+Einzelheiten in Fallstrick 19. Kurz: Zwei Elemente mit eigenem `top: 0` legten sich
+übereinander, und `zurAktivenSpringen()` misst jetzt den Behälter statt einer Liste
+einzelner Leisten, die man beim Ergänzen vergessen würde.
+
+**Die Dauer hängt nicht an der Uhr des Handys.** Der Server rendert die bereits
+verstrichenen Sekunden (`data-sekunden`), der Browser rechnet nur noch die Zeit **seit dem
+Laden** dazu — also eine Differenz. Ein absoluter Zeitstempel wäre bei falsch gestellter
+Geräteuhr oder abweichender Zeitzone um Stunden daneben. Aus demselben Grund wird bei jedem
+Durchlauf neu aus der Uhr gerechnet statt hochgezählt: Schläft das Handy in der Tasche,
+drosselt der Browser den Zeitgeber, und ein Zähler bliebe zurück.
+
+**Geprüft am Dev-Server** mit einem Plan aus 8 Übungen und einer seit 47 Minuten laufenden
+Einheit: Der Stapel ist das erste Element im `<body>`, die Trainingsleiste hängt darin,
+`data-sekunden` steht auf 2841, der Text lautet `5/8 erledigt · 3 offen`, das alte
+`<p class="fortschritt">` kommt null Mal vor, der Abschluss-Kasten ist da und es gibt genau
+die zwei erwarteten Knopf-IDs. Ohne laufende Einheit sind Leiste und Kasten weg, der leere
+Stapel bleibt — auf `index.php` wie auf `history.php`. Die Formatierung der Dauer ist mit
+der **echten** Funktion aus `index.js` gegen zehn Werte geprüft (0 s bis 12 h).
+
+**Offen:** wie es aussieht — Höhe, Kontrast, Verhalten am Notch im PWA-Vollbild.
+
+---
+
+**`1.1.14` bringt außerdem: jeder wählt, woher die Vorbelegung eines Satzes kommt.** Bisher
+galt für alle „Satz k bekommt Satz k vom letzten Mal". Das ist schnell für eine feste
+Satzfolge, aber nicht für jeden — wer sich von Satz zu Satz herantastet, will lieber den
+vorigen Satz von heute übernehmen. Jetzt entscheidet das jeder für sich auf der Kontoseite,
+direkt unter dem Expertenmodus.
+
+| | Satz 1 | Satz 2 | Satz 3 |
+|---|---|---|---|
+| `gleicher_satz` — „Wie beim letzten Training" *(Vorgabe)* | 12×40 | 10×40 | 9×45 |
+| `letzter_satz` — „Wie der Satz davor" | 12×40 | 12×40 | 12×40 |
+
+*(Letztes Training dieser Übung war 12×40 · 10×40 · 9×45.)*
+
+**Schema:** `users.satz_vorlage TEXT NOT NULL DEFAULT 'gleicher_satz'`. Rein additiv, und der
+Vorgabewert ist exakt das bisherige Verhalten — beim Rollout ändert sich für niemanden etwas,
+bis er selbst umstellt. **Codeliste** `SATZ_VORLAGE` in `lib/training.php` statt eines 0/1-
+Schalters, damit eine dritte Variante eine Zeile PHP kostet und keine Migration; dasselbe
+Muster wie bei `equipment` und `image_crop`.
+
+**Drei Entscheidungen, die man leicht falsch trifft:**
+
+- **Keine 409-Sperre bei laufendem Training**, anders als beim Expertenmodus. Dort ist die
+  Sperre nötig, weil sich die *Form der Nutzlast* ändert; hier schicken beide Verfahren
+  dieselbe Satzliste.
+- **Der Warteschlangen-Schlüssel bleibt `-v3`.** Die Nummer steht für die Form eines
+  Eintrags. Ein Sprung würde beim Rollout die wartenden Eingaben von jedem verwerfen, der
+  gerade trainiert.
+- **Kein PHP-Gegenstück.** Die Regel lebt allein in `naechsterSatz()`; der Server erfindet
+  nie einen Satz.
+
+**Nebenbefund, mitkorrigiert:** `naechsterSatz()` hatte eine vierte Stufe („sonst der letzte
+Satz vom letzten Mal"), die **nicht erreichbar** war — `nr` ist immer `saetze.length + 1`,
+also greift ab Satz 2 stets die Stufe davor, und für Satz 1 widersprach ihre Bedingung der
+ersten Stufe. Harmlos, aber entfernt, damit die neue Logik nicht um einen toten Zweig herum
+gebaut wird.
+
+**Nachgemessen.** Serverseitig per `curl`: Vorgabewert nach der Migration `gleicher_satz`,
+Attribut `data-satz-vorlage` in `index.php` folgt dem Umstellen, ein unbekannter Wert wird
+mit `422` abgelehnt und die Datenbank bleibt unverändert. Die Kontoseite rendert das
+`fieldset` bei ausgeschaltetem Expertenmodus als `disabled`, bei eingeschaltetem bedienbar,
+mit den richtigen Beispielwerten. Und die Auswahllogik selbst mit der **echten**
+`naechsterSatz()` aus `index.js` gegen acht Fälle — beide Verfahren, mehr Sätze als Vorlage,
+Übung ohne Vorlage, und die Probe, dass `letzter_satz` eine Korrektur weiterträgt
+(`10×40` statt `9×45`), `gleicher_satz` dagegen nicht.
+
+**Offen:** die Darstellung der Auswahl auf der Kontoseite am Gerät.
+
+---
+
+**`1.1.12` bis `1.1.14`: Gesperrt ist orange, nicht rot.** Rückmeldung vom 2026-08-17, nachdem
+der Benutzer die Sperre erstmals gesehen hat. Sperren und Löschen standen beide in Rot
+nebeneinander, obwohl sie **gegensätzlich** sind: Das eine nimmt die Daten mit, das andere
+lässt sie ausdrücklich stehen. Zwei rote Knöpfe laden dazu ein, sie für gleich gefährlich
+zu halten.
+
+Gesperrt trägt jetzt durchgehend denselben Ton wie die **übersprungene Übung** im Training —
+Knopf, Abzeichen und Balken am linken Rand. Rot bleibt allein dem Löschen. Der Wert steht
+dafür nicht mehr zweimal im Stylesheet, sondern als `--signal` in `:root`.
+
+**Die Schrift auf dem Orange ist weiß — Knopf und Abzeichen.** Nachgerechnet kommt Weiß auf
+`#ff6600` nur auf **2,94:1**, dunkle Schrift auf **5,03:1**; beim roten Löschen-Knopf
+funktioniert Weiß, weil `#b3261e` auf **6,54:1** kommt — die Farbe ist dunkler, als sie
+wirkt. Erst gebaut wurde deshalb die dunkle Fassung.
+
+Der Benutzer hat sie am eigenen Gerät angesehen und **Weiß verlangt** (2026-08-17), zuerst
+für den Knopf (`1.1.13`), dann für das Abzeichen (`1.1.14`) — zwei gleichfarbige Elemente
+nebeneinander sollen nicht unterschiedlich beschriftet sein. Das liegt unter WCAG AA; die
+Messwerte stehen im Stylesheet bei `--signal`, damit die Entscheidung beim nächsten
+Aufräumen nicht stillschweigend zurückgedreht wird. Die App hat genau einen Benutzerkreis,
+und der hat es am eigenen Bildschirm beurteilt.
+
+Beim eigenen Konto braucht der deaktivierte Knopf **keine** eigene Regel: `button:disabled`
+dämpft ihn schon auf 55 %. Und keinen Hover-Sonderfall, weil `button.sperr-knopf` dieselbe
+Spezifität wie `button:hover` hat, aber später in der Datei steht — genau wie `button.gefahr`
+sich heute schon verhält.
+
+Dazu ersatzlos entfernt: der **Pläne**-Knopf in jeder Benutzerzeile. Die Pläne eines
+Benutzers sind über die Seite *Pläne* und deren eigenes Auswahlfeld erreichbar; der
+Abkürzungslink war ein zweiter Weg zum selben Ort und hat die Knopfzeile am Handy nur
+verbreitert.
+
+**Geprüft am Dev-Server** mit einem von Hand gesperrten Benutzer, weil sich die gesperrte
+Zeile live nicht ansehen lässt (wer gesperrt ist, kann die Seite nicht laden): Die Karte
+trägt `karte benutzer ist-gesperrt`, das Abzeichen `abzeichen abzeichen-gesperrt`, der Knopf
+`sperr-knopf entsperren`, und das Sperrdatum steht darunter. Beim eigenen Konto steht
+`sperr-knopf sperren` mit `disabled`. Der Pläne-Link kommt im ganzen Dokument null Mal vor.
+**Wie es aussieht, muss weiterhin der Benutzer beurteilen.**
+
+---
+
+**`1.1.11`: Konten sperren statt löschen.** Ein Admin kann jedes andere Konto sperren —
+normale Benutzer wie Admins. Ein gesperrtes Konto kommt weder über das Passwort noch über
+ein angemeldetes Gerät herein, und eine **laufende Sitzung endet beim nächsten
+Seitenaufruf**. Pläne, Einheiten, Protokoll und Sätze bleiben vollständig; Entsperren
+stellt den Zustand wieder her, nur anmelden muss sich der Benutzer neu.
+
+Anlass ist das Wartungskonto `claude`: Statt sein Passwort vor jeder Arbeitsrunde
+zurückzusetzen und danach neu zu vergeben, wird es künftig gesperrt und bei Bedarf wieder
+freigegeben. Das Passwort darf dann konstant bleiben, weil es allein nichts öffnet.
+
+**Schema:** eine Spalte `users.blocked_at TEXT` — `NULL` heißt aktiv, sonst steht dort der
+Zeitpunkt der Sperre. Rein additiv; nach der Migration ist niemand gesperrt. Ein
+Zeitstempel und kein Flag-Paar wie `exercises.archived`/`archived_at`, weil zwei Spalten
+für dieselbe Aussage auseinanderlaufen können.
+
+**Durchgesetzt wird an drei Stellen**, und alle drei werden gebraucht: `attempt_login()`,
+der `JOIN` in `try_remember_login()` und `current_user()`. Die dritte ist die wichtigste —
+ohne sie liefe eine offene Sitzung weiter, bis sie von selbst abläuft.
+
+`attempt_login()` liefert deshalb jetzt `string` statt `bool` (`LOGIN_OK`, `LOGIN_FALSCH`,
+`LOGIN_GESPERRT`). Geprüft wird **nach** der Passwortprüfung, sonst verriete die Auskunft,
+welche Kontonamen es gibt. Und der Fall zählt **nicht** als Fehlversuch: Das Passwort war
+richtig, und die Bremse zählt pro IP — sonst sperrte ein gesperrter Benutzer mit fünf
+Versuchen den ganzen Haushalt für eine Viertelstunde aus.
+
+**Nachgemessen am Dev-Server**, 18 Prüfungen, alle bestanden: Selbstsperre abgelehnt (409),
+Sperre gesetzt und Geräte abgemeldet, laufende Sitzung sofort auf `login.php`, Anmeldung
+mit 403 und eigener Meldung, kein Eintrag in `login_attempts`, ein von Hand
+stehengelassenes Remember-Token kommt trotzdem nicht herein (der `JOIN` greift),
+Entsperren stellt alles wieder her — **und der Plan des gesperrten Benutzers steht danach
+unverändert da**. Ein falsches Passwort zählt weiterhin normal für die Bremse.
+
+**Am Live-System nachgeprüft (2026-08-17)**, mit dem Konto `claude` als Versuchsobjekt. Der
+Benutzer hat gesperrt, danach wieder freigegeben; geprüft wurde mit einer **bereits offenen**
+Sitzung, also ohne neue Anmeldung:
+
+| Geprüft | Ergebnis |
+|---|---|
+| `index`, `history`, `admin_users`, `maintenance`, `devices` | alle `302 → login.php` |
+| API: `api/token.php`, `api/log.php`, `api/session.php` | alle `401 „Nicht angemeldet"` |
+| Sitzung serverseitig | zerstört — die Antwort liefert eine neue, leere Sitzungs-ID |
+| Neuanmeldung mit gültigem Passwort | `403 „Dieses Konto ist gesperrt …"` |
+| dabei `remember: true` mitgeschickt | **kein** Remember-Cookie ausgestellt |
+| `remember_tokens` für den Benutzer | 0 |
+| `login_attempts` | unverändert — der 403 zählt nicht mit |
+| Entsperren | Anmeldung wieder `200`, alle Adminseiten `200`, kein Passwortwechsel-Zwang |
+
+**Der wichtigste Befund ist die zweite Zeile.** Dass die Oberfläche weiterleitet, sagt für
+sich genommen wenig — eine Weiterleitung sieht ordentlich aus und ließe die API trotzdem
+offen. Beides zusammen belegt, dass die Prüfung in `current_user()` sitzt und nicht in den
+einzelnen Seiten.
+
+Das Markup der Benutzerliste ist ebenfalls geprüft (`DOMXPath` über
+`admin_users.php`): Beim eigenen Konto sind „Sperren", „Löschen" und „Adminrecht entziehen"
+deaktiviert und tragen die erklärenden `title`-Texte, bei den übrigen sind sie aktiv.
+
+Die Darstellung der gesperrten Zeile hat der Benutzer anschließend selbst begutachtet — sie
+war richtig, aber **rot**, und das führte zu `1.1.12` bis `1.1.14` oben.
+
+---
+
+
+**`1.1.10` repariert den Sitzungsverlust vom 2026-08-16.** Nele konnte im Studio am
+iPhone die letzte Übung nicht mehr speichern; das Häkchen sprang zurück, als wäre der
+Knopf tot. Ein Neuladen über den Menüpunkt „Training" hat es sofort geheilt.
+
+**Was wirklich passiert ist**, aus `sessions`, `workout_log` und `remember_tokens`
+rekonstruiert:
+
+| Zeit | Ereignis |
+|---|---|
+| 22:54:03 | letzter erfolgreicher Eintrag (Position 33) |
+| — | Pause von **24:13** für die 85-kg-Übung, kein einziger Aufruf vom Handy |
+| 23:18:16 | Position 32 wird **erfolgreich** geschrieben |
+| 23:18:24 | Remember-Token rotiert — die Sitzung ist **acht Sekunden später** weg |
+| 23:18–23:19 | jeder Tipp auf „Erledigt" endet in 403, Position 48 lässt sich nicht speichern |
+| 23:19:57 | nach dem Neuladen gespeichert, 23:20:07 Einheit beendet |
+
+`session.gc_maxlifetime` stand auf dem PHP-Vorgabewert **1440 s = 24 Minuten** — ihre
+Pause hat ihn um 13 Sekunden gerissen. Zur Gegenprobe: Olivers parallele Einheit 23 hatte
+als größte Pausen 19:37 und 19:21 und blieb ungestört. Die vollständige Mechanik samt der
+Rolle von `gc_divisor = 100` und `lazy_write = On` steht als **Fallstrick 23** in
+`CLAUDE.md`; sie gehört zum dauerhaften Wissen, nicht hierher.
+
+**Geändert wurde auf zwei Ebenen.** In der `app.ini` des `Dockerfile`:
+`session.gc_maxlifetime = 28800` (8 Stunden), `session.lazy_write = Off`,
+`session.use_strict_mode = 1`. Und in der App die Selbstheilung: `api/token.php` liefert
+zur laufenden Sitzung ein frisches CSRF-Token, `csrf_check()` kennzeichnet ein totes Token
+mit `code: "csrf_ungueltig"` (dafür hat `json_err()` einen vierten Parameter bekommen),
+und `apiFetch()` holt daraufhin ein neues Token und wiederholt den Aufruf einmal.
+`index.js` ist **unverändert** geblieben.
+
+**Nachgemessen am Dev-Server**, nicht gefolgert. Zuerst per `curl`: angemeldet mit
+„Angemeldet bleiben", Sitzungsdatei von Hand gelöscht, Schreibaufruf → `403` mit
+`code: "csrf_ungueltig"`, `api/token.php` → frisches Token, derselbe Aufruf wiederholt →
+CSRF akzeptiert. Ohne Sitzung antwortet `api/token.php` mit `401`.
+
+Und dann die Stelle, die `curl` nicht erreicht — der Wiederholversuch in `apiFetch`
+selbst. Dafür liegt in der Sitzungsablage ein Node-Skript, das **das echte
+`assets/app.js`** lädt (nicht eine Nachbildung seiner Logik) und gegen den Dev-Server
+laufen lässt: anmelden, Sitzungsdatei löschen, `apiFetch('api/log.php', …)`. Ergebnis mit
+`1.1.10`: kein 403 mehr, der Aufruf endet mit dem fachlichen `404` „Planposition gibt es
+nicht" — die CSRF-Prüfung war also bestanden —, und das Token im `<meta>` ist
+ausgetauscht. **Gegenprobe mit dem `app.js` aus `1.1.9`: derselbe Ablauf endet in
+`403 Sicherheits-Token ungültig`, und der Folgeaufruf ebenso.** Der gemeldete Fehler ist
+damit nachgestellt und die Reparatur an derselben Stelle belegt.
+
+**Offen: die Gegenprobe am Gerät.** Der eigentliche Beweis ist eine Trainingseinheit mit
+einer Pause über 24 Minuten, die nichts mehr merkt. Ebenfalls offen: nachsehen, ob die
+`session.*`-Werte im laufenden Container wirklich angekommen sind — das prüft
+`docker exec -u www-data trainingsplan php -r 'echo ini_get("session.gc_maxlifetime");'`
+und muss `28800` sagen.
+
+---
 
 **`1.1.9`: Uhrzeit unter das Datum.** Im Verlauf bei den Übungen stand die Uhrzeit am
 Handy neben dem Datum; die Spalte war damit die breiteste der fünf und drückte die
@@ -477,6 +822,24 @@ Textupdate nicht rechtfertigt. Gesichert wurde stattdessen der Abzug der betroff
 
 ## Offen
 
+0. **Veralteter Kopfkommentar in `api/session.php`** — gefunden am 2026-08-17 beim
+   Durchsehen von `CLAUDE.md`. Dort steht noch:
+
+   > Eine Einheit entsteht auf **DREI** Wegen … 2. beim Abhaken der ersten Übung
+   > (`api/log.php`), 3. beim Tausch „nur diese Einheit" (`api/swap.php`).
+
+   Das gilt **seit `1.1.6` nicht mehr**: `einheit_sicherstellen()` hat genau einen Aufrufer,
+   die beiden anderen Endpunkte antworten mit 409 (Fallstrick 1). Ein zweiter Absatz
+   derselben Datei nennt die Wege 2 und 3 sogar noch als gewollt.
+
+   **Warum es noch dasteht:** `api/session.php` steckt im Deployment-Paket, und `1.1.15` ist
+   bereits gebaut. Eine Änderung daran hübe sofort auf `1.1.16` und machte das frische Paket
+   überholt — für einen Kommentar zu teuer. **Beim nächsten ohnehin anstehenden
+   Codewechsel mitnehmen**, oder auf Ansage sofort.
+
+   Das ist die gefährlichste Sorte veralteter Doku: Sie steht direkt neben dem Code, den sie
+   falsch beschreibt, und wer nur die Datei liest, glaubt ihr.
+
 1. **`1.1.6` im Studio erproben** — angekündigt für 2026-08-13, das nächste Training. Worauf
    zu achten ist, weil `curl` es nicht sehen kann:
 
@@ -627,6 +990,23 @@ nennen; sonst kennt es niemand mehr.
 **Das Passwort steht bewusst nicht hier** — in einer neuen Sitzung beim Benutzer erfragen oder
 von ihm zurücksetzen lassen (*Benutzer → Passwort zurücksetzen*). Das Konto darf jederzeit
 gelöscht werden.
+
+**Seit `1.1.11` ist Sperren der Weg, nicht mehr das Zurücksetzen** (§6.1): Der Benutzer sperrt
+das Konto nach einer Arbeitsrunde und gibt es zur nächsten wieder frei. Das Passwort bleibt
+dabei konstant — solange die Sperre steht, öffnet es nichts, weder über die Anmeldung noch
+über ein angemeldetes Gerät. Damit entfällt die Kette aus Zurücksetzen, erzwungenem Wechsel
+und Weitergeben des neuen Passworts, bei der zuletzt niemand mehr wusste, welches gilt.
+
+**So eingerichtet am 2026-08-17:** Der Benutzer hat das Passwort einmal zurückgesetzt, Claude
+hat es sofort auf einen 28-stelligen Zufallswert geändert (`must_change_password` steht damit
+auf 0) und ihn im Merkspeicher unter
+`~/.claude/projects/-home-rezeption-Projekte-Trainingsplan/memory/live-zugang-claude.md`
+abgelegt — außerhalb des Repos, Dateirechte `600`. **Im Repo steht es weiterhin nicht** und
+soll dort auch nicht landen (siehe „Repo enthält keine Daten").
+
+**Vor einer Anmeldung in einer neuen Sitzung gilt: erst beim Benutzer nachfragen, ob er das
+Konto freigibt.** Ist es gesperrt, antwortet die Anmeldung mit HTTP 403 und „Dieses Konto ist
+gesperrt" — das ist dann kein Fehler, sondern der Normalzustand.
 
 Verwendungszweck: Anlegen von Stammdaten über `api/*` und Prüfungen von außen.
 **Dateneingabe über die Oberfläche macht bewusst der Benutzer** — sonst bleibt

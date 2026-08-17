@@ -81,6 +81,43 @@ if ($offen !== null) {
     $alt = (strtotime((string)$offen['started_at']) + 12 * 3600) < time();
 }
 
+// Die Leiste, die waehrend des Trainings oben klebt (§7.4). Sie wird VOR dem
+// Kopf-Partial gebaut, weil der sie in den Leisten-Stapel setzt -- und der
+// steht als erstes Element im <body>, noch vor der Navigation.
+//
+// Nur bei laufender Einheit, wie alles andere, was eine Aussage ueber einen
+// Ablauf trifft (gruene Markierung, Orange, aufgeklappter Satzblock). Ohne
+// Training gibt es weder etwas zu zaehlen noch eine Dauer.
+//
+// Die Dauer reist als BEREITS VERSTRICHENE SEKUNDEN mit, nicht als Zeitstempel.
+// Der Grund ist die Uhr des Geraets: started_at steht in Europe/Vienna in der
+// Datenbank, und ein Handy mit falsch gestellter Uhr oder anderer Zeitzone
+// rechnete daraus Unsinn. So ist der Wert beim Laden exakt, und index.js zaehlt
+// nur noch die Zeit SEIT dem Laden dazu -- dafuer genuegt jede Uhr.
+//
+// "x/n" behaelt seine bisherige id: Die Zahl stand bis 1.1.13 in der Karte
+// oben, dieselben zwei Funktionen in index.js schreiben sie jetzt hier. Eine
+// zweite Anzeige daneben gibt es ausdruecklich nicht.
+$leisteOben = '';
+if ($laeuft && $plan !== null && $positionen !== []) {
+    $sekunden = max(0, time() - (int)strtotime((string)$offen['started_at']));
+    $offenAnz = max(0, $gesamt - $erledigt);
+
+    $leisteOben =
+        // KEIN role="status": Die Dauer aendert sich von selbst, und ein
+        // Screenreader laese dann alle paar Sekunden ungefragt die ganze Leiste
+        // vor. Die Verbindungsleiste hat das Attribut zu Recht -- sie meldet
+        // ein Ereignis, keinen Zaehler.
+        '<div class="training-leiste" data-sekunden="' . $sekunden . '">'
+      .   '<span>'
+      .     '<strong id="fortschritt-text">' . $erledigt . '/' . $gesamt . '</strong> erledigt'
+      .     '<span class="leiste-offen"> · <span id="fortschritt-offen">'
+      .       $offenAnz . '</span> offen</span>'
+      .   '</span>'
+      .   '<span class="leiste-dauer" id="leiste-dauer"></span>'
+      . '</div>';
+}
+
 $pageTitle = $plan === null ? 'Training' : (string)$plan['name'];
 require __DIR__ . '/lib/view_header.php';
 ?>
@@ -122,9 +159,10 @@ require __DIR__ . '/lib/view_header.php';
                 <span class="matt">seit <?= h(format_datetime($offen['started_at'])) ?></span>
             <?php endif; ?>
 
-            <p class="fortschritt">
-                <span id="fortschritt-text"><?= $erledigt ?>/<?= $gesamt ?></span> erledigt
-            </p>
+            <?php // "x/n erledigt" stand bis 1.1.13 hier. Es steht jetzt in der
+                  // Leiste am oberen Rand, die waehrend des Trainings immer
+                  // sichtbar ist -- genau deshalb gibt es sie. Zwei Anzeigen
+                  // derselben Zahl waeren doppelte Pflege ohne Gegenwert. ?>
             <p>
                 <button type="button" id="einheit-beenden" class="gefahr">Training beendet</button>
             </p>
@@ -198,6 +236,13 @@ require __DIR__ . '/lib/view_header.php';
             data-user="<?= $userId ?>"
             data-session="<?= $offen === null ? '' : (int)$offen['id'] ?>"
             data-experte="<?= $experte ? '1' : '' ?>"
+            <?php // Welches der beiden Verfahren aus SATZ_VORLAGE gilt (§7.4).
+                  // Wird beim Seitenaufbau festgeschrieben und aendert sich
+                  // waehrend der Sitzung nicht -- wer auf der Kontoseite
+                  // umstellt, verlaesst diese Seite ohnehin und kommt mit einem
+                  // neuen Aufbau zurueck. Genau deshalb braucht der Endpunkt
+                  // auch keine Sperre bei laufendem Training. ?>
+            data-satz-vorlage="<?= h(satz_vorlage_normalisieren($benutzer['satz_vorlage'] ?? null)) ?>"
             data-erledigt="<?= $erledigt ?>" data-gesamt="<?= $gesamt ?>">
             <?php foreach ($positionen as $z): ?>
                 <?php // Die Satzlisten reisen als JSON im Attribut mit. Gezeichnet
@@ -403,6 +448,35 @@ require __DIR__ . '/lib/view_header.php';
                 </li>
             <?php endforeach; ?>
         </ul>
+
+        <?php // Der zweite Weg zum Beenden, am ENDE der Liste (§7.6).
+              //
+              // Bis 1.1.13 stand der Knopf nur oben. Nach der letzten Uebung ist
+              // man aber ganz unten -- und musste an acht Karten vorbei wieder
+              // hoch, um ein Training zu schliessen, das erkennbar fertig war.
+              // Der Kasten oben bleibt trotzdem stehen: Wer mittendrin abbricht,
+              // sucht ihn dort.
+              //
+              // Kein Knopf in der Sticky-Leiste, und das ist eine bewusste
+              // Entscheidung des Benutzers: Etwas Rotes, das dauerhaft unter dem
+              // Daumen klebt, wird irgendwann versehentlich getroffen.
+              //
+              // Nur bei laufender Einheit -- ohne Training gibt es nichts zu
+              // beenden, und der Kasten waere eine Aufforderung ins Leere. ?>
+        <?php if ($laeuft): ?>
+            <div class="karte einheit-abschluss">
+                <p>
+                    <strong>Fertig für heute?</strong>
+                    Mit dem Knopf wird die Einheit abgeschlossen und in den Verlauf
+                    übernommen. Vorher wird noch einmal nachgefragt.
+                </p>
+                <p>
+                    <button type="button" id="einheit-beenden-unten" class="gefahr">
+                        Training beenden
+                    </button>
+                </p>
+            </div>
+        <?php endif; ?>
 
     <?php endif; ?>
 

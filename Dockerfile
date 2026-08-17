@@ -27,7 +27,37 @@ RUN apt-get update \
 # memory_limit 256M wegen GD: Ein 25-Megapixel-Bild belegt beim Dekodieren
 # rund 100 MB, unabhaengig von der Dateigroesse. lib/upload.php weist alles
 # darueber vorher mit einer verstaendlichen Meldung ab.
-RUN printf 'date.timezone = %s\nexpose_php = Off\nupload_max_filesize = 8M\npost_max_size = 10M\nmemory_limit = 256M\n' "$TZ" \
+#
+# Die drei session.*-Zeilen stehen hier wegen eines echten Vorfalls am
+# 2026-08-16 (Fallstrick 23 in CLAUDE.md). Das Basis-Image bringt keine php.ini
+# mit, es galten also die eingebauten Vorgaben -- und die passen fuer diese App
+# nicht:
+#
+#   gc_maxlifetime = 1440   24 Minuten. Eine Satzpause im Studio reisst das.
+#                           Gemessen: eine Pause von 24:13 hat die Sitzung
+#                           gekostet, eine von 19:37 nicht.
+#   gc_divisor = 100        1 % pro Request. Damit ist eine zu lange ruhende
+#                           Sitzung nicht gefaehrdet, sondern verloren -- es ist
+#                           nur eine Frage, wie viele Aufrufe noch kommen.
+#   lazy_write = On         Bei unveraenderten Sitzungsdaten schreibt PHP die
+#                           Datei nicht neu, sondern setzt nur per utime() den
+#                           Zeitstempel. Hat das Aufraeumen die Datei im selben
+#                           Request geloescht, scheitert das lautlos und die
+#                           Datei kommt NICHT zurueck. Genau so ist die Sitzung
+#                           acht Sekunden nach einem erfolgreichen Schreibzugriff
+#                           verschwunden.
+#
+# use_strict_mode ist davon unabhaengig: Ohne das uebernimmt PHP eine vom
+# Client mitgebrachte Sitzungs-ID, statt sie zu verwerfen.
+RUN printf '%s\n' \
+      "date.timezone = $TZ" \
+      'expose_php = Off' \
+      'upload_max_filesize = 8M' \
+      'post_max_size = 10M' \
+      'memory_limit = 256M' \
+      'session.gc_maxlifetime = 28800' \
+      'session.lazy_write = Off' \
+      'session.use_strict_mode = 1' \
       > /usr/local/etc/php/conf.d/app.ini
 
 COPY apache-app.conf /etc/apache2/conf-available/app.conf

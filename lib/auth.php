@@ -16,6 +16,18 @@ const LOGIN_MAX_ATTEMPTS  = 5;
 const LOGIN_WINDOW_MIN    = 15;
 
 /**
+ * Ergebnis von attempt_login().
+ *
+ * Drei Ausgaenge und kein bool, weil "gesperrt" weder Erfolg noch falsches
+ * Passwort ist: Die Meldung an den Benutzer lautet anders, und die
+ * Brute-Force-Bremse darf den Fall NICHT mitzaehlen (Begruendung in
+ * api/auth.php).
+ */
+const LOGIN_OK       = 'ok';
+const LOGIN_FALSCH   = 'falsch';
+const LOGIN_GESPERRT = 'gesperrt';
+
+/**
  * Vergleichshash fuer unbekannte Benutzernamen -- siehe attempt_login().
  * Gehoert zu keinem Konto und zu keinem verwendeten Passwort.
  */
@@ -100,7 +112,7 @@ function current_user(): ?array {
 
     $stmt = db()->prepare(
         'SELECT id, name, is_admin, must_change_password, expert_mode,
-                created_at
+                satz_vorlage, blocked_at, created_at
            FROM users WHERE id = ?'
     );
     $stmt->execute([$id]);
@@ -108,6 +120,17 @@ function current_user(): ?array {
 
     if ($row === false) {
         // Benutzer wurde geloescht, waehrend die Sitzung noch lief.
+        logout();
+        return null;
+    }
+
+    // Gesperrt, waehrend die Sitzung noch lief (§6.1). Dieselbe Behandlung wie
+    // beim geloeschten Konto, und sie steht bewusst HIER: current_user() liegt
+    // hinter jeder geschuetzten Seite und jedem Endpunkt, eine Sperre wirkt
+    // damit ab dem naechsten Aufruf -- ohne dass irgendein Aufrufer daran
+    // denken muesste. Wer die Pruefung stattdessen in attempt_login() allein
+    // haette, sperrte nur die Anmeldung und liesse offene Sitzungen weiterlaufen.
+    if ($row['blocked_at'] !== null) {
         logout();
         return null;
     }
@@ -307,6 +330,8 @@ function clear_login_attempts(string $ip): void {
 /**
  * Prueft Benutzername und Passwort und meldet bei Erfolg an.
  *
+ * Liefert LOGIN_OK, LOGIN_FALSCH oder LOGIN_GESPERRT.
+ *
  * Gibt bei Misserfolg bewusst nicht preis, ob der Benutzername existiert.
  *
  * COLLATE NOCASE: Die Anmeldung fragt nicht nach der Schreibweise. Ohne das
@@ -317,10 +342,12 @@ function clear_login_attempts(string $ip): void {
  * koennte diese Abfrage mehrere Zeilen treffen und die Anmeldung haenge davon
  * ab, welche SQLite zuerst liefert.
  */
-function attempt_login(string $name, string $password, bool $remember = false): bool {
+function attempt_login(string $name, string $password, bool $remember = false): string {
     bootstrap_session();
 
-    $stmt = db()->prepare('SELECT id, password_hash FROM users WHERE name = ? COLLATE NOCASE');
+    $stmt = db()->prepare(
+        'SELECT id, password_hash, blocked_at FROM users WHERE name = ? COLLATE NOCASE'
+    );
     $stmt->execute([$name]);
     $row = $stmt->fetch();
 
@@ -333,11 +360,21 @@ function attempt_login(string $name, string $password, bool $remember = false): 
         // abbrechen, und der Zeitunterschied verriete, dass es den Benutzer
         // nicht gibt. Es ist der Hash einer Zeichenkette, die kein Passwort ist.
         password_verify($password, DUMMY_HASH);
-        return false;
+        return LOGIN_FALSCH;
     }
 
     if (!password_verify($password, (string)$row['password_hash'])) {
-        return false;
+        return LOGIN_FALSCH;
+    }
+
+    // Die Sperre wird erst NACH der Passwortpruefung ausgewertet, und das ist
+    // kein Zufall: Wer sie davor prueft, verraet jedem Rateversuch, welche
+    // Kontonamen es gibt. Danach verraet die Auskunft nichts mehr -- wer das
+    // richtige Passwort hat, weiss ohnehin, dass es das Konto gibt. Und der
+    // Gesperrte soll erfahren, warum er nicht hereinkommt, statt sein Passwort
+    // fuer falsch zu halten und es zehnmal neu zu tippen (§6.1).
+    if ($row['blocked_at'] !== null) {
+        return LOGIN_GESPERRT;
     }
 
     // Gegen Session-Fixation: die ID vor dem Anmelden wegwerfen.
@@ -349,7 +386,30 @@ function attempt_login(string $name, string $password, bool $remember = false): 
         issue_remember_token((int)$row['id']);
     }
 
-    return true;
+    return LOGIN_OK;
+}
+
+/**
+ * Sperrt ein Konto oder hebt die Sperre auf (§6.1).
+ *
+ * Angefasst wird ausschliesslich users.blocked_at -- Plaene, Verlauf,
+ * Protokoll und Saetze bleiben unberuehrt. Genau das ist der Unterschied zum
+ * Loeschen: Eine Sperre ist umkehrbar, und danach ist der Bestand derselbe.
+ *
+ * Die Remember-Me-Tokens gehen beim Sperren mit weg, aus demselben Grund wie
+ * beim Zuruecksetzen des Passworts: Sonst bliebe genau das Geraet angemeldet,
+ * das man aussperren wollte -- try_remember_login() weist es zwar ab, aber ein
+ * Token, das nie wieder etwas oeffnen soll, hat in der Tabelle nichts verloren.
+ * Beim Entsperren werden sie NICHT wiederhergestellt; der Benutzer meldet sich
+ * einmal neu an.
+ */
+function benutzer_sperren(int $id, bool $gesperrt): void {
+    db()->prepare('UPDATE users SET blocked_at = ? WHERE id = ?')
+        ->execute([$gesperrt ? now() : null, $id]);
+
+    if ($gesperrt) {
+        revoke_all_remember_tokens($id);
+    }
 }
 
 /**
@@ -438,9 +498,15 @@ function try_remember_login(): void {
     }
     [$selector, $validator] = $parts;
 
+    // Der JOIN prueft die Sperre gleich mit (§6.1). benutzer_sperren() raeumt
+    // die Tokens zwar ohnehin weg -- aber verlassen darf man sich darauf nicht:
+    // Eine eingespielte Sicherung kann Tokens enthalten, die zu einem inzwischen
+    // gesperrten Konto gehoeren. Ein zweiter Riegel, der nichts kostet.
     $stmt = db()->prepare(
-        'SELECT id, user_id, validator_hash, expires_at
-           FROM remember_tokens WHERE selector = ?'
+        'SELECT rt.id, rt.user_id, rt.validator_hash, rt.expires_at
+           FROM remember_tokens rt
+           JOIN users u ON u.id = rt.user_id
+          WHERE rt.selector = ? AND u.blocked_at IS NULL'
     );
     $stmt->execute([$selector]);
     $row = $stmt->fetch();

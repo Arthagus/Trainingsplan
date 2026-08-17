@@ -127,13 +127,66 @@
         });
     }
 
-    ['#einheit-beenden', '#einheit-beenden-notfall'].forEach((wahl) => {
+    // Drei Wege zum selben Ziel, und alle drei brauchen dieselbe Rückfrage:
+    // oben in der Karte, unten nach der letzten Übung, und der Notfall-Kasten
+    // für den Fall eines gelöschten Plans. Es gibt sie bewusst mehrfach — nach
+    // der letzten Übung steht man ganz unten und will nicht zurückscrollen —,
+    // aber nur EINE Funktion dahinter.
+    ['#einheit-beenden', '#einheit-beenden-unten', '#einheit-beenden-notfall'].forEach((wahl) => {
         const knopf = qs(wahl);
         if (!knopf) return;
         knopf.addEventListener('click', () => {
             if (window.confirm('Training wirklich beenden?')) einheitBeenden();
         });
     });
+
+    // --- Trainingsdauer in der Leiste --------------------------------------
+
+    /**
+     * Zaehlt die Dauer der laufenden Einheit in der Leiste am oberen Rand hoch.
+     *
+     * Der Ausgangswert kommt als BEREITS VERSTRICHENE SEKUNDEN vom Server
+     * (data-sekunden). Gerechnet wird hier nur noch mit der Zeit SEIT dem Laden
+     * der Seite -- also mit einer Differenz. Das ist der Kern: Eine falsch
+     * gestellte Geraeteuhr oder eine andere Zeitzone verschoebe einen absoluten
+     * Zeitstempel um Stunden, eine Differenz nicht.
+     *
+     * Aus demselben Grund wird bei jedem Durchlauf neu aus der Uhr gerechnet und
+     * nicht einfach hochgezaehlt: Schlaeft das Handy in der Tasche, drosselt der
+     * Browser den Zeitgeber oder haelt ihn ganz an. Ein Zaehler bliebe dann
+     * zurueck; die Differenz stimmt nach dem Aufwachen sofort wieder.
+     *
+     * Der Takt von 20 s hat nichts mit Genauigkeit zu tun, sondern mit dem
+     * Versatz: Die Minutengrenze liegt irgendwo zwischen zwei Durchlaeufen. Bei
+     * 60 s Takt stuende bis zu eine Minute lang die alte Zahl da.
+     */
+    (function dauerZaehlen() {
+        const feld = qs('#leiste-dauer');
+        if (!feld) return;
+
+        const start   = Number(feld.closest('.training-leiste').dataset.sekunden) || 0;
+        const geladen = Date.now();
+
+        function beschriften(sekunden) {
+            const min = Math.floor(sekunden / 60);
+            if (min < 1)  return 'gerade begonnen';
+            if (min < 60) return 'seit ' + min + ' min';
+
+            // Zweistellige Minuten ab der ersten Stunde, damit „1 h 05 min"
+            // nicht schmaler ist als „1 h 47 min" und die Leiste beim
+            // Weiterzaehlen ruhig bleibt.
+            const rest = min % 60;
+            return 'seit ' + Math.floor(min / 60) + ' h '
+                 + String(rest).padStart(2, '0') + ' min';
+        }
+
+        function zeichnen() {
+            feld.textContent = beschriften(start + Math.floor((Date.now() - geladen) / 1000));
+        }
+
+        zeichnen();
+        setInterval(zeichnen, 20000);
+    })();
 
     if (!liste) return;
 
@@ -149,11 +202,26 @@
     function fortschrittSetzen(daten) {
         if (daten.gesamt === undefined) return;
 
-        const text = qs('#fortschritt-text');
-        if (text) text.textContent = daten.erledigt_anzahl + '/' + daten.gesamt;
+        zahlenSchreiben(daten.erledigt_anzahl, daten.gesamt);
 
         liste.dataset.erledigt = daten.erledigt_anzahl;
         liste.dataset.gesamt = daten.gesamt;
+    }
+
+    /**
+     * Schreibt „x/n" und die Zahl der offenen Uebungen in die Leiste am oberen
+     * Rand.
+     *
+     * Die beiden Zahlen stehen zwar nebeneinander, sind aber EINE Aussage --
+     * deshalb eine Funktion und nicht zwei Stellen, die man getrennt vergessen
+     * kann. Fehlt die Leiste (kein laufendes Training), passiert nichts.
+     */
+    function zahlenSchreiben(erledigt, gesamt) {
+        const text = qs('#fortschritt-text');
+        if (text) text.textContent = erledigt + '/' + gesamt;
+
+        const offen = qs('#fortschritt-offen');
+        if (offen) offen.textContent = String(Math.max(0, gesamt - erledigt));
     }
 
     /**
@@ -164,11 +232,10 @@
      * leer ist, uebernimmt wieder fortschrittSetzen() mit der Serverzahl.
      */
     function fortschrittLokal() {
-        const text = qs('#fortschritt-text');
-        if (!text) return;
+        if (!qs('#fortschritt-text')) return;
 
         const x = qsa('.position-karte.zeile-erledigt', liste).length;
-        text.textContent = x + '/' + liste.dataset.gesamt;
+        zahlenSchreiben(x, Number(liste.dataset.gesamt) || 0);
         liste.dataset.erledigt = x;
     }
 
@@ -563,26 +630,47 @@
         aktiveMarkieren();
     }
 
+    // Welches der beiden Verfahren aus SATZ_VORLAGE (lib/training.php) gilt.
+    // Beim Seitenaufbau festgeschrieben — es ändert sich während der Sitzung
+    // nicht, und genau deshalb ist es eine Konstante und keine Abfrage bei
+    // jedem Tipp.
+    const vorlageGleicherSatz = liste.dataset.satzVorlage !== 'letzter_satz';
+
     /**
-     * Die Vorbelegung für den nächsten Satz.
+     * Die Vorbelegung für den nächsten Satz — der Benutzer wählt das Verfahren
+     * auf der Kontoseite (§7.4).
      *
-     * Satz k bekommt Satz k vom LETZTEN MAL — nicht den vorherigen Satz von
-     * heute. Genau das macht den Modus im Studio schnell: Wer 12/10/9 gewohnt
-     * ist, bekommt beim dritten Antippen 9 vorgeschlagen und nicht 10, und die
-     * ganze Satzfolge entsteht mit drei Tipps ohne eine einzige Korrektur.
+     * „Wie beim letzten Training" (Vorgabe): Satz k bekommt Satz k vom letzten
+     * Mal. Wer 12/10/9 gewohnt ist, bekommt beim dritten Antippen 9 und nicht
+     * 10 — die ganze Satzfolge entsteht mit drei Tipps ohne eine Korrektur.
      *
-     * Erst wenn das letzte Mal weniger Sätze hatte, gilt der vorherige Satz von
-     * heute — und wenn es gar keine Vorlage gibt, das zuletzt bekannte Gewicht
-     * dieser Übung mit leerem Wiederholungsfeld.
+     * „Wie der Satz davor": Ab Satz 2 zählt, was heute im vorigen Satz steht.
+     * Wer sich herantastet, korrigiert einmal und trägt die Korrektur damit
+     * automatisch weiter.
+     *
+     * Der ERSTE Satz kommt in beiden Fällen vom letzten Training — deshalb das
+     * `nr === 1` in der Bedingung. Gibt es gar keine Vorlage, bleibt das
+     * zuletzt bekannte Gewicht dieser Übung mit leerem Wiederholungsfeld.
+     *
+     * Die Regel steht NUR hier. Ein PHP-Gegenstück gibt es bewusst nicht: Der
+     * Server erfindet nie einen Satz, er liefert bloß die Vorlage.
+     *
+     * Bis 1.1.13 stand hier eine vierte Stufe („sonst der letzte Satz vom
+     * letzten Mal"). Sie war nicht erreichbar: `nr` ist immer
+     * `saetze.length + 1`, also greift ab Satz 2 stets die Stufe davor, und für
+     * Satz 1 widersprach ihre Bedingung der ersten Stufe. Entfernt, damit die
+     * neue Logik nicht um einen toten Zweig herum gebaut wird.
      */
     function naechsterSatz(karte, saetze) {
         const nr = saetze.length + 1;
         const letzte = satzListeAusDaten(karte.dataset.letzteSaetze);
 
-        if (letzte.length >= nr) return letzte[nr - 1];
-        if (saetze.length > 0)   return saetze[saetze.length - 1];
-        if (letzte.length > 0)   return letzte[letzte.length - 1];
-
+        if ((nr === 1 || vorlageGleicherSatz) && letzte.length >= nr) {
+            return letzte[nr - 1];
+        }
+        if (saetze.length > 0) {
+            return saetze[saetze.length - 1];
+        }
         return { reps: '', weight: karte.dataset.letztesGewicht || '' };
     }
 
@@ -675,10 +763,15 @@
         // sodass die Karte zuverlässig unter ihr landete und der Übungsname
         // verdeckt war.
         //
-        // Gemessen statt geraten: Ihre Höhe hängt am Text und kann auf schmalen
-        // Geräten zweizeilig werden. Ist sie ausgeblendet, ist der Versatz 0.
-        const leiste = qs('#verbindung');
-        const versatz = (leiste && !leiste.hidden) ? leiste.offsetHeight : 0;
+        // Gemessen wird der ganze STAPEL (lib/view_header.php), nicht eine
+        // einzelne Leiste: Seit 1.1.14 hängen dort zwei drin — die
+        // Verbindungsleiste und die Trainingsleiste —, und je nach Lage ist
+        // keine, eine oder beide sichtbar. Eine Liste einzelner Elemente wäre
+        // genau die Stelle, an der man die dritte Leiste vergisst; die Höhe des
+        // Behälters stimmt dagegen von selbst. Ausgeblendete Kinder tragen
+        // nichts bei, ein leerer Stapel misst 0.
+        const stapel = qs('#leisten');
+        const versatz = stapel ? stapel.offsetHeight : 0;
 
         // Dazu eine Handbreit Luft, damit die Karte nicht bündig am Rand klebt.
         const LUFT = 8;

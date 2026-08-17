@@ -35,6 +35,52 @@
                 experteHinweis.hidden = false;
             } finally {
                 experte.disabled = false;
+                vorlageFreigeben();
+            }
+        });
+    }
+
+    // --- Vorbelegung neuer Sätze (§7.4) ------------------------------------
+
+    const vorlage = qs('.vorlage-wahl');
+
+    /**
+     * Gibt die Auswahl frei oder blendet sie ab, je nach Expertenmodus.
+     *
+     * Muss es geben, weil der Expertenschalter die Seite NICHT neu lädt: Ohne
+     * das bliebe die Auswahl nach dem Einschalten grau stehen und sähe kaputt
+     * aus, bis jemand von sich aus neu lädt. Serverseitig entscheidet dieselbe
+     * Bedingung beim Rendern — hier wird sie nur nachgeführt.
+     */
+    function vorlageFreigeben() {
+        if (vorlage && experte) vorlage.disabled = !experte.checked;
+    }
+
+    if (vorlage) {
+        const vorlageHinweis = qs('#vorlage-fehler');
+
+        vorlage.addEventListener('change', async (e) => {
+            const feld = e.target.closest('input[name="satz_vorlage"]');
+            if (!feld) return;
+
+            vorlageHinweis.hidden = true;
+            vorlage.disabled = true;
+
+            try {
+                await apiFetch('api/auth.php', {
+                    body: { action: 'set_satz_vorlage', satz_vorlage: feld.value },
+                });
+                meldung('Vorbelegung gespeichert.', 'gut');
+            } catch (fehler) {
+                // Kein Zurückspringen wie beim Expertenhaken: Bei Radiobuttons
+                // wüsste man dafür, welcher vorher an war — den müsste man
+                // getrennt mitführen. Stattdessen sagt die Meldung, dass es
+                // nicht gespeichert ist, und ein Neuladen zeigt den echten Stand.
+                vorlageHinweis.textContent = fehler.message + ' Die Auswahl ist nicht gespeichert.';
+                vorlageHinweis.hidden = false;
+            } finally {
+                vorlage.disabled = false;
+                vorlageFreigeben();
             }
         });
     }

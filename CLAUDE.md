@@ -129,6 +129,75 @@ Instanz bleibt nur der Weg über die Seite.
 Bei Änderungen an CSS oder am Frontend deshalb **den Benutzer um eine Gegenprobe bitten**,
 statt „geprüft" zu melden.
 
+**JS-Logik prüft man, indem man sie AUSFÜHRT — nicht, indem man den Quelltext liest.**
+Node kann die echten Dateien laden; nachgebaut wird nichts, sonst prüft der Test seine
+eigene Nachbildung. Bewährtes Muster (so entstanden die Prüfungen zu `apiFetch`,
+`naechsterSatz()`, der Trainingsdauer und der Leisten-Reihenfolge):
+
+```js
+const fs = require('fs'), vm = require('node:vm');
+// Genau die gebrauchte Funktion aus der Datei holen, statt sie abzuschreiben.
+const hol = (t, m) => t.match(m)[0];
+const src = fs.readFileSync('index.js', 'utf8');
+const app = fs.readFileSync('assets/app.js', 'utf8');
+const fn  = new Function('einstellung', [
+    hol(app, /function zahlFuerAnzeige\([\s\S]*?\n\}/),
+    hol(src, /function naechsterSatz\(karte, saetze\) \{[\s\S]*?\n    \}/),
+].join('\n') + '\nreturn naechsterSatz;');
+```
+
+Drei Fallen, jede davon hat schon Zeit gekostet:
+
+- **Node ≥ 24 hat ein eigenes `navigator` mit reinem Getter.** `globalThis.navigator = {…}`
+  wirft; nötig ist `Object.defineProperty(globalThis.navigator, 'onLine', {value: true})`.
+- **Hilfsfunktionen liegen oft in der anderen Datei.** `satzAusDaten()` steht in `index.js`
+  und ruft `zahlFuerAnzeige()` aus `assets/app.js`. Wer nur eine Datei anzapft, bekommt
+  einen `ReferenceError` — im besten Fall.
+- **Und im schlechteren gar keinen:** `satzListeAusDaten()` fängt Fehler ab und liefert
+  dann eine **leere Liste**. Der Test meldet ein falsches Ergebnis, das wie ein Fehler im
+  Code aussieht und in Wahrheit ein Loch im Prüfstand ist. Passiert am 2026-08-17 genau so.
+  Wer eine unerwartet leere Liste sieht, prüft zuerst den eigenen Aufbau.
+
+**Der Gegenbeweis gehört dazu:** Dieselbe Prüfung gegen die Fassung aus dem letzten Commit
+laufen lassen (`git show HEAD:assets/app.js > /tmp/alt.js`). Fällt sie dort durch, prüft
+sie wirklich etwas.
+
+**Eine brauchbare Test-Datenbank braucht mehr als den Erst-Admin.** Für alles rund um
+Training, Verlauf und Sätze führt kein Weg an einem Plan mit Positionen vorbei:
+
+```bash
+php -r '
+putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
+require "lib/db.php"; db(); $p = db(); $n = date("Y-m-d H:i:s");
+$p->prepare("UPDATE users SET must_change_password = 0, expert_mode = 1")->execute();
+$g = (int)$p->query("SELECT id FROM muscle_groups LIMIT 1")->fetchColumn();
+$p->prepare("INSERT INTO plans (user_id,name,sort_order,created_at) VALUES (1,?,1,?)")->execute(["Push",$n]);
+$plan = (int)$p->lastInsertId();
+foreach (["Bankdrücken","Schrägbank","Butterfly"] as $i => $name) {
+    $p->prepare("INSERT INTO exercises (name_de,equipment,created_at) VALUES (?,?,?)")->execute([$name,"maschine",$n]);
+    $e = (int)$p->lastInsertId();
+    $p->prepare("INSERT INTO exercise_muscle_groups (exercise_id,muscle_group_id,is_primary) VALUES (?,?,1)")->execute([$e,$g]);
+    $p->prepare("INSERT INTO plan_exercises (plan_id,exercise_id,sort_order) VALUES (?,?,?)")->execute([$plan,$e,$i+1]);
+}
+$p->prepare("INSERT INTO sessions (user_id,plan_id,started_at) VALUES (1,?,?)")->execute([$plan, date("Y-m-d H:i:s", time()-2820)]);'
+```
+
+Die Spalten heißen `plans.sort_order` (nicht `position`) und `plan_exercises.sort_order` —
+beides schon einmal falsch geraten. Für eine **abgeschlossene** Einheit zusätzlich
+`ended_at` setzen und `workout_log`-Zeilen anlegen; für Sätze `workout_sets` mit
+`satz_nr`, `reps`, `weight`.
+
+**Welche Version live läuft, wird gemessen und nicht erinnert.** Die Asset-Adressen tragen
+sie seit `1.1.8` und sind ohne Anmeldung lesbar:
+
+```bash
+curl -s https://training.jadefalke.net/login.php | grep -o 'app\.js?v=[0-9.]*'
+```
+
+Am 2026-08-17 nannte `doku/stand.md` `1.1.11`, während `1.1.13` lief — nach einem Rollout
+hatte niemand nachgezogen. Diese eine Zeile beendet die Frage in Sekunden; **im Zweifel
+immer zuerst messen**, bevor man auf einer Versionsannahme weiterbaut.
+
 Das `Secure`-Flag ist am Dev-Server **kein** Hindernis: Browser behandeln `http://127.0.0.1`
 als sicheren Kontext und speichern `Secure`-Cookies dort. Das Flag bleibt bedingungslos
 gesetzt.
@@ -145,14 +214,21 @@ haben je eine `.htaccess` mit `Require all denied`.
 | Baustein | Wofür |
 |---|---|
 | `lib/db.php` | PDO-Singleton, Schema, Migrationen, Erst-Admin |
-| `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse |
+| `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse, Kontosperre |
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Auffangnetz |
-| `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf |
-| `lib/geraete.php` | Codeliste der Trainingsgeräte, `geraet_abzeichen()` |
+| `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
+| `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
-| `lib/view_header.php` / `view_footer.php` | Layout als Partial |
+| `lib/healthcheck.php` | Was der HEALTHCHECK im `Dockerfile` startet — fasst die Datenbank an und **begründet** ein „unhealthy" |
+| `lib/view_header.php` / `view_footer.php` | Layout als Partial, inklusive Leisten-Stapel `#leisten` |
 | `lib/view_geraet_symbole.php` | SVG-Symbolvorrat + Beschriftungen, aus dem Header eingebunden |
+| `lib/view_bild_dialog.php` / `view_platzhalter.php` | Geteilte Bausteine für Übungsbilder — von `index.php` und dem Adminbereich gemeinsam benutzt |
+
+**Die JSON-Endpunkte tragen ihren Gegenstand im Namen**, mit zwei Ausnahmen, die man
+kennen muss: `api/token.php` liefert ein frisches CSRF-Token (Fallstrick 23) und ist der
+**einzige** Endpunkt ohne `csrf_check()`; `api/maintenance.php` bedient die Wartungsseite
+(Sicherungen anlegen, prüfen, einspielen — die Fachlichkeit steckt in `lib/backup.php`).
 
 Die Seiten erklären sich über ihren Namen, mit **einer** Ausnahme: **`devices.php` ist die
 Geräteverwaltung** (§7.7) — die Oberfläche zu der in §5 zugesagten serverseitigen
@@ -289,9 +365,30 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   Re-Enkodierung via GD; Zufallsdateiname; Auslieferung über `image.php` mit
   `realpath`-Path-Jail.
 - **Selbstsperren sind ausgeschlossen** (`api/users.php`): Ein Admin kann weder sein eigenes
-  Konto löschen noch sich selbst das Adminrecht entziehen — beides führte in einen Zustand,
-  den er selbst nicht mehr rückgängig machen könnte. Das geht über §6.1 hinaus, das nur den
-  *letzten* Admin schützt.
+  Konto löschen noch sich selbst das Adminrecht entziehen **noch sich selbst sperren** —
+  jedes davon führte in einen Zustand, den er selbst nicht mehr rückgängig machen könnte.
+  Das geht über §6.1 hinaus, das nur den *letzten* Admin schützt.
+
+  **Das Sperren (`set_blocked`, seit `1.1.11`) braucht daneben KEINE Letzter-Admin-Regel**,
+  und das ist kein Versehen: Sperren darf nur ein angemeldeter Admin, und sich selbst kann
+  er nicht sperren — es bleibt also zwangsläufig mindestens ein aktiver Admin übrig, nämlich
+  der Handelnde. Eine zusätzliche Prüfung wäre eine Regel, die nie greifen kann; solche
+  Regeln sehen wie ein Schutz aus und verdecken, wo der echte sitzt.
+
+  **Die Sperre wird an DREI Stellen durchgesetzt, und alle drei werden gebraucht:**
+  `attempt_login()` (Anmeldung mit Passwort), der `JOIN` in `try_remember_login()`
+  („Angemeldet bleiben") und `current_user()` (die bereits laufende Sitzung). Die dritte
+  ist die wichtigste und die am ehesten vergessene: Ohne sie liefe eine offene Sitzung
+  weiter, bis sie von selbst abläuft — die Sperre wirkte also erst Stunden später. Weil
+  `current_user()` hinter jeder geschützten Seite und jedem Endpunkt liegt, greift sie
+  dort ab dem nächsten Aufruf, ohne dass ein Aufrufer daran denken muss.
+
+  **`attempt_login()` liefert deshalb `string` und nicht `bool`** (`LOGIN_OK`,
+  `LOGIN_FALSCH`, `LOGIN_GESPERRT`): „gesperrt" ist weder Erfolg noch falsches Passwort.
+  Geprüft wird **nach** der Passwortprüfung — davor verriete die Auskunft, welche
+  Kontonamen es gibt. Und `api/auth.php` zählt den Fall **nicht** als Fehlversuch: Das
+  Passwort war ja richtig, und die Bremse zählt pro IP — ein gesperrter Benutzer würde mit
+  fünf Versuchen sonst den ganzen Haushalt für eine Viertelstunde aussperren.
 
   **Umbenennen fällt ausdrücklich nicht darunter** (§6.1, §7.7): Wer umbenennt, kennt den
   neuen Namen, und an den Rechten ändert sich nichts. Deshalb keine Ausnahme fürs eigene
@@ -340,8 +437,21 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   verträgt es nicht** — der zweite Aufruf findet keine offene Einheit und antwortet 409.
   Deshalb behandelt `index.js` genau diesen 409 als Erfolg und lädt neu, statt einen Fehler
   zu zeigen.
+
+  **Ein totes CSRF-Token repariert `apiFetch` selbst** (seit `1.1.10`, Fallstrick 23): Bei
+  einem 403 mit `code === 'csrf_ungueltig'` holt es über `api/token.php` ein frisches Token,
+  schreibt es in den `<meta>`-Tag und wiederholt den Aufruf **genau einmal** — ohne einen der
+  `wiederholen`-Versuche zu verbrauchen, denn der Aufruf ist nicht am Netz gescheitert. Die
+  Erneuerung läuft über eine geteilte Zusage (`tokenErneuerung`), damit sich zwei gleichzeitig
+  gescheiterte Aufrufe nicht gegenseitig überschreiben. **`index.js` bleibt davon unberührt** —
+  die Warteschlange sieht entweder Erfolg oder einen Fehler, der wirklich einer ist, und
+  Fallstrick 13 („4xx muss den Eintrag entfernen") gilt unverändert.
 - **JSON-Envelope serverseitig:** `json_ok(array $data = [], int $status = 200)` und
-  `json_err(string $error, int $status = 400, array $fields = [])`.
+  `json_err(string $error, int $status = 400, array $fields = [], ?string $code = null)`.
+  **`$code` ist maschinenlesbar und ersetzt den Text nicht** — er ist die Auskunft an das
+  Skript, `error` die an den Benutzer. Es gibt bisher genau einen: `CSRF_FEHLER_CODE` aus
+  `lib/csrf.php`. Wer stattdessen im Browser auf den deutschen Wortlaut prüft, baut eine
+  Kopplung, die beim ersten Umformulieren einer Meldung lautlos bricht.
 - **Escaping:** serverseitig `h()` aus `lib/helpers.php`, clientseitig `escapeHtml()` aus
   `assets/app.js` vor jedem `innerHTML`.
 - **Zahleneingaben:** `type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"` —
@@ -659,8 +769,37 @@ Antwort lautet auch dann `ok:true`, wenn die halbe Zeile verlorengeht.
       set_expert_mode`, 409). Die Ablage im `localStorage` überlebt einen Wechsel, und ein
       wartender Eintrag aus dem einfachen Modus trägt keine Satzliste — das wäre stiller
       Datenverlust mitten im Training.
+
+      **`set_satz_vorlage` ist ausdrücklich NICHT gesperrt** (seit `1.1.14`), und der
+      Unterschied ist genau die Nutzlast: Beide Verfahren aus `SATZ_VORLAGE` schicken
+      dieselbe Satzliste, sie unterscheiden sich allein darin, was beim nächsten „+ Satz"
+      schon in den Feldern steht. Aus demselben Grund bleibt der Warteschlangen-Schlüssel
+      auf **`-v3`** — die Nummer steht für die *Form* eines Eintrags, und die ist
+      unverändert. Ein Sprung würde beim Rollout die wartenden Eingaben von jedem
+      verwerfen, der gerade trainiert. Der Reflex „neue Einstellung ⇒ Sperre plus neue
+      Schlüsselnummer" ist hier also falsch, und zwar zweimal.
     - **Deshalb heißt der `localStorage`-Schlüssel `…-warteschlange-v2`.** Ein Eintrag aus
       `1.0.x` liefe sonst als `check` ohne Satzliste durch.
+
+    **Die Vorbelegung eines neuen Satzes ist eine persönliche Einstellung** (seit `1.1.14`,
+    §7.4): `users.satz_vorlage`, Codeliste `SATZ_VORLAGE` in `lib/training.php` —
+    `gleicher_satz` (Satz k vom letzten Mal, Vorgabe) oder `letzter_satz` (der vorige Satz
+    von heute). Der **erste** Satz kommt in beiden Fällen vom letzten Mal.
+
+    **Angewendet wird sie ausschließlich in `naechsterSatz()` (`index.js`), und es gibt
+    bewusst KEIN PHP-Gegenstück.** Der Server erfindet nie einen Satz; er liefert nur
+    `letzte_saetze()` und `letztes_gewicht()`. Das ist die Ausnahme von den vielen Paaren
+    in diesem Projekt (`positions_zustaende()`/`aktiveMarkieren()`,
+    `saetze_text()`/`saetzeText()`, `geraet_abzeichen()`/`geraetAbzeichen()`) — wer die
+    zweite Hälfte sucht, sucht vergebens.
+
+    **Die Codeliste steht in `lib/training.php`, nicht in `lib/geraete.php`.** Dort liegt
+    zwar schon `ZUSCHNITT`, das mit Trainingsgeräten ebenso wenig zu tun hat — aber eine
+    dritte fachfremde Liste zementierte den irreführenden Dateinamen. Gelesen wird über
+    `satz_vorlage_normalisieren()`, das auf den Standard zurückfällt; **geschrieben** wird
+    nur nach strenger Prüfung gegen die Liste (`api/auth.php`). Zwei Richtungen, zwei
+    Haltungen: Ein unbekannter Wert aus einer alten Sicherung darf kein Training abbrechen,
+    ein unbekannter Wert aus einem Schreibaufruf ist ein Fehler.
 
     `workout_log.weight` bleibt gefüllt und trägt den **schwersten** Satz. Das ist keine
     Redundanz: `letztes_gewicht()`, `gewichts_verlauf()` und `uebungen_mit_verlauf()` lesen
@@ -746,16 +885,38 @@ Antwort lautet auch dann `ok:true`, wenn die halbe Zeile verlorengeht.
     erste nicht erledigte" suchen — sonst springt die Ansicht nach dem Auslassen zurück auf
     das besetzte Gerät.
 
-    **Und beim Scrollen an eine Position gehört die Verbindungsleiste eingerechnet.** Sie
-    hängt als **erstes Element im `<body>`** (`assets/app.js`, `verbindung._element()`) und
-    ist `position: sticky; top: 0; z-index: 20` — sie überlagert also alles, was darunter
-    durchscrollt. `scrollIntoView({ block: 'start' })` setzt das Ziel exakt an den oberen
-    Viewport-Rand und damit **unter** die Leiste. Im Training fiel das zuverlässig auf:
-    Genau beim Abhaken wird die Leiste sichtbar (die Eingabe geht in die Warteschlange), und
-    die nächste Übungskarte landete verdeckt — der Name war weg. `zurAktivenSpringen()` in
-    `index.js` rechnet die Höhe deshalb **gemessen** heraus (`offsetHeight`, 0 wenn
-    ausgeblendet) statt mit einer festen Zahl: Der Text der Leiste kann auf schmalen Geräten
+    **Und beim Scrollen an eine Position gehört eingerechnet, was oben klebt.**
+    `scrollIntoView({ block: 'start' })` setzt das Ziel exakt an den oberen Viewport-Rand
+    und damit **unter** jede `sticky`-Leiste. Im Training fiel das zuverlässig auf: Genau
+    beim Abhaken wird die Verbindungsleiste sichtbar (die Eingabe geht in die
+    Warteschlange), und die nächste Übungskarte landete verdeckt — der Name war weg.
+    `zurAktivenSpringen()` in `index.js` rechnet die Höhe deshalb **gemessen** heraus
+    (`offsetHeight`) statt mit einer festen Zahl: Der Text kann auf schmalen Geräten
     zweizeilig werden.
+
+    **Seit `1.1.14` gibt es dafür einen gemeinsamen Behälter, und das ist die eigentliche
+    Lehre.** `#leisten` (`lib/view_header.php`) ist das erste Element im `<body>` und trägt
+    als einziges `position: sticky; top: 0; z-index: 20`. Darin liegen die Leisten normal im
+    Fluss: die **Trainingsleiste** (nur `index.php` bei laufender Einheit) und darunter die
+    **Verbindungsleiste** (aus `assets/app.js`, auf jeder Seite, meist ausgeblendet). Zwei
+    Elemente mit eigenem `top: 0` legten sich sonst übereinander, und ein fester Versatz für
+    die zweite wäre falsch — die eine ist meistens gar nicht da.
+
+    **Die Reihenfolge im Stapel ist nach BESTÄNDIGKEIT sortiert, nicht nach Wichtigkeit.**
+    In `1.1.14` stand die Verbindungsleiste oben, mit der plausiblen Begründung „ist das
+    Netz weg, ist das die wichtigste Information". Im Studio fiel sofort auf, warum das
+    falsch ist: Sie erscheint bei **jedem** Abhaken für den Bruchteil einer Sekunde und schob
+    dabei die Trainingsleiste nach unten und gleich wieder hinauf — ausgerechnet die Zeile,
+    die man ständig abliest, zappelte bei jeder Eingabe. Das ist dieselbe Regel wie bei
+    `.zeile-wartet`: **Was von selbst kommt und geht, darf nichts verschieben, was stehen
+    bleiben soll.** Wer eine weitere Leiste ergänzt, sortiert sie danach ein — dauerhaft nach
+    oben, flüchtig nach unten.
+
+    Der Gewinn steckt aber in der Messung: `zurAktivenSpringen()` misst **den Stapel**, nicht
+    seine Kinder. Eine Liste einzelner Elemente wäre genau die Stelle, an der man die dritte
+    Leiste vergisst; die Höhe des Behälters stimmt von selbst, auch wenn keine, eine oder
+    beide sichtbar sind. **Wer eine weitere Leiste ergänzt, hängt sie dort hinein und muss
+    an der Scroll-Rechnung nichts ändern.**
 
     Dazu die Lehre daneben: **`.saetze-kopf` allein reicht als Selektor nicht.**
     `.summary-knopf` steht weiter unten in derselben Datei und hat dieselbe Spezifität, also
@@ -860,6 +1021,54 @@ Antwort lautet auch dann `ok:true`, wenn die halbe Zeile verlorengeht.
     aufpassen. `read_input()` nimmt `$_POST`, wenn es nicht leer ist, sonst den JSON-Body —
     beide Wege stehen offen, obwohl das Formular `multipart` benutzt.
 
+23. **Eine offene Seite überlebt ihre Sitzung nicht — und merkt es zu spät.** Stirbt die
+    serverseitige PHP-Sitzung, während die Seite im Browser stehen bleibt, dann meldet
+    „Angemeldet bleiben" den Benutzer beim nächsten Aufruf stillschweigend wieder an. Die
+    frische Sitzung hat aber **kein** CSRF-Token, `csrf_check()` findet `$stored === ''` —
+    und ab da scheitert **jeder** Schreibaufruf mit 403, bis jemand von Hand neu lädt.
+
+    Das Tückische ist die Verkleidung: Ohne Remember-Me käme ein 401, und `apiFetch` schickte
+    den Benutzer sichtbar auf die Anmeldeseite. Das Remember-Me rettet die Anmeldung und macht
+    den Fehler damit erst unerklärlich — man ist angemeldet, sieht seine Daten, und nichts
+    lässt sich speichern. In der Trainingsansicht sieht das aus wie ein toter Knopf: Das
+    Häkchen springt zurück (`zustandSetzen(karte, eintrag.vorher)`), die rote Zeile darunter
+    liest im Studio niemand.
+
+    **Am 2026-08-16 ist das passiert, und die Ursache steckte in den PHP-Vorgabewerten.**
+    Das Basis-Image bringt keine `php.ini` mit, es galt also:
+
+    - `session.gc_maxlifetime = 1440` — **24 Minuten** ab dem letzten Aufruf. Die App hat
+      keinen Heartbeat; zwischen zwei „Erledigt" liegt im Studio leicht mehr. Gemessen an
+      zwei parallelen Einheiten: eine Pause von **24:13** hat die Sitzung gekostet, die
+      größte des anderen Benutzers von **19:37** nicht.
+    - `session.gc_divisor = 100` — **1 % pro Request**, nicht 0,1 %. Eine zu lange ruhende
+      Sitzung ist damit nicht gefährdet, sondern verloren; es ist nur eine Frage, wie viele
+      Aufrufe noch kommen — von wem auch immer, auch von einem anderen Benutzer.
+    - `session.lazy_write = On` — und das erklärt den letzten Rest. PHP zieht das Aufräum-Los
+      in `session_start()`, **bevor** die Datei angefasst wird; sie trägt da noch den alten
+      Zeitstempel. Der laufende Request merkt nichts, seine Daten stehen längst im Speicher.
+      Am Ende schreibt PHP die Datei aber nicht neu, sondern setzt bei unveränderten
+      Sitzungsdaten nur per `utime()` den Zeitstempel — **auf einer gerade gelöschten Datei
+      scheitert das lautlos**. Genau so verschwand die Sitzung **acht Sekunden nach einem
+      erfolgreichen Schreibzugriff**.
+
+    Die Gegenmaßnahmen stehen auf zwei Ebenen, und beide werden gebraucht:
+
+    - **`app.ini` im `Dockerfile`:** `gc_maxlifetime = 28800`, `lazy_write = Off`,
+      `use_strict_mode = 1`. Das nimmt der Ursache die Grundlage.
+    - **Selbstheilung in `apiFetch`** über `CSRF_FEHLER_CODE` und `api/token.php`. Die ist
+      **nicht** verzichtbar: Die ini-Zeile verschiebt die Klippe, sie räumt sie nicht weg.
+      Ein Rollout mitten im Training (Sitzungen liegen in `/tmp` **im Container**, ohne
+      Volume), ein wirklich langer Halt, ein vom Handy verworfenes Sitzungscookie — jedes
+      davon macht die offene Seite sonst wieder unbedienbar.
+
+    Die allgemeine Form: **Wer einen Zustand im Browser hält, der serverseitig ablaufen kann,
+    braucht einen Weg zurück, der nicht „neu laden" heißt.** Und dieselbe Lehre wie bei
+    Fallstrick 12 gilt auch hier — der Reparaturweg darf nicht durch die kaputte Ebene
+    laufen: `api/token.php` ist deshalb **GET ohne `csrf_check()`**, sonst wiese er die
+    Reparatur genau dort ab, wo sie gebraucht wird. Das ist keine Lücke, weil das
+    Sitzungscookie `SameSite=Lax` trägt und bei einem fremden `fetch` gar nicht mitgeht.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -889,6 +1098,11 @@ dastehen. Und ausschließlich auf dem eigenen Namensmuster, nie auf `*.tar.gz`.
 Praxistest in mehreren kleinen Runden durch; ein Paket nach jeder Runde verbraucht eine
 Versionsnummer für einen Stand, der nie ausgerollt wird.
 
+**Das gilt auch nach einer Fehlerkorrektur**, und genau dort ist es am 2026-08-17
+schiefgegangen: Nach einer gemeldeten Fehlfunktion schien der Bau „nur konsequent". Er war
+es nicht — der Benutzer wollte im selben Zug noch etwas ändern. **Kein Paket ohne ein
+„bau", „build" oder „packen" von ihm.**
+
 Daraus die Zählweise:
 
 - **Solange kein Paket gebaut ist, bleibt die Nummer stehen.** Fünf Änderungswünsche
@@ -897,6 +1111,12 @@ Daraus die Zählweise:
   nächste Änderung an etwas, das **im Paket steckt**, hebt sofort auf die nächste Nummer —
   sonst weicht der Arbeitsstand von einem Paket ab, das denselben Namen trägt. Genau so
   ging am 2026-08-10 verloren, welche von zwei Fassungen als `1.0.16` ausgerollt worden war.
+- **Umgekehrt: Ein Paket, das den Rechner nie verlassen hat, gibt seine Nummer wieder
+  frei.** Wurde versehentlich gebaut, obwohl niemand darum gebeten hat, wird das Paket
+  gelöscht und der Arbeitsstand behält die Nummer. **Nummern werden nicht übersprungen,
+  wenn dazwischen nichts ausgeliefert wurde** — eine Lücke in der Zählung suggeriert eine
+  Fassung, die es nie gab. Maßgeblich ist nicht, ob `paket_bauen.sh` gelaufen ist, sondern
+  ob der Tarball in Portainer gelandet ist; im Zweifel den Benutzer fragen.
 - **Änderungen außerhalb des Pakets zählen nicht mit.** `doku/`, `CLAUDE.md` und
   `LASTENHEFT.md` stehen nicht in der Positivliste von `paket_bauen.sh`; wer nur dort
   schreibt, lässt die Nummer stehen. Eine neue Version ohne jeden Codeunterschied wäre ein
@@ -932,6 +1152,11 @@ Daraus die Zählweise:
 - **Pflicht im `Dockerfile`:** `mod_remoteip` (ohne echte Client-IP sperrt die
   Brute-Force-Bremse alle Benutzer gemeinsam), `libsqlite3-dev` (Header für `pdo_sqlite`),
   `libzip-dev` + `zip` (Sicherung mit Bildern), `libwebp-dev` (WebP-Upload).
+- **Die `session.*`-Zeilen der `app.ini` sind Fachlichkeit, keine Kosmetik.** Das Basis-Image
+  bringt **keine** `php.ini` mit — ohne diese Zeilen gelten die eingebauten Vorgaben, und die
+  räumen eine Sitzung nach 24 Minuten Ruhe weg. Was daraus folgt und warum `lazy_write = Off`
+  dazugehört, steht in Fallstrick 23. **Wer die Zeile beim Umbauen des `Dockerfile` verliert,
+  holt sich den Fehler vom 2026-08-16 zurück**, und zwar erst im Studio.
 - **`COPY . /var/www/html` legt auch `Dockerfile`, `apache-app.conf`, `schema.sql` und
   `VERSION` ins Webroot.** Ein `<FilesMatch>` in `apache-app.conf` sperrt sie für HTTP; PHP
   liest `schema.sql` und `VERSION` weiterhin über das Dateisystem. Nicht entfernen —

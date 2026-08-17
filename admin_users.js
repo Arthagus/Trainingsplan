@@ -140,6 +140,31 @@
             return;
         }
 
+        if (knopf.classList.contains('sperren')) {
+            // Rückfrage nur beim Sperren, nicht beim Entsperren: Das eine
+            // schließt jemanden aus und meldet seine Geräte ab, das andere
+            // nimmt genau das zurück.
+            if (!window.confirm('Konto „' + name + '“ sperren?\n\n'
+                    + 'Anmelden ist danach nicht mehr möglich, angemeldete Geräte '
+                    + 'werden abgemeldet. Pläne, Verlauf und Protokoll bleiben '
+                    + 'vollständig erhalten — Entsperren macht es rückgängig.')) {
+                return;
+            }
+            knopf.disabled = true;
+            const gut = await senden(zeile, { action: 'set_blocked', id, blocked: true },
+                                     'Konto gesperrt.');
+            if (!gut) knopf.disabled = false;
+            return;
+        }
+
+        if (knopf.classList.contains('entsperren')) {
+            knopf.disabled = true;
+            const gut = await senden(zeile, { action: 'set_blocked', id, blocked: false },
+                                     'Konto entsperrt.');
+            if (!gut) knopf.disabled = false;
+            return;
+        }
+
         if (knopf.classList.contains('loeschen')) {
             const einheiten = Number(zeile.dataset.einheiten);
             let frage = 'Benutzer „' + name + '“ endgültig löschen?\n\n'

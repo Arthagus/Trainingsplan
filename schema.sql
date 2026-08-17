@@ -133,7 +133,22 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin             INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
     must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
     expert_mode          INTEGER NOT NULL DEFAULT 0 CHECK (expert_mode IN (0, 1)),
+    -- Woher die Vorbelegung eines neu hinzugefuegten Satzes kommt (§7.4).
+    -- Codeliste SATZ_VORLAGE in lib/training.php, kein CHECK -- dieselbe
+    -- Begruendung wie bei equipment und image_crop (Fallstrick 16): Eine
+    -- dritte Variante soll eine Zeile PHP kosten und keinen Tabellen-Neubau.
+    -- Wirkt nur im Expertenmodus; im einfachen Modus gibt es keine Saetze.
+    satz_vorlage         TEXT    NOT NULL DEFAULT 'gleicher_satz',
     last_plan_id         INTEGER REFERENCES plans(id) ON DELETE SET NULL,
+    -- Gesperrt: NULL = aktiv, sonst der Zeitpunkt der Sperre (§6.1).
+    --
+    -- EINE Spalte und nicht das Paar blocked/blocked_at, wie es exercises mit
+    -- archived/archived_at vorexerziert. Zwei Spalten fuer dieselbe Aussage
+    -- koennen sich widersprechen (blocked = 1 bei blocked_at IS NULL), und dann
+    -- haengt das Verhalten davon ab, welche der beiden zufaellig gelesen wird.
+    -- Das ist dieselbe Falle wie bei users.last_plan_id (Fallstrick 21), nur
+    -- eine Nummer kleiner. Das Sperrdatum will die Oberflaeche ohnehin anzeigen.
+    blocked_at           TEXT,
     created_at           TEXT    NOT NULL
 );
 

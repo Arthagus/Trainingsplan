@@ -14,7 +14,7 @@ require_admin();
  */
 
 $benutzer = db()->query(
-    'SELECT u.id, u.name, u.is_admin, u.must_change_password, u.created_at,
+    'SELECT u.id, u.name, u.is_admin, u.must_change_password, u.blocked_at, u.created_at,
             (SELECT COUNT(*) FROM plans p            WHERE p.user_id = u.id) AS plaene,
             (SELECT COUNT(*) FROM sessions s         WHERE s.user_id = u.id) AS einheiten,
             (SELECT COUNT(*) FROM sessions s         WHERE s.user_id = u.id AND s.ended_at IS NULL) AS offen,
@@ -36,6 +36,14 @@ require __DIR__ . '/lib/view_header.php';
     Es gibt keine Selbstregistrierung — Konten entstehen ausschließlich hier.
     Ein neu angelegtes oder zurückgesetztes Passwort muss der Benutzer beim
     ersten Login selbst ändern.
+</p>
+
+<p class="matt">
+    <strong>Sperren statt löschen:</strong> Ein gesperrtes Konto kommt nicht
+    mehr herein — weder über das Passwort noch über ein angemeldetes Gerät —,
+    behält aber Pläne, Verlauf und Protokoll vollständig. Ein Entsperren stellt
+    den vorherigen Zustand wieder her; nur anmelden muss sich der Benutzer neu.
+    Das eigene Konto ist davon ausgenommen.
 </p>
 
 <details class="karte" id="neu-bereich">
@@ -73,14 +81,20 @@ require __DIR__ . '/lib/view_header.php';
         $selbst      = $id === current_user_id();
         $letzterAdmin = $istAdmin && $adminAnzahl <= 1;
         $einheiten   = (int)$b['einheiten'];
+        $gesperrt    = $b['blocked_at'] !== null;
         ?>
-        <li class="karte benutzer" data-id="<?= $id ?>" data-einheiten="<?= $einheiten ?>">
+        <li class="karte benutzer<?= $gesperrt ? ' ist-gesperrt' : '' ?>"
+            data-id="<?= $id ?>" data-einheiten="<?= $einheiten ?>"
+            data-gesperrt="<?= $gesperrt ? '1' : '0' ?>">
             <div class="gruppe-zeile">
                 <div class="gruppe-felder">
                     <strong>
                         <?= h((string)$b['name']) ?>
                         <?php if ($selbst): ?><span class="abzeichen">Sie</span><?php endif; ?>
                         <?php if ($istAdmin): ?><span class="abzeichen abzeichen-admin">Admin</span><?php endif; ?>
+                        <?php if ($gesperrt): ?>
+                            <span class="abzeichen abzeichen-gesperrt">Gesperrt</span>
+                        <?php endif; ?>
                         <?php if ((int)$b['must_change_password'] === 1): ?>
                             <span class="abzeichen abzeichen-archiv">Passwortwechsel offen</span>
                         <?php endif; ?>
@@ -93,10 +107,13 @@ require __DIR__ . '/lib/view_header.php';
                         <?php endif; ?>
                         · <?= (int)$b['geraete'] ?> angemeldete(s) Gerät(e)
                         · seit <?= h(format_datetime($b['created_at'])) ?>
+                        <?php if ($gesperrt): ?>
+                            <br><strong>Gesperrt seit <?= h(format_datetime($b['blocked_at'])) ?></strong>
+                            — Daten bleiben vollständig erhalten.
+                        <?php endif; ?>
                     </p>
                 </div>
                 <div class="gruppe-knoepfe">
-                    <a class="knopf leise" href="<?= h(base_path()) ?>/admin_plans.php?user=<?= $id ?>">Pläne</a>
                     <?php // Umbenennen ist auch fuer das eigene Konto erlaubt: Man
                           // kennt den neuen Namen und sperrt sich damit nicht aus --
                           // anders als beim Loeschen und beim Adminrecht. ?>
@@ -114,6 +131,24 @@ require __DIR__ . '/lib/view_header.php';
                         </button>
                     <?php else: ?>
                         <button type="button" class="leise admin-an">Zum Admin machen</button>
+                    <?php endif; ?>
+
+                    <?php // Sperren gilt fuer normale Benutzer UND Admins (§6.1) --
+                          // ausgenommen ist allein das eigene Konto. Eine
+                          // Letzter-Admin-Regel braucht es hier nicht: Wer sperrt,
+                          // ist selbst ein aktiver Admin und bleibt es. ?>
+                    <?php // Orange und nicht rot: Rot gehoert hier dem Loeschen, und die
+                          // beiden Dinge sind gegensaetzlich -- das eine nimmt die Daten
+                          // mit, das andere laesst sie ausdruecklich stehen. ?>
+                    <?php if ($gesperrt): ?>
+                        <button type="button" class="sperr-knopf entsperren">Entsperren</button>
+                    <?php else: ?>
+                        <button type="button" class="sperr-knopf sperren"
+                            <?php if ($selbst): ?>
+                                disabled title="Das eigene Konto lässt sich nicht sperren"
+                            <?php endif; ?>>
+                            Sperren
+                        </button>
                     <?php endif; ?>
 
                     <button type="button" class="gefahr loeschen"

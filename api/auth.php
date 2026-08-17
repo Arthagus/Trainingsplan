@@ -30,6 +30,7 @@ match ($aktion) {
     'change_password' => aktion_passwort_aendern($eingabe),
     'change_name'     => aktion_name_aendern($eingabe),
     'set_expert_mode' => aktion_expertenmodus($eingabe),
+    'set_satz_vorlage' => aktion_satz_vorlage($eingabe),
     'revoke_device'   => aktion_geraet_abmelden($eingabe),
     'revoke_all'      => aktion_alle_geraete_abmelden(),
     default           => json_err('Unbekannte Aktion', 400),
@@ -61,7 +62,22 @@ function aktion_login(array $eingabe): never {
         );
     }
 
-    if (!attempt_login($name, $passwort, $merken)) {
+    $ergebnis = attempt_login($name, $passwort, $merken);
+
+    // Gesperrt zaehlt AUSDRUECKLICH nicht als Fehlversuch (§6.1). Das Passwort
+    // war ja richtig -- die Bremse ist gegen Rateversuche gedacht, nicht gegen
+    // korrekte Eingaben. Und sie zaehlt pro IP: Wuerde der Fall mitzaehlen,
+    // sperrte ein gesperrter Benutzer mit fuenf Versuchen den ganzen Haushalt
+    // fuer eine Viertelstunde aus, denn hinter einem Anschluss sitzen alle
+    // unter derselben Adresse.
+    if ($ergebnis === LOGIN_GESPERRT) {
+        json_err(
+            'Dieses Konto ist gesperrt. Ein Administrator kann es wieder freigeben.',
+            403
+        );
+    }
+
+    if ($ergebnis !== LOGIN_OK) {
         record_login_failure($ip);
         // Nicht verraten, ob der Benutzername existiert.
         json_err('Benutzername oder Passwort ist falsch.', 401);
@@ -231,6 +247,45 @@ function aktion_expertenmodus(array $eingabe): never {
         ->execute([$an, current_user_id()]);
 
     json_ok(['expert_mode' => $an]);
+}
+
+/**
+ * Woher die Vorbelegung eines neuen Satzes kommt (§7.4).
+ *
+ * Anders als beim Expertenmodus gibt es hier ABSICHTLICH keine Sperre waehrend
+ * eines laufenden Trainings. Der Grund fuer die Sperre dort ist die Form der
+ * Nutzlast: Ein wartender Eintrag aus dem einfachen Modus traegt keine
+ * Satzliste, ein Wechsel mittendrin waere stiller Datenverlust (Fallstrick 17).
+ * Hier aendert sich an der Nutzlast NICHTS -- beide Verfahren schicken dieselbe
+ * Satzliste, sie unterscheiden sich allein darin, was beim naechsten Tippen auf
+ * "+ Satz" schon in den Feldern steht. Eine Sperre schuetzte hier nichts, und
+ * Sperren, die nichts schuetzen, gewoehnen einem an, sie zu umgehen.
+ *
+ * Ebenso wenig wird geprueft, ob der Expertenmodus ueberhaupt an ist. Der Wert
+ * richtet im einfachen Modus keinen Schaden an -- dort gibt es keine Saetze --,
+ * und eine zweite Bedingung muesste man mit der ersten synchron halten. Die
+ * Oberflaeche stellt die Auswahl dort lediglich abgeblendet dar.
+ */
+function aktion_satz_vorlage(array $eingabe): never {
+    require_login_api();
+    require_passwort_gesetzt_api();
+
+    require_once __DIR__ . '/../lib/training.php';
+
+    $wert = to_str($eingabe['satz_vorlage'] ?? '');
+
+    // Streng gegen die Codeliste, nicht ueber satz_vorlage_normalisieren():
+    // Beim SCHREIBEN ist ein unbekannter Wert ein Fehler des Aufrufers und
+    // gehoert gemeldet. Beim LESEN ist er ein Altbestand und wird still auf
+    // den Standard gezogen. Zwei Richtungen, zwei Haltungen.
+    if (!array_key_exists($wert, SATZ_VORLAGE)) {
+        json_err('Unbekannte Vorbelegung.', 422, ['satz_vorlage' => 'Bitte eine der Möglichkeiten wählen.']);
+    }
+
+    db()->prepare('UPDATE users SET satz_vorlage = ? WHERE id = ?')
+        ->execute([$wert, current_user_id()]);
+
+    json_ok(['satz_vorlage' => $wert]);
 }
 
 /**

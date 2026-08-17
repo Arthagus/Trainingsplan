@@ -85,6 +85,31 @@ function nav_item(
 </head>
 <body>
 
+<?php // Der gemeinsame Behaelter fuer ALLE Leisten, die oben kleben sollen:
+      // die Trainingsleiste (nur index.php bei laufender Einheit) und darunter
+      // die Verbindungsleiste (aus assets/app.js, auf jeder Seite).
+      //
+      // Die REIHENFOLGE ist Fachlichkeit, nicht Geschmack: Was dauerhaft
+      // dasteht, gehoert nach oben; was im Sekundentakt kommt und geht, nach
+      // unten. Andersherum -- so war es in 1.1.14 -- schiebt die kurz
+      // aufblitzende Verbindungsleiste bei JEDEM Abhaken die Trainingsleiste
+      // nach unten und gleich wieder hinauf. Wer also eine weitere Leiste
+      // ergaenzt, sortiert sie nach Bestaendigkeit ein.
+      //
+      // Der Stapel ist sticky, die Leisten darin sind es NICHT. Zwei Elemente
+      // mit `top: 0` legen sich sonst uebereinander, und ein fester Versatz
+      // fuer die zweite waere falsch: Die Verbindungsleiste ist meistens gar
+      // nicht da und kann auf schmalen Geraeten zweizeilig werden.
+      //
+      // Der eigentliche Gewinn steckt aber woanders: zurAktivenSpringen() in
+      // index.js muss beim Weiterspringen die Hoehe dessen abziehen, was oben
+      // klebt (Fallstrick 19). Mit dem Stapel ist das EINE Messung, die von
+      // selbst stimmt -- egal wie viele Leisten gerade sichtbar sind. Vorher
+      // war es eine feste Liste, und die haette man beim Ergaenzen vergessen.
+      //
+      // Steht vor <header>, weil der Kopf mitscrollt und die Leisten nicht. ?>
+<div id="leisten" class="leisten-stapel"><?= $leisteOben ?? '' ?></div>
+
 <?php // Symbolvorrat und Beschriftungen der Trainingsgeraete. Steht hier und
       // nicht je Seite, weil ihn drei Seiten brauchen und ein <use href="#...">
       // nur innerhalb desselben Dokuments wirkt. ?>

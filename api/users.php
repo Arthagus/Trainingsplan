@@ -16,6 +16,11 @@ require_admin_api();
  * Kein Self-Signup -- Benutzer entstehen ausschliesslich hier. Die harte
  * Regel: Der letzte verbliebene Admin darf weder geloescht noch degradiert
  * werden, sonst waere niemand mehr in der Lage, das rueckgaengig zu machen.
+ *
+ * Daneben die drei Selbstsperren, alle mit derselben Begruendung: Loeschen,
+ * Adminrecht entziehen und Sperren gehen NICHT gegen das eigene Konto, weil
+ * danach genau das Recht fehlte, das zum Rueckgaengigmachen noetig waere.
+ * Umbenennen faellt ausdruecklich nicht darunter.
  */
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -35,6 +40,7 @@ match (to_str($eingabe['action'] ?? '')) {
     'rename'         => aktion_umbenennen($eingabe),
     'reset_password' => aktion_passwort_zuruecksetzen($eingabe),
     'set_admin'      => aktion_admin_setzen($eingabe),
+    'set_blocked'    => aktion_sperren($eingabe),
     'delete'         => aktion_loeschen($eingabe),
     default          => json_err('Unbekannte Aktion', 400),
 };
@@ -47,7 +53,7 @@ function admin_anzahl(): int {
 }
 
 function benutzer_laden(int $id): array {
-    $stmt = db()->prepare('SELECT id, name, is_admin FROM users WHERE id = ?');
+    $stmt = db()->prepare('SELECT id, name, is_admin, blocked_at FROM users WHERE id = ?');
     $stmt->execute([$id]);
     $benutzer = $stmt->fetch();
     if ($benutzer === false) {
@@ -186,6 +192,53 @@ function aktion_admin_setzen(array $eingabe): never {
         ->execute([$istAdmin ? 1 : 0, $id]);
 
     json_ok(['id' => $id, 'is_admin' => $istAdmin]);
+}
+
+/**
+ * Konto sperren oder wieder freigeben (§6.1).
+ *
+ * Der Unterschied zum Loeschen ist der ganze Zweck: Plaene, Verlauf, Protokoll
+ * und Saetze bleiben unangetastet, und ein Entsperren stellt den Zustand
+ * vollstaendig wieder her. Gedacht fuer Konten, die nur zeitweise gebraucht
+ * werden -- etwa das Wartungskonto, das zwischen zwei Arbeitsrunden nichts zu
+ * suchen hat.
+ *
+ * Zwei Regeln, und nur zwei:
+ *
+ *   1. Nicht das eigene Konto -- dieselbe Sackgasse wie beim Loeschen und beim
+ *      Adminrecht, nur unmittelbarer: Die Sperre wirkt schon beim naechsten
+ *      Seitenaufruf (current_user()), man waere also noch im selben Klick
+ *      draussen und koennte es nicht zuruecknehmen.
+ *
+ *   2. Sonst KEINE. Insbesondere braucht es hier bewusst keine
+ *      Letzter-Admin-Regel: Sperren darf nur ein angemeldeter Admin, und sich
+ *      selbst kann er nicht sperren -- es bleibt also zwangslaeufig immer
+ *      mindestens ein aktiver Admin uebrig, naemlich der Handelnde. Eine
+ *      zusaetzliche Pruefung waere eine Regel, die nie greifen kann, und solche
+ *      Regeln laedt man sich nicht ein: Sie sehen wie ein Schutz aus und
+ *      verdecken, dass der echte Schutz woanders sitzt.
+ */
+function aktion_sperren(array $eingabe): never {
+    $id        = to_int_or_null($eingabe['id'] ?? null);
+    $sperren   = !empty($eingabe['blocked']);
+
+    if ($id === null) {
+        json_err('Kein Benutzer angegeben.', 422);
+    }
+
+    $benutzer = benutzer_laden($id);
+
+    if ($id === current_user_id()) {
+        json_err(
+            'Das eigene Konto lässt sich hier nicht sperren — Sie wären damit '
+            . 'sofort ausgesperrt und könnten es nicht rückgängig machen.',
+            409
+        );
+    }
+
+    benutzer_sperren($id, $sperren);
+
+    json_ok(['id' => $id, 'blocked' => $sperren, 'name' => (string)$benutzer['name']]);
 }
 
 /**

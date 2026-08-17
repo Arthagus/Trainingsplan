@@ -201,7 +201,25 @@ require __DIR__ . '/lib/view_header.php';
                                     <tr>
                                         <th>Übung</th>
                                         <?php if ($mitSaetzen): ?><th>Sätze</th><?php endif; ?>
-                                        <th class="spalte-zahl">Gewicht</th>
+                                        <?php // Die letzte Spalte haengt am selben Schalter wie
+                                              // die Satz-Spalte: Wo Saetze protokolliert sind,
+                                              // steht dort das geschaetzte 1RM, sonst das
+                                              // Gewicht.
+                                              //
+                                              // Der Tausch ist kein Geschmack: Das schwerste
+                                              // Gewicht steht bei satzgenauen Einheiten schon
+                                              // in der Satz-Spalte daneben, die Zahl waere also
+                                              // doppelt. Das 1RM ist die einzige Kennzahl, die
+                                              // Gewicht UND Wiederholungen zusammenfasst -- und
+                                              // damit die einzige, die man ueber verschiedene
+                                              // Wiederholungszahlen hinweg vergleichen kann.
+                                              //
+                                              // Ohne Wiederholungen laesst es sich nicht
+                                              // schaetzen; im einfachen Modus bleibt es deshalb
+                                              // beim Gewicht. Eine Spalte "1RM", die ueber eine
+                                              // ganze Einheit hinweg nur Striche zeigt, waere
+                                              // schlechter als die Zahl, die es gibt. ?>
+                                        <th class="spalte-zahl"><?= $mitSaetzen ? '1RM' : 'Gewicht' ?></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -222,20 +240,35 @@ require __DIR__ . '/lib/view_header.php';
                                                 <?= satz_gitter($zeilenSaetze) ?>
                                             </td>
                                         <?php endif; ?>
+                                        <?php $e1rm = $mitSaetzen ? saetze_e1rm($zeilenSaetze) : null; ?>
                                         <td class="spalte-zahl">
-                                            <?= $z['weight'] === null
-                                                ? '<span class="matt">—</span>'
-                                                : h(format_decimal((float)$z['weight'])) . ' kg' ?>
+                                            <?php if ($mitSaetzen): ?>
+                                                <?= $e1rm === null
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(format_decimal(round($e1rm, 1))) . ' kg' ?>
+                                            <?php else: ?>
+                                                <?= $z['weight'] === null
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(format_decimal((float)$z['weight'])) . ' kg' ?>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
                             </table>
 
+                            <?php // Der Vorbehalt gehoert an die Zahl und nicht in eine
+                                  // Fussnote: Ein geschaetztes Maximum sieht aus wie ein
+                                  // gemessenes. Wortgleich zur Erklaerung im Uebungs-
+                                  // Abschnitt weiter unten -- zwei Schreibweisen fuer
+                                  // dieselbe Kennzahl liest man als zwei Kennzahlen. ?>
                             <?php if ($mitSaetzen): ?>
                                 <p class="matt">
-                                    Bei satzgenau erfassten Übungen ist das Gewicht der
-                                    schwerste Satz.
+                                    <strong>1RM</strong> ist das geschätzte
+                                    Einwiederholungsmaximum nach Epley
+                                    (kg × (1 + Wdh ÷ 30)) aus dem besten Satz — eine
+                                    Näherung, kein gemessener Wert. Das schwerste Gewicht
+                                    selbst steht in der Spalte „Sätze“.
                                 </p>
                             <?php endif; ?>
                         <?php endif; ?>
@@ -387,15 +420,25 @@ require __DIR__ . '/lib/view_header.php';
                               // eine Fußnote: Ein geschätztes Maximum sieht aus wie ein
                               // gemessenes. Genau diese vorgetäuschte Genauigkeit hat
                               // 2026-08-07 das Wiederholungsfeld gekostet. ?>
+                        <?php // Drei Absätze statt eines Blocks: Es sind drei Spalten und
+                              // drei Begriffe, und untereinander findet man den gesuchten,
+                              // ohne einen Fließtext zu lesen. ?>
                         <?php if ($hatSaetze): ?>
                             <p class="matt">
                                 <strong>Volumen</strong> ist die Summe aus Wiederholungen
-                                mal Gewicht über alle Sätze einer Einheit — sie steigt
+                                mal Gewicht über alle Sätze einer Einheit — es steigt
                                 auch dann, wenn das Gewicht gleich bleibt.
+                            </p>
+                            <p class="matt">
                                 <strong>1RM</strong> ist das geschätzte
                                 Einwiederholungsmaximum nach Epley
                                 (kg × (1 + Wdh ÷ 30)) aus dem besten Satz — eine
                                 Näherung, kein gemessener Wert.
+                            </p>
+                            <p class="matt">
+                                <strong>Gewicht</strong> ist bei satzgenau erfassten
+                                Übungen der Höchstwert dieser Einheit — also das Gewicht
+                                des schwersten Satzes.
                             </p>
                         <?php endif; ?>
                     </details>
