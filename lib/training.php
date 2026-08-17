@@ -366,7 +366,7 @@ function plan_positionen(
                 COALESCE(sw.replacement_exercise_id, pe.exercise_id) AS exercise_id,
                 sw.replacement_exercise_id IS NOT NULL AS getauscht,
                 e.name_de, e.name_en, e.description, e.focus, e.equipment,
-                e.image_path, e.archived,
+                e.image_path, e.image_crop, e.archived,
                 orig.name_de     AS plan_uebung_name,
                 wl.id            AS log_id,
                 wl.weight, wl.done, wl.performed_at
@@ -424,6 +424,7 @@ function plan_positionen(
             'focus'            => $z['focus'],
             'equipment'        => $z['equipment'],
             'image_path'       => $z['image_path'],
+            'image_crop'       => $z['image_crop'],
             'archived'         => (int)$z['archived'] === 1,
             'getauscht'        => (int)$z['getauscht'] === 1,
             'plan_uebung_name' => (string)$z['plan_uebung_name'],
@@ -712,7 +713,7 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     // Ausweg, den man in dem Moment sucht.
     $stmt = db()->prepare(
         "SELECT e.id, e.name_de, e.name_en, e.focus, e.equipment, e.image_path,
-                mg.name_de AS gruppe
+                e.image_crop, mg.name_de AS gruppe
            FROM exercises e
            JOIN exercise_muscle_groups emg
                 ON emg.exercise_id = e.id AND emg.is_primary = 1

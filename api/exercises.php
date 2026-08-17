@@ -44,7 +44,7 @@ match (to_str($eingabe['action'] ?? '')) {
  * Prueft Name, Beschreibung, Trainingsgeraet und Muskelgruppen-Auswahl.
  *
  * @return array{name_de:string,name_en:?string,description:?string,focus:?string,
- *               equipment:string,groups:int[],primary:int}
+ *               equipment:string,image_crop:string,groups:int[],primary:int}
  */
 function eingabe_pruefen(array $eingabe): array {
     $fehler = [];
@@ -79,6 +79,18 @@ function eingabe_pruefen(array $eingabe): array {
         $fehler['equipment'] = 'Bitte ein Trainingsgerät wählen.';
     } elseif (!geraet_gueltig($geraet)) {
         $fehler['equipment'] = 'Unbekanntes Trainingsgerät.';
+    }
+
+    // Der Bildzuschnitt ist -- anders als das Geraet -- KEIN Pflichtfeld: Er
+    // hat einen sinnvollen Vorgabewert ('mitte'), und der ist genau das
+    // Verhalten von vorher. Ein fehlendes Feld faellt deshalb still darauf
+    // zurueck, ein gesetztes aber falsches wird abgewiesen -- sonst landete ein
+    // Tippfehler als toter Wert in der Spalte.
+    $zuschnitt = to_str($eingabe['image_crop'] ?? '');
+    if ($zuschnitt === '') {
+        $zuschnitt = ZUSCHNITT_VORGABE;
+    } elseif (!zuschnitt_gueltig($zuschnitt)) {
+        $fehler['image_crop'] = 'Unbekannte Ausrichtung.';
     }
 
     // Zwei getrennte Spalten im Formular: genau eine Primaergruppe (Radiobutton)
@@ -120,6 +132,7 @@ function eingabe_pruefen(array $eingabe): array {
         'description' => $beschreibung === '' ? null : $beschreibung,
         'focus'       => $fokus === '' ? null : $fokus,
         'equipment'   => $geraet,
+        'image_crop'  => $zuschnitt,
         'groups'      => $gruppen,
         'primary'     => (int)$primaer,
     ];
@@ -169,12 +182,13 @@ function aktion_anlegen(array $eingabe): never {
             $stmt = $pdo->prepare(
                 'INSERT INTO exercises
                      (name_de, name_en, description, focus, equipment, image_path,
-                      archived, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, 0, ?)'
+                      image_crop, archived, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $daten['equipment'], $bild, now(),
+                $daten['focus'], $daten['equipment'], $bild,
+                $daten['image_crop'], now(),
             ]);
             $neu = (int)$pdo->lastInsertId();
             gruppen_schreiben($pdo, $neu, $daten['groups'], $daten['primary']);
@@ -215,12 +229,13 @@ function aktion_bearbeiten(array $eingabe): never {
             $stmt = $pdo->prepare(
                 'UPDATE exercises
                     SET name_de = ?, name_en = ?, description = ?, focus = ?,
-                        equipment = ?, image_path = ?
+                        equipment = ?, image_path = ?, image_crop = ?
                   WHERE id = ?'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $daten['equipment'], $bildSpalte, $id,
+                $daten['focus'], $daten['equipment'], $bildSpalte,
+                $daten['image_crop'], $id,
             ]);
             gruppen_schreiben($pdo, $id, $daten['groups'], $daten['primary']);
         });

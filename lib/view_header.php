@@ -60,8 +60,28 @@ function nav_item(
 <link rel="manifest" href="<?= h($base) ?>/assets/manifest.json">
 <link rel="icon" href="<?= h($base) ?>/assets/icon-192.png">
 <link rel="apple-touch-icon" href="<?= h($base) ?>/assets/icon-192.png">
-<link rel="stylesheet" href="<?= h($base) ?>/assets/style.css">
-<script src="<?= h($base) ?>/assets/app.js" defer></script>
+<?php // Die Versionsnummer haengt an JEDER Asset-URL, und das ist keine Kosmetik.
+      //
+      // Bis 1.1.7 hiess die Datei immer "assets/style.css". Eine Adresse, die
+      // sich nie aendert, ist fuer jeden Cache dieselbe Datei -- und davon gibt
+      // es ZWEI hintereinander: den Service-Worker-Cache und den HTTP-Cache des
+      // Browsers. Das Hochzaehlen von CACHE in sw.js erreicht nur den ersten.
+      //
+      // Genau daran ist 1.1.7 am Handy gescheitert: Der Server liefert kein
+      // Cache-Control, also darf der Browser heuristisch cachen (ueblich sind
+      // 10 % der Zeit seit Last-Modified). cache.addAll() im Service Worker
+      // laeuft durch diesen HTTP-Cache -- der frische v20-Cache wurde also mit
+      // der ALTEN style.css befuellt, und activate() loeschte v19 hinterher.
+      // Ergebnis: neues HTML, altes Stylesheet, und kein Weg zurueck ausser
+      // Cache von Hand leeren.
+      //
+      // Mit ?v=1.1.8 ist es eine ANDERE Adresse. Ein alter Eintrag kann gar
+      // nicht mehr getroffen werden, in keinem der beiden Caches. Das ist die
+      // einzige Loesung, die nicht davon abhaengt, dass sich jemand richtig
+      // verhaelt.
+      $v = app_version(); ?>
+<link rel="stylesheet" href="<?= h($base) ?>/assets/style.css?v=<?= h($v) ?>">
+<script src="<?= h($base) ?>/assets/app.js?v=<?= h($v) ?>" defer></script>
 </head>
 <body>
 

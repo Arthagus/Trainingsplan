@@ -62,7 +62,7 @@ if ($aktuellerBenutzer !== null) {
         $stmt = db()->prepare(
             "SELECT pe.id, pe.plan_id, pe.sort_order, e.id AS exercise_id,
                     e.name_de, e.name_en, e.focus, e.equipment, e.archived,
-                    e.image_path, e.description
+                    e.image_path, e.image_crop, e.description
                FROM plan_exercises pe
                JOIN exercises e ON e.id = pe.exercise_id
               WHERE pe.plan_id IN ($platzhalter)
@@ -240,7 +240,7 @@ require __DIR__ . '/lib/view_header.php';
                                           // Name und Beschreibung (assets/app.js, bildGrossZeigen). ?>
                                     <button type="button" class="bild-knopf"
                                             aria-label="Bild und Beschreibung anzeigen">
-                                        <img class="position-bild"
+                                        <img class="<?= h(trim('position-bild ' . bild_zuschnitt_klasse($z['image_crop'] ?? null))) ?>"
                                              src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
                                              alt="" loading="lazy" width="72" height="72">
                                     </button>

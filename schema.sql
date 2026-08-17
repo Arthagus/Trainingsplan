@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS exercises (
     focus       TEXT,
     equipment   TEXT,
     image_path  TEXT,
+    -- Welche Seite beim quadratischen Zuschnitt wegfaellt: 'links', 'mitte'
+    -- oder 'rechts'. Wirkt allein ueber object-position im Stylesheet, die
+    -- Bilddatei bleibt unberuehrt. Codeliste ZUSCHNITT in lib/geraete.php.
+    image_crop  TEXT    NOT NULL DEFAULT 'mitte',
     archived    INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
     archived_at TEXT,
     created_at  TEXT    NOT NULL

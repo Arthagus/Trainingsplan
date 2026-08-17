@@ -236,9 +236,9 @@ require __DIR__ . '/lib/view_header.php';
                         <?php if (!empty($z['image_path'])): ?>
                             <?php $thumb = substr((string)$z['image_path'], 0, 32) . '_thumb.jpg'; ?>
                             <button type="button" class="bild-knopf" aria-label="Bild und Beschreibung anzeigen">
-                                <img class="uebung-bild"
+                                <img class="<?= h(trim('uebung-bild ' . bild_zuschnitt_klasse($z['image_crop'] ?? null))) ?>"
                                      src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
-                                     alt="" loading="lazy" width="120" height="120">
+                                     alt="" loading="lazy" width="150" height="150">
                             </button>
                         <?php else: ?>
                             <span class="uebung-bild uebung-bild-leer" aria-hidden="true">–</span>
@@ -265,17 +265,21 @@ require __DIR__ . '/lib/view_header.php';
                                     </span>
                                 <?php endforeach; ?>
                             </p>
-                            <?php // Das Trainingsgeraet steht hier bewusst mit im
-                                  // Studio: Es sagt, wohin man gehen muss, und ist
-                                  // damit die Information, die man beim Blick aufs
-                                  // Handy als naechste braucht. ?>
-                            <p class="schwerpunkt-zeile">
-                                <?= geraet_abzeichen($z['equipment'] ?? null) ?>
-                                <?php if (!empty($z['focus'])): ?>
-                                    <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
-                                <?php endif; ?>
-                            </p>
                         </div>
+
+                        <?php // Das Trainingsgeraet steht hier bewusst mit im Studio: Es
+                              // sagt, wohin man gehen muss, und ist damit die Information,
+                              // die man beim Blick aufs Handy als naechste braucht.
+                              //
+                              // Seit 2026-08-17 UNTER dem Bild ueber die volle Breite statt
+                              // in der Textspalte -- so bleibt der Textspalte weniger
+                              // Breite abzuringen und das Bild darf groesser werden. ?>
+                        <p class="schwerpunkt-zeile">
+                            <?= geraet_abzeichen($z['equipment'] ?? null) ?>
+                            <?php if (!empty($z['focus'])): ?>
+                                <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
+                            <?php endif; ?>
+                        </p>
                     </div>
 
                     <?php if (!empty($z['description'])): ?>

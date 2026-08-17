@@ -180,6 +180,30 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec('ALTER TABLE workout_log ADD COLUMN done INTEGER NOT NULL DEFAULT 1');
     }
 
+    // 2026-08-17: Welche Seite eines breiten Bildes beim Zuschnitt wegfaellt.
+    //
+    // Die Vorschaubilder stehen in einem quadratischen Rahmen mit
+    // `object-fit: cover`. Bei einem Motiv, das breiter als hoch ist, schneidet
+    // der Browser links UND rechts gleich viel weg -- und traf damit regelmaessig
+    // neben das Geraet, wenn es nicht mittig im Bild stand. Gemeldet aus dem
+    // Training am 2026-08-17.
+    //
+    // Rein additiv, und die Vorgabe 'mitte' ist genau das bisherige Verhalten:
+    // Jede bestehende Uebung sieht nach der Migration unveraendert aus. Der Wert
+    // wirkt ALLEIN ueber `object-position` im Stylesheet -- die Bilddateien
+    // bleiben unangetastet, ein spaeterer Wechsel kostet deshalb nichts und
+    // laesst sich beliebig oft aendern. Das geht nur, weil write_resized() in
+    // lib/upload.php ausschliesslich skaliert und NICHT beschneidet; das
+    // Vorschaubild traegt also noch das volle Seitenverhaeltnis.
+    //
+    // TEXT und nicht INTEGER, weil der Wert in der Datenbank lesbar sein soll:
+    // 'links' / 'mitte' / 'rechts'. Geprueft wird gegen die Codeliste
+    // ZUSCHNITT in lib/geraete.php, nicht ueber ein CHECK -- dieselbe
+    // Begruendung wie beim Trainingsgeraet (Fallstrick 16).
+    if (!column_exists($pdo, 'exercises', 'image_crop')) {
+        $pdo->exec("ALTER TABLE exercises ADD COLUMN image_crop TEXT NOT NULL DEFAULT 'mitte'");
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die

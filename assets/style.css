@@ -208,6 +208,25 @@ button.gefahr { background: var(--fehler); }
     flex: none;
 }
 
+/* Überschrift für eine Feldgruppe, die kein einzelnes <label> tragen kann —
+   drei Radiobuttons haben je ein eigenes. Sieht aus wie ein <label>, ist aber
+   keins: Ein <label> ohne `for` wäre für Screenreader ein Versprechen ohne
+   Ziel. */
+.feld-titel {
+    display: block;
+    margin-top: 0.8rem;
+    font-weight: 600;
+}
+
+/* Die drei Ausrichtungen nebeneinander, solange die Breite reicht. Am Handy
+   brechen sie um — untereinander sind sie immer noch lesbar, und jede Zeile
+   behält ihr 44px-Tippziel aus .zeile-wahl. */
+.zuschnitt-wahl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.2rem;
+}
+
 .hinweis-warnung {
     border-left: 4px solid var(--warnung);
     background: #fdf7ee;
@@ -432,10 +451,20 @@ button.gefahr { background: var(--fehler); }
 
 /* --- Übungsliste --------------------------------------------------------- */
 
+/* Bild und Text nebeneinander, Gerät + Ausführung darunter über die volle
+   Breite. Bis 2026-08-17 war das ein Flex-Container mit zwei Kindern; seit die
+   Schwerpunktzeile als drittes dazukam, muss es ein Grid sein — als Flex-Kind
+   hätte sie sich RECHTS neben den Text gestellt statt darunter. */
 .uebung-kopf {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.75rem;
+    align-items: start;
+}
+
+.uebung-kopf > .schwerpunkt-zeile {
+    grid-column: 1 / -1;
+    margin: 0.5rem 0 0;
 }
 
 /* Übungsverwaltung: oben Bild und Text nebeneinander, darunter die Knöpfe über
@@ -465,14 +494,36 @@ button.gefahr { background: var(--fehler); }
 /* Über beide Spalten, damit die Knöpfe die volle Breite der Karte haben. */
 .uebung-raster > .uebung-knoepfe { grid-column: 1 / -1; }
 
+/* Gerät und Ausführung stehen seit 2026-08-17 ebenfalls über beide Spalten,
+   also UNTER dem Bild statt rechts daneben. Damit muss sich die Textspalte
+   die Breite nicht mehr mit ihnen teilen, und das Bild durfte wachsen. */
+.uebung-raster > .schwerpunkt-zeile {
+    grid-column: 1 / -1;
+    margin: 0.5rem 0 0;
+}
+
 .uebung-bild {
-    width: 80px;
-    height: 80px;
+    width: 112px;
+    height: 112px;
     flex: none;
     object-fit: cover;
     border-radius: var(--radius);
     background: var(--grund-tief);
 }
+
+/* Welche Seite eines breiten Motivs stehen bleibt (exercises.image_crop).
+   `object-fit: cover` schneidet ohne diese Angabe links und rechts gleich viel
+   weg und trifft damit neben das Gerät, sobald es nicht mittig im Bild steht.
+
+   'mitte' bekommt bewusst KEINE Klasse — das ist der Vorgabewert von
+   object-position, und eine Klasse dafür wäre Rauschen im Markup. Die Werte
+   entstehen in bild_zuschnitt_klasse() (PHP) und in vorschlagMarkup()
+   (assets/app.js); beide Hälften gehören zusammen geändert.
+
+   Gilt für alle drei Bildgrößen — Übungsliste, Trainingsansicht, Planposition
+   und Tauschvorschlag —, damit dasselbe Motiv überall gleich ausgerichtet ist. */
+.bild-links  { object-position: 0% 50%; }
+.bild-rechts { object-position: 100% 50%; }
 
 .uebung-bild-leer {
     display: flex;
@@ -482,17 +533,27 @@ button.gefahr { background: var(--fehler); }
     color: var(--schrift-matt);
 }
 
-/* Auf der Trainingsseite sind die Bilder um die Hälfte größer: Im Studio wird
-   am Gerät danach gesucht, nicht gelesen. In der Übungsverwaltung bleibt es bei
-   80px — dort geht es um die Liste, nicht um das Motiv. Das Thumbnail liegt mit
-   320px Kantenlänge vor, 120px sind also auch auf feinen Displays scharf. */
+/* Auf der Trainingsseite sind die Bilder größer: Im Studio wird am Gerät danach
+   gesucht, nicht gelesen. Das Thumbnail liegt mit 320px Kantenlänge vor, 150px
+   sind also auch auf feinen Displays scharf.
+
+   Beide Größen sind am 2026-08-17 gewachsen (80→112, 120→150). Möglich wurde
+   das, weil Gerät und Ausführung aus der Textspalte unter das Bild gewandert
+   sind — die Rückmeldung lautete „in der Breite mehr Platz für die Bilder". */
 #uebungen .uebung-bild {
-    width: 120px;
-    height: 120px;
+    width: 150px;
+    height: 150px;
 }
 
 .uebung-text { min-width: 0; }
-.uebung-text > .matt { margin: 0.15rem 0; }
+
+/* Der englische Name gehört UNTER den deutschen, nicht daneben: Beide sind
+   inline, und nebeneinander gelesen verschmelzen sie zu einem langen Namen.
+   `display: block` trennt sie, ohne ein zusätzliches Element zu brauchen. */
+.uebung-text > .matt {
+    display: block;
+    margin: 0.15rem 0;
+}
 
 .gruppen-anzeige {
     display: flex;
@@ -1460,11 +1521,60 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 .satz-spalte {
     font-size: 0.85rem;
     font-variant-numeric: tabular-nums;
+}
+
+/* Die Sätze standen bis 2026-08-17 als eine Zeile mit `white-space: nowrap`
+   ("12×40 · 10×40 · 9×45"). Neben Datum, Volumen, 1RM und Gewicht sprengte das
+   auf einem Pixel 10 Pro XL die Breite, und die Tabelle rollte seitwärts.
+
+   Zwei nebeneinander, der Rest in weiteren Zeilen — das hält die Spalte schmal
+   und bleibt lesbar, weil jeder Satz für sich steht. `max-content` statt `1fr`,
+   damit die Spalten sich an den Zahlen ausrichten und nicht die Zelle aufziehen.
+
+   Das Gitter sitzt auf einem <span> IM <td>, nicht auf dem <td> selbst: `display:
+   grid` auf einer Tabellenzelle nimmt ihr das `table-cell`-Verhalten, und die
+   Spalten der Tabelle richten sich dann nicht mehr aneinander aus. */
+.satz-gitter {
+    display: grid;
+    grid-template-columns: repeat(2, max-content);
+    gap: 0.15rem 0.55rem;
+}
+
+/* Auf dem Desktop ist die Breite da — dort stehen vier nebeneinander, sonst
+   wird die Zelle unnötig hoch. */
+@media (min-width: 40rem) {
+    .satz-gitter { grid-template-columns: repeat(4, max-content); }
+}
+
+/* Das Datum trägt in der Übungstabelle ein zweistelliges Jahr (siehe
+   `format_datum_kurz()`). Tag und Uhrzeit sind zwei Elemente, nicht ein String:
+
+   Am Handy steht die Uhrzeit UNTER dem Datum — nebeneinander war die Spalte dort
+   die breiteste der fünf und drückte die Sätze zusammen. Ein erzwungener Umbruch
+   mitten in "17.08.26 14:30" wäre schlechter gewesen als beides sauber getrennt.
+
+   Ab 40rem ist die Breite da, dort stehen sie wieder nebeneinander — sonst wird
+   jede Zeile der Tabelle ohne Grund doppelt so hoch. */
+.datum-spalte {
+    font-variant-numeric: tabular-nums;
+}
+
+.datum-tag,
+.datum-zeit {
+    display: block;
     white-space: nowrap;
 }
 
-/* Fünf Spalten passen auf kein Handy. Statt umbrechender Zellen rollt die
-   Tabelle seitwärts in ihrem eigenen Kasten; die Seite selbst bleibt fest. */
+.datum-zeit { color: var(--schrift-matt); }
+
+@media (min-width: 40rem) {
+    .datum-tag,
+    .datum-zeit { display: inline; }
+}
+
+/* Netz für den Rest: sehr viele Sätze oder ein sehr schmales Gerät können die
+   fünf Spalten weiterhin sprengen. Dann rollt die Tabelle in ihrem eigenen
+   Kasten; die Seite selbst bleibt fest. */
 .tabelle-rollt { overflow-x: auto; }
 
 /* Volumen- und 1RM-Kurve stehen im aufgeklappten Bereich, jede mit ihrer

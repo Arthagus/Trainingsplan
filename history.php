@@ -35,6 +35,40 @@ $uebungen  = uebungen_mit_verlauf($userId);
 $offen     = offene_einheit($userId);
 
 /**
+ * Baut die Zelle „Saetze" als umbrechendes Gitter statt als eine Zeile.
+ *
+ * `saetze_text()` liefert "12×40 · 10×40 · 9×45" am Stueck, und die Zelle stand
+ * mit `white-space: nowrap`. Bei fuenf Spalten -- Datum, Saetze, Volumen, 1RM,
+ * Gewicht -- reichte das auf einem Pixel 10 Pro XL nicht, die Tabelle rollte
+ * seitwaerts. Gemeldet aus dem Training am 2026-08-17.
+ *
+ * Jeder Satz kommt deshalb als eigenes <span>; das Gitter in `.satz-gitter`
+ * setzt zwei nebeneinander und den Rest in weitere Zeilen. Der Mittelpunkt als
+ * Trenner faellt weg -- die Spalten trennen bereits, und ein Trenner am
+ * Zeilenende saehe aus, als fehlte etwas.
+ *
+ * Bewusst NICHT in `saetze_text()` geaendert: Das Paar `saetze_text()` /
+ * `saetzeText()` (PHP + JS) muss gleich bleiben, und `saetze_zusammenfassung()`
+ * baut darauf auf. Hier entsteht Markup, dort ein reiner String.
+ *
+ * @param array $saetze Saetze der Position, in Reihenfolge
+ */
+function satz_gitter(array $saetze): string {
+    if ($saetze === []) {
+        return '<span class="matt">—</span>';
+    }
+
+    $teile = [];
+    foreach ($saetze as $s) {
+        $wdh = $s['reps']   === null ? '?' : (string)$s['reps'];
+        $kg  = $s['weight'] === null ? '—' : format_decimal($s['weight']);
+        $teile[] = '<span>' . h($wdh . '×' . $kg) . '</span>';
+    }
+
+    return '<span class="satz-gitter">' . implode('', $teile) . '</span>';
+}
+
+/**
  * Zeichnet den Gewichtsverlauf als kleine Kurve.
  *
  * Inline-SVG statt Diagramm-Bibliothek: Das hält die Regel „kein Build-Step,
@@ -185,9 +219,7 @@ require __DIR__ . '/lib/view_header.php';
                                         </td>
                                         <?php if ($mitSaetzen): ?>
                                             <td class="satz-spalte">
-                                                <?= $zeilenSaetze === []
-                                                    ? '<span class="matt">—</span>'
-                                                    : h(saetze_text($zeilenSaetze)) ?>
+                                                <?= satz_gitter($zeilenSaetze) ?>
                                             </td>
                                         <?php endif; ?>
                                         <td class="spalte-zahl">
@@ -291,11 +323,15 @@ require __DIR__ . '/lib/view_header.php';
                             </p>
                         <?php endif; ?>
 
-                        <?php // Mit Sätzen, Volumen und 1RM hat die Tabelle fünf
-                              // Spalten und passt auf kein Handy. Sie rollt dann
-                              // seitwärts in ihrem eigenen Kasten — die Alternative
-                              // wären umbrechende Zellen, in denen „12×40 · 10×40"
-                              // über drei Zeilen steht. ?>
+                        <?php // Mit Sätzen, Volumen und 1RM hat die Tabelle fünf Spalten.
+                              // Sie passen seit 2026-08-17 auch auf ein Handy: Das Datum
+                              // trägt ein zweistelliges Jahr, und die Sätze brechen in
+                              // `satz_gitter()` um, statt in einer Zeile zu stehen.
+                              // Vorher rollte die Tabelle hier seitwärts.
+                              //
+                              // Der rollende Kasten bleibt als Netz — bei sehr vielen
+                              // Sätzen oder sehr schmalen Geräten greift er weiterhin,
+                              // und dann ist Rollen besser als eine zerdrückte Spalte. ?>
                         <div class="<?= $hatSaetze ? 'tabelle-rollt' : '' ?>">
                         <table class="verlauf-tabelle">
                             <thead>
@@ -312,12 +348,16 @@ require __DIR__ . '/lib/view_header.php';
                             <tbody>
                             <?php foreach (array_reverse($verlauf) as $v): ?>
                                 <tr>
-                                    <td><?= h(format_datetime($v['performed_at'])) ?></td>
+                                    <?php // Datum und Uhrzeit als zwei Elemente, damit das
+                                          // Stylesheet sie am Handy untereinander und auf
+                                          // breiten Schirmen nebeneinander setzen kann. ?>
+                                    <td class="datum-spalte">
+                                        <span class="datum-tag"><?= h(format_datum_kurz($v['performed_at'])) ?></span>
+                                        <span class="datum-zeit"><?= h(format_zeit($v['performed_at'])) ?></span>
+                                    </td>
                                     <?php if ($hatSaetze): ?>
                                         <td class="satz-spalte">
-                                            <?= $v['saetze'] === []
-                                                ? '<span class="matt">—</span>'
-                                                : h(saetze_text($v['saetze'])) ?>
+                                            <?= satz_gitter($v['saetze']) ?>
                                         </td>
                                         <td class="spalte-zahl">
                                             <?= $v['volumen'] === null

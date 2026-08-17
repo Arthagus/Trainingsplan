@@ -42,6 +42,60 @@ const GERAETE = [
 ];
 
 /**
+ * Welche Seite eines breiten Bildes beim Zuschnitt stehen bleibt (§6.3).
+ *
+ * Die Vorschaubilder stehen in einem quadratischen Rahmen mit
+ * `object-fit: cover`. Ist das Motiv breiter als hoch, schneidet der Browser
+ * ohne weitere Angabe links und rechts gleich viel weg -- und trifft damit
+ * neben das Geraet, sobald es nicht mittig im Bild steht. Genau das fiel im
+ * Training am 2026-08-17 auf.
+ *
+ * **Der Wert aendert keine Datei.** Er wird in `bild_zuschnitt_klasse()` zu
+ * einer CSS-Klasse und wirkt allein ueber `object-position`. Das geht nur, weil
+ * `write_resized()` in `lib/upload.php` ausschliesslich skaliert und NICHT
+ * beschneidet -- das Vorschaubild traegt noch das volle Seitenverhaeltnis des
+ * Originals. Wer daran je etwas aendert, nimmt dieser Einstellung die
+ * Grundlage: Ein bereits quadratisch beschnittenes Thumbnail laesst sich
+ * nachtraeglich nicht mehr anders ausrichten.
+ *
+ * Codeliste statt Tabelle und ohne CHECK, aus denselben Gruenden wie bei
+ * GERAETE oben. Geprueft wird in `api/exercises.php`.
+ *
+ * Bei einem Bild, das hoeher als breit ist, hat die Einstellung keine Wirkung --
+ * dort schneidet `cover` oben und unten. Das ist hingenommen: Die Uebungsbilder
+ * sind Geraetefotos im Querformat, ein Waehler fuer "oben/unten" waere ein
+ * zweites Feld fuer einen Fall, den es hier nicht gibt.
+ */
+const ZUSCHNITT = [
+    'links'  => 'linke Seite',
+    'mitte'  => 'Mitte',
+    'rechts' => 'rechte Seite',
+];
+
+/** Vorgabe fuer neue Uebungen und fuer alles, was die Migration vorfindet. */
+const ZUSCHNITT_VORGABE = 'mitte';
+
+function zuschnitt_gueltig(string $code): bool {
+    return array_key_exists($code, ZUSCHNITT);
+}
+
+/**
+ * Die CSS-Klasse zum gespeicherten Wert.
+ *
+ * 'mitte' liefert bewusst den leeren String: Das ist der Vorgabewert von
+ * `object-position`, eine eigene Klasse waere reines Rauschen im Markup. Ein
+ * unbekannter oder fehlender Wert faellt auf dasselbe zurueck -- eine Uebung
+ * aus der Zeit vor dieser Spalte sieht damit aus wie immer.
+ */
+function bild_zuschnitt_klasse(?string $code): string {
+    return match ($code) {
+        'links'  => 'bild-links',
+        'rechts' => 'bild-rechts',
+        default  => '',
+    };
+}
+
+/**
  * Der dritte Zustand des Geraetefilters neben "egal" und "dieses Geraet":
  * findet die Uebungen OHNE Angabe.
  *

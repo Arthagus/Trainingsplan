@@ -123,7 +123,7 @@ if ($gruppeFilter !== null) {
 
 $stmt = db()->prepare(
     'SELECT e.id, e.name_de, e.name_en, e.description, e.focus, e.equipment,
-            e.image_path, e.archived, e.archived_at, e.created_at,
+            e.image_path, e.image_crop, e.archived, e.archived_at, e.created_at,
             (SELECT COUNT(*) FROM workout_log wl WHERE wl.exercise_id = e.id) AS log_anzahl
        FROM exercises e' . $listeWoSql . '
       ORDER BY ' . $sortSql
@@ -283,6 +283,47 @@ function geraet_auswahl(string $prefix, ?string $gewaehlt): void {
     <?php
 }
 
+/**
+ * Waehler fuer den Bildzuschnitt.
+ *
+ * Radiobuttons und kein <select>: Es sind drei Werte, sie schliessen einander
+ * aus, und man will sie nebeneinander sehen, waehrend man auf das Bild schaut.
+ * Ein zugeklapptes Auswahlfeld verlangte dafuer einen Griff mehr.
+ *
+ * Steht bewusst DIREKT unter dem Bildfeld und nicht bei den uebrigen Angaben:
+ * Die Einstellung gehoert zum Bild, und wer gerade eins hochlaedt, entscheidet
+ * in demselben Moment, welche Seite wichtig ist.
+ *
+ * @param string  $prefix   Macht die Feld-IDs je Formular eindeutig
+ * @param ?string $gewaehlt Der bisherige Wert (null bei einer neuen Uebung)
+ */
+function zuschnitt_auswahl(string $prefix, ?string $gewaehlt): void {
+    $gewaehlt = $gewaehlt === null || $gewaehlt === '' ? ZUSCHNITT_VORGABE : $gewaehlt;
+    if (!zuschnitt_gueltig($gewaehlt)) {
+        $gewaehlt = ZUSCHNITT_VORGABE;
+    }
+    ?>
+    <span class="feld-titel">Bildausschnitt</span>
+    <div class="zuschnitt-wahl">
+        <?php foreach (ZUSCHNITT as $code => $label): ?>
+            <label class="zeile-wahl">
+                <input type="radio" name="image_crop" value="<?= h($code) ?>"
+                       id="<?= h($prefix) ?>_crop_<?= h($code) ?>"
+                       <?= $gewaehlt === $code ? 'checked' : '' ?>>
+                <?= h($label) ?>
+            </label>
+        <?php endforeach; ?>
+    </div>
+    <p class="matt">
+        Nur wirksam, wenn das Bild <em>breiter als hoch</em> ist: In der Liste steht
+        es in einem quadratischen Rahmen, und dann fällt an den Seiten etwas weg.
+        Hier wählt man, welche Seite stehen bleibt. Die Bilddatei ändert sich nicht —
+        die Einstellung lässt sich jederzeit umstellen.
+    </p>
+    <p class="feld-fehler" data-fehler-fuer="image_crop" hidden></p>
+    <?php
+}
+
 /** Baut eine Filter-URL mit den jeweils anderen Parametern. */
 function filter_url(string $filter, ?int $gruppe, string $geraet): string {
     $p = ['filter' => $filter];
@@ -350,6 +391,8 @@ require __DIR__ . '/lib/view_header.php';
         <label for="neu_image">Bild (optional, JPEG, PNG oder WebP, max. 5 MB)</label>
         <input type="file" id="neu_image" name="image" accept="image/jpeg,image/png,image/webp">
         <p class="feld-fehler" data-fehler-fuer="image" hidden></p>
+
+        <?php zuschnitt_auswahl('neu', null); ?>
 
         <p><button type="submit">Übung anlegen</button></p>
     </form>
@@ -463,9 +506,9 @@ require __DIR__ . '/lib/view_header.php';
                         <?php // Antippbar wie im Training: dasselbe Bild gross, mit
                               // Name und Beschreibung (assets/app.js, bildGrossZeigen). ?>
                         <button type="button" class="bild-knopf" aria-label="Bild und Beschreibung anzeigen">
-                            <img class="uebung-bild"
+                            <img class="<?= h(trim('uebung-bild ' . bild_zuschnitt_klasse($u['image_crop'] ?? null))) ?>"
                                  src="<?= h(base_path()) ?>/image.php?f=<?= h($thumb) ?>"
-                                 alt="" loading="lazy" width="80" height="80">
+                                 alt="" loading="lazy" width="112" height="112">
                         </button>
                     <?php else: ?>
                         <span class="uebung-bild uebung-bild-leer" aria-hidden="true">–</span>
@@ -503,16 +546,6 @@ require __DIR__ . '/lib/view_header.php';
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </p>
-                        <?php // Das Geraet steht immer, auch wenn es fehlt: Ein leerer
-                              // Platz waere genau die Sorte Luecke, die niemand
-                              // nachpflegt. Die Ausfuehrung daneben, sofern gesetzt. ?>
-                        <p class="schwerpunkt-zeile">
-                            <?= geraet_abzeichen($u['equipment'] ?? null) ?>
-                            <?php if (!empty($u['focus'])): ?>
-                                <span class="schwerpunkt"><?= h((string)$u['focus']) ?></span>
-                            <?php endif; ?>
-                        </p>
-
                         <?php if ($archiviert): ?>
                             <p class="matt">
                                 Archiviert am <?= h(format_datetime($u['archived_at'])) ?>
@@ -534,6 +567,22 @@ require __DIR__ . '/lib/view_header.php';
                             </p>
                         <?php endif; ?>
                     </div>
+
+                    <?php // Geraet und Ausfuehrung stehen seit 2026-08-17 UNTER dem Bild
+                          // ueber die volle Kartenbreite, nicht mehr in der Textspalte
+                          // daneben. Damit braucht die Textspalte weniger Platz, und das
+                          // Bild darf breiter werden -- genau darum ging es bei der
+                          // Rueckmeldung aus dem Training. Beides zusammen ergibt eine
+                          // Zeile, die auch am Handy nicht umbricht.
+                          //
+                          // Das Geraet steht immer, auch wenn es fehlt: Ein leerer Platz
+                          // waere genau die Sorte Luecke, die niemand nachpflegt. ?>
+                    <p class="schwerpunkt-zeile">
+                        <?= geraet_abzeichen($u['equipment'] ?? null) ?>
+                        <?php if (!empty($u['focus'])): ?>
+                            <span class="schwerpunkt"><?= h((string)$u['focus']) ?></span>
+                        <?php endif; ?>
+                    </p>
 
                     <?php // Bearbeiten links, die gefaehrliche Aktion rechts aussen, die
                           // Zeile ueber die volle Kartenbreite -- dieselbe Anordnung wie
@@ -610,6 +659,8 @@ require __DIR__ . '/lib/view_header.php';
                             Vorhandenes Bild entfernen
                         </label>
                     <?php endif; ?>
+
+                    <?php zuschnitt_auswahl('e' . $id, $u['image_crop'] ?? null); ?>
 
                     <p>
                         <button type="submit">Speichern</button>

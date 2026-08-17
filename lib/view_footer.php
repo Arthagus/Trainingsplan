@@ -22,8 +22,14 @@ $jsVorhanden = $script !== '' && is_file(dirname(__DIR__) . '/' . $jsDatei);
 
 <?php if ($jsVorhanden): ?>
 <!-- defer, damit das Skript das DOM fertig vorfindet, ohne auf DOMContentLoaded
-     warten zu muessen -- und nach app.js laeuft, das ebenfalls defer traegt. -->
-<script src="<?= h($base . '/' . $jsDatei) ?>" defer></script>
+     warten zu muessen -- und nach app.js laeuft, das ebenfalls defer traegt.
+
+     ?v= aus denselben Gruenden wie im Header. Die Seiten-Skripte liegen im
+     Wurzelverzeichnis und werden vom Service Worker gar nicht gecacht (er
+     nimmt nur /assets/) -- der HTTP-Cache des Browsers greift hier aber
+     genauso, und der allein hat gereicht, um 1.1.7 am Handy alt aussehen zu
+     lassen. -->
+<script src="<?= h($base . '/' . $jsDatei) ?>?v=<?= h(app_version()) ?>" defer></script>
 <?php endif; ?>
 
 </body>

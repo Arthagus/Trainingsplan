@@ -103,6 +103,20 @@ ersten Treffer im `<head>`, und das ist der Viewport — die Anmeldung scheitert
 `tok` das aktuelle Token; `-b` **und** `-c` gehören an jeden Aufruf, sonst geht die Sitzung
 verloren.
 
+**Den Zustand liest man von der Seite, nicht aus der API.** `api/*` ist fast rein
+schreibend — die einzigen lesenden Aktionen sind `plans.php → exercise_picker` und die
+Tauschvorschläge (`swap.php → suggestions`, `plans.php → swap_suggestions`). Es gibt
+**keinen** Endpunkt, der den Übungs-, Plan- oder Benutzerbestand ausliefert; die Daten
+entstehen server-gerendert in der jeweiligen Seite. Wer per `curl` nachsehen will, was
+wirklich in der Datenbank steht, holt also `admin_exercises.php?filter=alle` und liest die
+**Bearbeiten-Formulare** aus — dort steht jedes Feld als `value`/`selected`/`checked`, und
+zwar mit den IDs, die ein Schreibaufruf zurückgeben muss. `DOMDocument` + `DOMXPath` reichen
+dafür; ein Abzug dieser Formulare ist zugleich die Sicherung, aus der man einen fehlerhaften
+Schreiblauf feldgenau zurücknimmt (siehe Fallstrick 22).
+
+Lokal geht auch der direkte Blick über `sqlite3 data/trainingsplan.db` — gegen die **Live**-
+Instanz bleibt nur der Weg über die Seite.
+
 **Was dieser Weg nicht abdeckt** — hier sind schon zwei echte Fehler durchgerutscht:
 
 - **Service Worker und Browser-Cache.** `curl` hat keinen. Der eingefrorene Asset-Cache
@@ -139,6 +153,14 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
 | `lib/view_header.php` / `view_footer.php` | Layout als Partial |
 | `lib/view_geraet_symbole.php` | SVG-Symbolvorrat + Beschriftungen, aus dem Header eingebunden |
+
+Die Seiten erklären sich über ihren Namen, mit **einer** Ausnahme: **`devices.php` ist die
+Geräteverwaltung** (§7.7) — die Oberfläche zu der in §5 zugesagten serverseitigen
+Widerrufbarkeit der Remember-Me-Tokens. Sie listet `remember_tokens` des angemeldeten
+Benutzers und erkennt das eigene Gerät am Selector aus dem Cookie; widerrufen wird über
+`api/auth.php → revoke_device` / `revoke_all`. Nicht mit `lib/geraete.php` verwechseln —
+das sind die *Trainings*geräte (Hantel, Maschine), zwei völlig verschiedene Dinge unter
+ähnlichem Namen. Abnahmekriterium 16 („ein Gerät abmelden") hängt an dieser Seite.
 
 **Pflicht-Boilerplate am Kopf jeder geschützten Seite:**
 
@@ -328,6 +350,11 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   mit **`stale-while-revalidate`**. **Niemals HTML oder API-Antworten** (`network-only`),
   sonst wird eingeloggter Zustand nach dem Logout ausgeliefert und veraltete CSRF-Tokens
   erzeugen 403er. Zur Cache-Falle siehe Fallstrick 12.
+- **Asset-Adressen tragen die Version** (`style.css?v=1.1.8`), gesetzt in
+  `lib/view_header.php` und `lib/view_footer.php` aus `app_version()`. Wer eine neue CSS-
+  oder JS-Datei einbindet, hängt sie dort mit an — ohne den Parameter friert die Datei im
+  Browser-Cache ein, und zwar unbemerkt. Eine Nummer in `sw.js` gibt es dafür **nicht mehr**;
+  Fallstrick 12 sagt, warum sie nicht genügt hat.
 - **`[hidden]` braucht eine eigene Regel** ganz oben im Stylesheet:
   `[hidden] { display: none !important; }`. Browser blenden `[hidden]` nur über ihr
   *Standard*-Stylesheet aus — jede Autorenregel schlägt das, unabhängig von der Spezifität.
@@ -344,8 +371,10 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
 
 ## Fachliche Fallstricke
 
-Die Stellen, an denen eine naive Umsetzung falsch wird. Jede steht hier, weil sie schon
-einmal zugeschlagen hat.
+Die Stellen, an denen eine naive Umsetzung falsch wird. Fast jede steht hier, weil sie schon
+einmal zugeschlagen hat — die Ausnahme ist **22**, der beim Lesen des Endpunkts auffiel,
+bevor er es konnte. Er steht trotzdem hier, weil sein Schaden lautlos gewesen wäre: Die
+Antwort lautet auch dann `ok:true`, wenn die halbe Zeile verlorengeht.
 
 1. **Eine Einheit entsteht AUSSCHLIESSLICH über „Training starten"** (§7.6, seit `1.1.6`).
    `einheit_sicherstellen()` hat genau **einen** Aufrufer: `api/session.php → start`. Wer
@@ -445,9 +474,61 @@ einmal zugeschlagen hat.
     und `app.js` waren dadurch über mehrere Versionen in jedem Browser eingefroren; keine
     einzige Stiländerung kam an, obwohl Server und HTML korrekt waren.
 
-    **Beim Ändern von `assets/style.css` oder `assets/app.js`: `CACHE` in `assets/sw.js`
-    hochzählen.** Vergisst man es, greift `stale-while-revalidate` als Netz — die Änderung
-    ist dann einen Seitenaufruf später da statt sofort.
+    **Das Hochzählen von `CACHE` war die Antwort darauf — und sie hat nicht gereicht.** In
+    `1.1.7` ist derselbe Fehler ein zweites Mal aufgetreten, diesmal **nur am Smartphone**,
+    während der PC korrekt aussah. Die Nummer war ordentlich hochgezählt. Der Grund liegt
+    eine Ebene tiefer:
+
+    **Es gibt ZWEI Caches hintereinander, und `CACHE` erreicht nur den ersten.** Hinter dem
+    Service-Worker-Cache sitzt der gewöhnliche HTTP-Cache des Browsers. Apache sendete für
+    Assets **kein `Cache-Control`**, nur `ETag` und `Last-Modified` — und ohne Angabe zur
+    Haltbarkeit darf ein Browser *heuristisch* cachen, üblicherweise 10 % der Zeit seit
+    `Last-Modified`. Der Ablauf, der daraus folgt:
+
+    1. Neues Image ausgerollt, `sw.js` mit neuem Cache-Namen → `install()` läuft.
+    2. `cache.addAll()` holt die Dateien mit **normalem** `fetch` — also **durch den
+       HTTP-Cache**. Der liefert die *alte* `style.css`.
+    3. `activate()` löscht den vorherigen Cache.
+    4. Der frische Cache enthält jetzt den alten Stand. Dauerhaft, und ohne jede Meldung.
+
+    Am PC fiel es nicht auf, weil dort hart neu geladen worden war. Am Handy blieb neues
+    HTML auf altem Stylesheet stehen — sichtbar daran, dass ein Element in einer *dritten*
+    Rasterspalte landete, die es weder im alten noch im neuen Entwurf gibt.
+
+    **Und `stale-while-revalidate` hat den Zustand nicht geheilt, sondern zementiert.** Das
+    ist der Teil, den man beim Entwurf übersieht: Die Revalidierung ist ein gewöhnlicher
+    `fetch` und läuft damit durch **denselben** HTTP-Cache, der die veraltete Datei für
+    gültig hält. Sie schrieb den alten Stand bei jedem Aufruf zurück in den
+    Service-Worker-Cache. Vier bis fünf Neuladungen brachten deshalb keine Besserung — das
+    ist zugleich das Merkmal, an dem man diesen Fehler von einem bloßen Übergangszustand
+    nach einem Rollout unterscheidet.
+
+    Die Lehre über den Einzelfall hinaus: **Ein Reparaturweg, der durch die kaputte Ebene
+    läuft, ist keiner.** Wer einen Cache mit einem Selbstheilungsmechanismus absichert, muss
+    sicherstellen, dass dieser Mechanismus an der Fehlerquelle vorbeigeht.
+
+    **Seit `1.1.8` hängt die Version an der Adresse: `assets/style.css?v=1.1.8`**
+    (`lib/view_header.php`, `lib/view_footer.php`, aus `app_version()`). Das ist die einzige
+    Lösung, die nicht davon abhängt, dass sich jemand richtig verhält — eine geänderte
+    Adresse kann in **keinem** der beiden Caches einen alten Eintrag treffen. Dazu kommen
+    drei Dinge, die zusammengehören:
+
+    - **`CACHE` wird nicht mehr von Hand gepflegt.** `sw.js` liest die Version aus seiner
+      eigenen Adresse (`self.location`), registriert wird als `assets/sw.js?v=…`. Damit gilt
+      der Worker dem Browser zugleich als neuer und wird sofort installiert, statt bis zu
+      24 Stunden auf die nächste Prüfung zu warten. **Es gibt keine Nummer mehr, die man
+      vergessen kann.**
+    - **`cache: 'reload'`** in `install()` **und** bei der Revalidierung im `fetch`-Handler.
+      Ohne das läuft auch die Revalidierung durch denselben HTTP-Cache und bestätigt nur den
+      alten Stand — deshalb heilte der zweite Seitenaufruf früher nichts.
+    - **`Cache-Control: no-cache`** für `assets/` und alle `*.js` (`apache-app.conf`). Das
+      heißt nicht „nicht speichern", sondern „vor jeder Benutzung rückfragen"; mit `ETag`
+      kostet es ein 304 ohne Rumpf.
+
+    **Präcache-Adressen müssen exakt die sein, die der Header anfragt.** `ASSETS` in `sw.js`
+    führt `style.css` und `app.js` **mit** `?v=`, Manifest und Icons **ohne** — genau so
+    stehen sie im `<head>`. Ein Precache unter einer Adresse, die nie jemand anfragt, ist
+    toter Ballast, und der erste Aufruf ginge trotzdem ans Netz.
 
 13. **Die Warteschlange fürs Abhaken hängt an `user_id` UND `session_id`** (§7.4). Beide
     Schlüssel sind Pflicht, und jeder aus einem eigenen Grund:
@@ -520,6 +601,23 @@ einmal zugeschlagen hat.
     und die Einschränkung wäre eine Sackgasse. Zur Gruppen-Facette gehören außerdem die
     **Elterngruppen** der Treffer — eine Hauptgruppe schließt ihre Untergruppen ein und
     hätte also Treffer, fiele aber sonst aus der Liste.
+
+    **Daneben liegt in derselben Datei die zweite Codeliste `ZUSCHNITT`** (`links` /
+    `mitte` / `rechts`, seit `1.1.7`): welche Seite eines breiten Bildes im quadratischen
+    Rahmen stehen bleibt. Sie folgt demselben Muster — Codeliste statt Tabelle, geprüft in
+    `api/exercises.php`, Vorgabe `mitte` — und hat **eine Voraussetzung, die man leicht
+    kaputtmacht**: Der Wert wirkt allein über `object-position` im Stylesheet, weil
+    `write_resized()` in `lib/upload.php` ausschließlich **skaliert und nicht beschneidet**.
+    Das Vorschaubild trägt deshalb noch das volle Seitenverhältnis, und die Einstellung
+    lässt sich beliebig oft ändern, ohne eine Datei anzufassen. Wer dort je einen Zuschnitt
+    einbaut, nimmt ihr die Grundlage: Ein bereits quadratisch beschnittenes Thumbnail ist
+    nachträglich nicht mehr anders auszurichten.
+
+    Auch hier stehen die Werte **zweimal**: `bild_zuschnitt_klasse()` in PHP für die
+    server-gerenderten Listen, die gleiche Zuordnung in `vorschlagMarkup()`
+    (`assets/app.js`) für den Tauschdialog — dieselbe Konstellation wie bei
+    `geraet_abzeichen()`. `mitte` liefert bewusst **keine** Klasse: Das ist der Vorgabewert
+    von `object-position`, und eine Klasse dafür wäre Rauschen im Markup.
 
     **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
     Umbenennung ist deshalb eine Textänderung ohne Migration — so wurde `kabel` in `1.0.16`
@@ -730,6 +828,38 @@ einmal zugeschlagen hat.
       geschrieben. Sie zu entfernen wäre eine löschende Migration ohne Gegenwert; sie ist
       deshalb in `schema.sql` als tot gekennzeichnet. **Nicht wieder in Betrieb nehmen.**
 
+22. **`api/exercises.php → update` ersetzt die ganze Übung, es ändert keine Felder.**
+    `aktion_bearbeiten()` schreibt `name_de`, `name_en`, `description`, `focus`, `equipment`
+    **und** über `gruppen_schreiben()` die komplette n:m-Zuordnung neu — aus dem, was in der
+    Nutzlast steht. Wer nur die zwei Felder schickt, die er ändern will, verliert Name, Gerät
+    und **sämtliche Muskelgruppen**; `eingabe_pruefen()` verlangt `name_de`, `equipment` und
+    `primary_group_id` als Pflicht, alles andere fällt still auf `null` oder die leere Liste.
+
+    Und das ist der eigentliche Fallstrick: **Die Antwort lautet trotzdem `ok:true`.** Es
+    gibt keine Fehlermeldung, keine 422 — die Übung steht danach ohne Zuordnung da und
+    taucht im Tausch nie wieder auf. Jeder Aufruf muss die unveränderten Felder aus einem
+    **vorher gezogenen Abzug** wörtlich mittragen.
+
+    **Das Muster ist nicht einheitlich, deshalb hilft Analogieschluss nicht.**
+    `api/plans.php → rename_plan` und `api/users.php → set_admin` fassen genau eine Spalte
+    an (`UPDATE plans SET name = ?`); `api/exercises.php → update` und
+    `api/muscle_groups.php → update` ersetzen die ganze Zeile. Vor dem ersten Schreibzugriff
+    auf einen unbekannten Endpunkt gehört das `UPDATE`-Statement gelesen.
+
+    **Jedes neue Feld an `exercises` erbt dieses Verhalten.** So kam `image_crop` in
+    `1.1.7` dazu: Ein `update` ohne das Feld setzt es auf `mitte` zurück, nicht etwa auf
+    den bisherigen Wert. Das ist beabsichtigt und konsistent — die Nutzlast beschreibt die
+    Übung vollständig —, aber es heißt, dass ein selbstgebautes Skript mit jedem neuen Feld
+    stiller veraltet. Wer eines schreibt, zieht den Abzug **unmittelbar vorher** und schickt
+    alles zurück, was darin steht.
+
+    **Das Bild bleibt dagegen von selbst stehen** — aber nur, solange nichts mitkommt:
+    `$bildSpalte = $neuesBild ?? ($entfernen ? null : $altesBild)`. Ohne `$_FILES` und ohne
+    `image_remove` fällt es auf den bestehenden Pfad zurück. Bei einer **JSON**-Nutzlast ist
+    `$_FILES` zwangsläufig leer, das Bild also sicher; wer `multipart` schickt, muss
+    aufpassen. `read_input()` nimmt `$_POST`, wenn es nicht leer ist, sonst den JSON-Body —
+    beide Wege stehen offen, obwohl das Formular `multipart` benutzt.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -773,6 +903,13 @@ Daraus die Zählweise:
   zweites Image mit identischem Inhalt — Verschwendung und irreführend zugleich.
 - Der Sprung selbst ist gratis und braucht keine Rückfrage; nur das **Bauen** braucht sie.
 
+- **Es gibt zwei Compose-Dateien, und sie tun mit Absicht Gegenteiliges.**
+  `docker-compose.yml` im Wurzelverzeichnis hat `build: .` und `image: trainingsplan:latest`
+  — das ist die Fassung zum Selberbauen auf einer Maschine, die den Quelltext sieht.
+  `deploy/stack.yml` ist die Portainer-Fassung: **ohne** `build:` und mit fester
+  Versionsnummer. Nur letztere gehört ins Stack-Feld; wer die Wurzeldatei einträgt, lässt
+  Portainer nach einem Quelltext suchen, den es dort nie gibt. Der Versionsabgleich in
+  `paket_bauen.sh` prüft `deploy/stack.yml`, nicht `docker-compose.yml`.
 - **Verwaltung über Portainer**, wie die übrigen Container auf diesem LXC (u. a.
   `solarwatch`, `/home/rezeption/Projekte/Solarwatch` — dort steht die Vorlage für
   `deploy/stack.yml`, `deploy/env-vorlage.txt` und `deploy/paket_bauen.sh`). Portainer sieht

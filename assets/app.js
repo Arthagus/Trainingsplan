@@ -691,8 +691,19 @@ function vorschlagMarkup(v, knoepfe) {
 
     // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als
     // am Namen -- und genau dort wird getauscht.
+    // Der Zuschnitt kommt aus exercises.image_crop und wirkt allein ueber
+    // object-position (siehe bild_zuschnitt_klasse() in lib/geraete.php). Die
+    // Werte muessen hier dieselben sein wie dort -- zwei Halbwahrheiten waeren
+    // schlimmer als keine: Im Tauschdialog saehe das Motiv dann anders
+    // ausgerichtet aus als in der Liste, aus der man kommt.
+    const zuschnitt = v.image_crop === 'links'  ? ' bild-links'
+                    : v.image_crop === 'rechts' ? ' bild-rechts'
+                    : '';
+
+    // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als
+    // am Namen -- und genau dort wird getauscht.
     const bild = v.image_path
-        ? '<img class="vorschlag-bild" src="' + escapeHtml(thumbUrl(v.image_path))
+        ? '<img class="vorschlag-bild' + zuschnitt + '" src="' + escapeHtml(thumbUrl(v.image_path))
           + '" alt="" loading="lazy" width="72" height="72">'
         : '<span class="vorschlag-bild vorschlag-bild-leer" aria-hidden="true">–</span>';
 
@@ -727,9 +738,35 @@ function keinVorschlagText(imPlan) {
 // Service Worker registrieren. scope '/' statt '/assets/', damit die
 // installierte App die ganze Seite abdeckt -- dazu schickt Apache fuer diese
 // Datei den Header Service-Worker-Allowed: / (siehe apache-app.conf).
+// Die Version reist als Parameter mit, und sw.js liest sie aus seiner eigenen
+// Adresse (self.location). Zwei Dinge haengen daran:
+//
+//  1. Der Cache-Name traegt die Version, ohne dass jemand eine Nummer von Hand
+//     hochzaehlt -- das war bis 1.1.7 so und konnte vergessen werden.
+//  2. Eine geaenderte Registrierungs-Adresse gilt dem Browser als NEUER Service
+//     Worker. Er wird damit bei jeder Version zuverlaessig neu installiert,
+//     statt bis zu 24 Stunden auf die naechste Pruefung der unveraenderten
+//     Datei zu warten.
+//
+// Die Nummer steht im <script>-Tag, das diese Datei geladen hat -- so gibt es
+// genau eine Quelle dafuer und keine zweite, die abweichen kann.
+//
+// AUF OBERSTER EBENE und nicht im load-Handler: document.currentScript ist nur
+// waehrend der synchronen Ausfuehrung des Skripts gesetzt und im Handler bereits
+// null. Der querySelector daneben faengt den Fall, dass diese Datei einmal
+// anders eingebunden wird.
+const eigenesSkript = document.currentScript
+    || document.querySelector('script[src*="assets/app.js"]');
+const appVersion = eigenesSkript
+    ? new URL(eigenesSkript.src, location.href).searchParams.get('v')
+    : null;
+
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('assets/sw.js', { scope: './' }).catch(() => {
+        const adresse = 'assets/sw.js'
+            + (appVersion ? '?v=' + encodeURIComponent(appVersion) : '');
+
+        navigator.serviceWorker.register(adresse, { scope: './' }).catch(() => {
             // Ohne Service Worker laeuft die App normal weiter; sie ist ohnehin
             // online-only. Kein Grund, den Benutzer damit zu behelligen.
         });

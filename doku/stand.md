@@ -7,24 +7,113 @@ was offen ist. Dauerhaftes Wissen — Architektur, Konventionen, Fallstricke —
 **Diese Datei nach jedem Rollout nachziehen.** Sie ist die einzige Stelle mit
 Versionsnummern und Zählständen; wenn sie hier falsch sind, sind sie nirgends sonst falsch.
 
-*Letzte Aktualisierung: 2026-08-12*
+*Letzte Aktualisierung: 2026-08-17*
 
 ---
 
 ## Ausgerollt
 
-> ## Live läuft `trainingsplan:1.1.6`
+> ## Live läuft `trainingsplan:1.1.8` — im Arbeitsstand liegt `1.1.9`
 >
-> Ausgerollt am 2026-08-12; die App meldet die Nummer selbst auf der Wartungsseite.
-> **Repo und Live-System stehen auf demselben Stand — es liegt nichts Ungebautes und
-> nichts Ungerolltes herum.** Alles darunter ist die Vorgeschichte, neueste zuerst.
+> `1.1.8` ist am 2026-08-17 ausgerollt und **vom Benutzer am Smartphone bestätigt**:
+> Der Cache-Fehler ist weg, und damit ist auch das Layout aus `1.1.7` erstmals
+> tatsächlich zu sehen gewesen — es passt. `1.1.9` ist als
+> **`deploy/trainingsplan-build-1.1.9.tar.gz` gebaut** (2026-08-17), aber noch nicht
+> ausgerollt. Die Nummer ist damit vergeben; jede weitere Änderung an etwas, das im Paket
+> steckt, hebt auf `1.1.10`.
 >
-> **`1.1.6` ist noch nicht im Studio erprobt.** Die drei Änderungen sind per `curl` und
-> gegen die Datenbank belegt, aber alle drei zielen auf die Bedienung am Gerät: der orange
-> Balken neben Blau und Grün, die gesperrten Bedienelemente vor dem Start, und ob die neue
-> Definition von „aktiv" beim tatsächlichen Überspringen einer besetzten Maschine das tut,
-> was man erwartet. Der Benutzer prüft es beim nächsten Training (angekündigt für
-> 2026-08-13). Bis dahin gilt: ausgerollt, nicht abgenommen.
+> Alles darunter ist die Vorgeschichte, neueste zuerst.
+
+**`1.1.9`: Uhrzeit unter das Datum.** Im Verlauf bei den Übungen stand die Uhrzeit am
+Handy neben dem Datum; die Spalte war damit die breiteste der fünf und drückte die
+Sätze zusammen. Jetzt stehen Tag und Uhrzeit untereinander — **ab 40rem wieder
+nebeneinander**, sonst würde jede Tabellenzeile auf breiten Schirmen ohne Grund doppelt
+so hoch.
+
+`format_datetime_kurz()` ist dafür durch **zwei** Funktionen ersetzt worden,
+`format_datum_kurz()` und `format_zeit()`. Der Grund ist keine Förmlichkeit: Ob die
+Uhrzeit neben oder unter dem Datum steht, hängt am verfügbaren Platz und gehört damit
+ins Stylesheet. Mit einem festen Trennzeichen im String wäre beides nicht zu haben
+gewesen. Das volle Jahr gilt weiterhin überall sonst (`format_datetime()`).
+
+---
+
+**`1.1.8` behebt den Cache-Fehler aus `1.1.7`.** Am PC sah alles richtig aus, am Handy
+stand der englische Name weiter neben dem deutschen, das Gerät in einer dritten Spalte
+und die Bilder immer zentriert — alles drei CSS-Regeln, die nicht ankamen. Der Server
+lieferte nachweislich das richtige Stylesheet.
+
+**Ursache: zwei Caches hintereinander, und der Reparaturweg lief durch den kaputten.**
+`CACHE` in `sw.js` war ordentlich hochgezählt, erreicht aber nur den Service-Worker-Cache.
+Dahinter sitzt der HTTP-Cache des Browsers, und Apache sendete für Assets kein
+`Cache-Control` — ohne das darf der Browser heuristisch cachen.
+
+**Der Zustand hat sich selbst erhalten**, und das ist der eigentliche Befund: Der Benutzer
+hat die Seite vier- bis fünfmal neu geladen, ohne Besserung. `stale-while-revalidate` holt
+die frische Fassung mit einem gewöhnlichen `fetch` — also durch genau den HTTP-Cache, der
+die alte Datei für gültig hält. Die „Revalidierung" schrieb den alten Stand bei jedem
+Aufruf zurück in den Service-Worker-Cache. Das Netz, das den Fehler hätte heilen sollen,
+hat ihn stattdessen jedes Mal neu bestätigt.
+
+**Was gemessen ist und was nicht.** Gemessen: `1.1.7` läuft live, der Server liefert
+nachweislich das richtige Stylesheet (`bild-links` ist drin), es kommt kein
+`Cache-Control`, und der Nginx davor cacht nicht (`proxy_pass` ohne `proxy_cache`). Daraus
+folgt zwingend, dass ein Cache **auf dem Gerät** die alte Fassung hielt. Nicht gemessen —
+mangels Zugriff auf den Cache-Storage des Handys — ist, **welcher**: Entweder wurde der
+frische Cache über `cache.addAll()` mit der alten Datei befüllt, oder `sw.js` selbst kam
+aus dem HTTP-Cache und der alte Worker lief weiter. Beide Varianten brauchen denselben
+Mittäter, den fehlenden `Cache-Control`-Header, und beide sind mit derselben Korrektur
+erledigt.
+
+Am PC fiel nichts auf, weil dort hart neu geladen worden war.
+
+**Nachtrag: Die Behebung ist bestätigt.** Nach dem Rollout von `1.1.8` sieht es am
+Smartphone richtig aus, ohne dass jemand einen Cache geleert hätte — genau wie
+vorhergesagt, weil `?v=1.1.8` eine Adresse ist, die in keinem Cache liegen kann. Damit
+ist belegt, dass die Ursache clientseitig im Cache lag und dass die Korrektur greift.
+**Welche** der beiden Cache-Ebenen es genau war, bleibt weiterhin unbestimmt und ist
+ohne Zugriff auf den Cache-Storage des Geräts auch nicht mehr feststellbar — der
+Zustand existiert nicht mehr.
+
+Behoben an der Wurzel: **Die Version hängt jetzt an der Adresse** (`style.css?v=1.1.8`,
+aus `app_version()`). Dazu liest `sw.js` seine Version aus der eigenen Adresse — die von
+Hand gepflegte Cache-Nummer entfällt ersatzlos —, `cache: reload` umgeht den HTTP-Cache
+beim Befüllen und Revalidieren, und `apache-app.conf` setzt `Cache-Control: no-cache`
+für `assets/` und alle `*.js`. Vier Ebenen, weil derselbe Fehler jetzt zweimal
+zugeschlagen hat.
+
+---
+
+**`1.1.7` bringt drei Dinge**, alle aus der Rückmeldung nach dem Training am 2026-08-17.
+
+**1. Bildausschnitt je Übung wählbar** (`exercises.image_crop`, `links`/`mitte`/`rechts`).
+Die Vorschaubilder stehen in einem quadratischen Rahmen mit `object-fit: cover`; bei einem
+Motiv, das breiter als hoch ist, schnitt der Browser links und rechts gleich viel weg und
+traf damit neben das Gerät. Der Wähler steht in der Übungsmaske direkt unter dem Bildfeld.
+
+**Der Wert ändert keine Datei** — er wirkt allein über `object-position`. Das geht nur,
+weil `write_resized()` (`lib/upload.php`) ausschließlich skaliert und **nicht** beschneidet;
+das Thumbnail trägt also noch das volle Seitenverhältnis. Deshalb wirkt die Einstellung
+sofort auf alle bestehenden Bilder und lässt sich beliebig oft ändern.
+
+**2. Mehr Breite für die Bilder, neues Kartenlayout.** Gerät und Ausführung stehen jetzt
+**unter** dem Bild über die volle Kartenbreite statt rechts daneben in der Textspalte; der
+englische Name steht unter dem deutschen statt daneben. Dadurch konnten die Bilder wachsen:
+Übungsliste 80 → 112 px, Trainingsansicht 120 → 150 px. `.uebung-kopf` musste dafür von
+Flex auf Grid umgestellt werden — als drittes Flex-Kind hätte sich die Schwerpunktzeile
+rechts neben den Text gestellt statt darunter.
+
+**3. Die Verlaufstabelle passt aufs Handy.** Sie rollte auf einem Pixel 10 Pro XL seitwärts.
+Zwei Änderungen: Das Datum trägt in den Verlaufstabellen ein **zweistelliges Jahr**
+(`format_datetime_kurz()`, überall sonst bleibt das volle), und die Sätze stehen nicht mehr
+als eine Zeile mit `nowrap`, sondern als **umbrechendes Gitter** (`satz_gitter()` in
+`history.php`, zwei nebeneinander, ab 40rem vier). `saetze_text()` blieb dabei bewusst
+unangetastet — es bildet mit `saetzeText()` ein PHP/JS-Paar, und `saetze_zusammenfassung()`
+baut darauf auf.
+
+Der rollende Kasten (`.tabelle-rollt`) bleibt als Netz für sehr viele Sätze bestehen.
+
+---
 
 **`1.1.6` bringt drei Dinge**, alle aus derselben Rückmeldung vom 2026-08-12.
 
@@ -345,6 +434,47 @@ Benutzer hat angekündigt, Nele zu bitten, die Einheit vor ihrem nächsten Train
 löschen — dann steht dort wieder *Ganzkörper B*. **Bis dahin absichtlich nicht angefasst:**
 Fremde Trainingsdaten stillschweigend aufzuräumen ist nicht Sache der Entwicklung.
 
+### Übungstexte überarbeitet (2026-08-16)
+
+**`focus` und `description` aller 37 Übungen sind neu geschrieben** — auf Ansage des
+Benutzers direkt auf der Live-Datenbank, über `api/exercises.php → update`. Der Bestand
+zählt damit 37 Übungen, alle aktiv, keine archiviert. Vorher waren **10 Felder leer**
+(neunmal die Beschreibung, bei `Nackenheben Kurzhanteln` beide); jetzt keines mehr.
+
+Wonach geändert wurde, kurz: kein Muskel und kein Gerätename in der Ausführung (beides steht
+schon daneben), Satzvorgaben wie „hohe Wiederholungen" gehören in die Beschreibung, und die
+Beschreibung wiederholt weder Muskelgruppe noch Ausführung. Dazu sieben Übungen mit
+Schreibfehlern („Elbogen", „Seit" statt „Seil", „Desto … desto").
+
+**Der Fallstrick dabei, für das nächste Mal:** `aktion_bearbeiten()` in `api/exercises.php`
+ist ein **Voll-Ersatz**, kein Feld-Update — es schreibt `name_de`, `name_en`, `description`,
+`focus`, `equipment` *und* die Gruppenzuordnung neu. Wer nur die beiden Textfelder schickt,
+verliert Name, Gerät und sämtliche Muskelgruppen, und die Antwort lautet trotzdem `ok:true`.
+Jeder Aufruf muss die übrigen Felder aus einem vorher gezogenen Abzug wörtlich mittragen.
+Das Bild bleibt dagegen von selbst stehen: ohne `$_FILES` und ohne `image_remove` fällt
+`$bildSpalte` auf `$altesBild` zurück — bei JSON-Nutzlast ist `$_FILES` zwangsläufig leer.
+
+Nachgemessen statt gefolgert: 37 von 37 Texten wie vorgesehen, **null** Abweichungen bei
+Namen, Geräten und Muskelgruppen, Bilder an allen 37, längste Ausführung 54 von 60 erlaubten
+Bytes (`EX_FOKUS_MAX`). Der vollständige Wortlaut *vorher und nachher* samt Begründung je
+Übung liegt beim Benutzer als veröffentlichte Seite; ein feldgenauer Rückweg existiert.
+
+**Nachtrag 2026-08-17: Querverweise wieder entfernt.** Elf der 37 Beschreibungen
+verwiesen auf andere Übungen oder auf Pläne — „Gegenspieler zur Beinpresse und deshalb
+in derselben Einheit", „fester Bestandteil des Push-Plans", „die schwerste
+Trizepsübung im Bestand". Das war falsch: **Die Beschreibung einer Übung darf nur von
+dieser Übung handeln.** Ob zwei Übungen im selben Plan stehen, ist nicht zugesichert
+und ändert sich, sobald jemand einen Plan umbaut; ein Satz, der das voraussetzt, wird
+dann stillschweigend falsch. Vom Benutzer im Training bemerkt.
+
+Neu formuliert und live eingetragen; der frei gewordene Platz ging an konkrete
+Ausführungshinweise. Gegengeprüft mit einer Suche über **alle** 37 Beschreibungen nach
+jedem Übungsnamen und nach Plan-/Bestandsbegriffen: keine Treffer mehr.
+
+**Kein Voll-Backup ausgelöst**, obwohl es naheläge: `aktion_backup()` ruft
+`backups_aufraeumen()`, das ältere Sicherungen entfernt — ein Nebeneffekt, den ein
+Textupdate nicht rechtfertigt. Gesichert wurde stattdessen der Abzug der betroffenen Felder.
+
 ## Offen
 
 1. **`1.1.6` im Studio erproben** — angekündigt für 2026-08-13, das nächste Training. Worauf
@@ -371,7 +501,21 @@ Fremde Trainingsdaten stillschweigend aufzuräumen ist nicht Sache der Entwicklu
    Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
    Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
    kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
-   Überlegungen zur Tauschregel. Der Übungsbestand steht in der App.
+   Überlegungen zur Tauschregel. Der Übungsbestand steht in der App. **Seit dem 2026-08-16
+   ist zusätzlich die Spalte *Ausführung* dort überholt** — sie trägt den Wortlaut der
+   Aufbauphase, und der ist inzwischen bei jeder Übung ein anderer. Ein Grund mehr, die
+   Tabelle zu streichen statt sie nachzuziehen.
+5. **Sechs Fragen an die Übungsdaten** (2026-08-16, beim Überarbeiten der Texte aufgefallen).
+   Alle sind Sachentscheidungen, keine Textfragen, und deshalb **unverändert gelassen**:
+
+   | Übung | Was nicht zusammenpasst |
+   |---|---|
+   | `Hängendes Beinbeugen` | Heißt englisch *Hanging Leg Curl* — eine Kniebeugung. Beschrieben wird aber, wie der **Oberkörper** aus dem Hängen in die Waagerechte gezogen wird, also eine Hüftstreckung. Einer der beiden gehört korrigiert |
+   | `45° Rückenstrecker` | Trägt `Gesäß` (primär) und `Beinbeuger (unten)` — die Gruppe `Rückenstrecker` ist **nicht** zugeordnet, obwohl es sie gibt und sie im Namen steht |
+   | `Latzug Maschine` vs. `Latzug Kabel` | Dieselbe Bewegung, aber einmal `Bizeps` als Nebengruppe und einmal gar keine |
+   | `Beinpresse` | Nebengruppe `Beinbeuger (unten)` an einer Streckbewegung |
+   | `Nackenheben Kurzhanteln` | Englischer Name `Shrugs Dumbell` — zwei Fehler auf einmal |
+   | `Kabelrudern (sitzend)` | Der alte Satz „möglichst leicht von oben nach unten" war mehrdeutig. Beim Neuschreiben als **Zugrichtung** gelesen; war „leichtes Gewicht" gemeint, stimmt der neue Text an dieser Stelle nicht |
 
 **Nicht mehr auf dieser Liste, auf Entscheidung des Benutzers (2026-08-11):**
 

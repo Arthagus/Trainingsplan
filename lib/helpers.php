@@ -320,6 +320,39 @@ function format_datetime(?string $ts): string {
 }
 
 /**
+ * Datum und Uhrzeit GETRENNT, fuer die Tabellen im Verlauf.
+ *
+ * Zwei Funktionen und nicht eine, die "17.08.26 10:30" liefert: Ob die Uhrzeit
+ * neben dem Datum steht oder darunter, ist eine Frage des verfuegbaren Platzes
+ * und gehoert damit ins Stylesheet, nicht in den Formatierer. Am Handy steht sie
+ * seit 1.1.9 darunter (Rueckmeldung 2026-08-17), am Desktop weiter daneben --
+ * mit einem festen Trennzeichen im String waere beides nicht zu haben.
+ *
+ * Die Jahreszahl ist zweistellig, und nur hier: In den Verlaufstabellen steht
+ * das Datum neben Saetzen, Volumen, 1RM und Gewicht, und die vier Zeichen "2026"
+ * gegenueber "26" waren der Unterschied zwischen passt und rollt seitwaerts.
+ * Ueberall sonst gilt weiter format_datetime() mit vollem Jahr -- in einer
+ * Geraeteliste oder an einer laufenden Einheit ist der Platz da, und eine
+ * abgekuerzte Jahreszahl liest sich dort wie eine Nachlaessigkeit.
+ */
+function format_datum_kurz(?string $ts): string {
+    if ($ts === null || $ts === '') {
+        return '';
+    }
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $ts);
+    return $dt === false ? $ts : $dt->format('d.m.y');
+}
+
+/** Die Uhrzeit zum selben Zeitstempel. Siehe format_datum_kurz(). */
+function format_zeit(?string $ts): string {
+    if ($ts === null || $ts === '') {
+        return '';
+    }
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $ts);
+    return $dt === false ? '' : $dt->format('H:i');
+}
+
+/**
  * Macht aus einem User-Agent eine lesbare Geraetebezeichnung fuer die
  * Geraeteliste (§7.7), etwa "iPhone · Safari".
  *
