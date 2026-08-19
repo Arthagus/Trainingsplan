@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/training.php';
+require_once __DIR__ . '/../lib/splits.php';
 
 bootstrap_session();
 require_login_api();
@@ -48,9 +49,10 @@ match (to_str($eingabe['action'] ?? '')) {
  */
 function position_laden(int $peId): array {
     $stmt = db()->prepare(
-        'SELECT pe.id, pe.plan_id, pe.exercise_id, p.user_id
+        'SELECT pe.id, pe.plan_id, pe.exercise_id, sp.user_id
            FROM plan_exercises pe
-           JOIN plans p ON p.id = pe.plan_id
+           JOIN plans  p  ON p.id  = pe.plan_id
+           JOIN splits sp ON sp.id = p.split_id
           WHERE pe.id = ?'
     );
     $stmt->execute([$peId]);
@@ -59,7 +61,12 @@ function position_laden(int $peId): array {
     if ($position === false) {
         json_err('Diese Planposition gibt es nicht (mehr).', 404);
     }
-    if ((int)$position['user_id'] !== current_user_id()) {
+    // splits.user_id und NICHT plans.user_id -- letztere ist seit 1.2.0 tot
+    // (siehe schema.sql). Fuer eine VORLAGE ist sie NULL, der Vergleich schlaegt
+    // also fehl, und damit laesst sich in den Katalog nicht hineinprotokolliert
+    // und nicht hineingetauscht werden. Genau so soll es sein: Trainiert wird
+    // ausschliesslich auf der eigenen Kopie.
+    if ($position['user_id'] === null || (int)$position['user_id'] !== current_user_id()) {
         json_err('Kein Zugriff auf diesen Plan.', 403);
     }
 

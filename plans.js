@@ -20,7 +20,7 @@
                 await apiFetch(ENDPUNKT, {
                     body: {
                         action: 'create_plan',
-                        user_id: Number(qs('input[name="user_id"]', neu).value),
+                        split_id: Number(qs('input[name="split_id"]', neu).value),
                         name: qs('#plan_name').value,
                     },
                 });
@@ -34,7 +34,7 @@
 
     if (!liste) return;
 
-    const userId = Number(liste.dataset.user);
+    const splitId = Number(liste.dataset.split);
 
     function zeilenFehler(zeile, text) {
         const p = qs('.zeilen-fehler', zeile);
@@ -336,19 +336,36 @@
             }
 
             const ids = qsa('.plan', liste).map((li) => Number(li.dataset.id));
-            await senden(plan, { action: 'reorder_plans', user_id: userId, ids },
+            await senden(plan, { action: 'reorder_plans', split_id: splitId, ids },
                 'Reihenfolge gespeichert.');
             return;
         }
 
         if (knopf.classList.contains('plan-speichern')) {
+            const name = qs('.plan-name', plan).value;
             knopf.disabled = true;
-            await senden(plan, {
+            const gut = await senden(plan, {
                 action: 'rename_plan',
                 id: planId,
-                name: qs('.plan-name', plan).value,
+                name,
             }, 'Umbenannt.', false);
             knopf.disabled = false;
+
+            // Die Rotationsanzeige oben zieht nach. Sie steht in derselben
+            // Seite und nennt denselben Plan -- ohne das behauptete sie bis zum
+            // naechsten Neuladen den alten Namen, und zwei Stellen auf einem
+            // Bildschirm widersprachen sich.
+            //
+            // Bewusst kein window.location.reload(): Umbenennen ist der eine
+            // Fall, der die Seitenstruktur NICHT aendert, und ein Neuladen
+            // risse einen mitten aus der Liste. Der Server hat den Namen zu
+            // diesem Zeitpunkt schon geprueft und gespeichert -- was hier
+            // nachgezogen wird, ist nur die Anzeige.
+            if (gut) {
+                qsa('[data-plan-name="' + planId + '"]').forEach((el) => {
+                    el.textContent = name;
+                });
+            }
             return;
         }
 
@@ -405,6 +422,23 @@
             const gut = await senden(plan, {
                 action: 'remove_exercise', plan_exercise_id: peId,
             }, 'Entfernt.');
+            if (!gut) knopf.disabled = false;
+            return;
+        }
+
+        if (knopf.classList.contains('pos-plan-hoch') || knopf.classList.contains('pos-plan-runter')) {
+            // In den Nachbarplan. Anders als beim Sortieren wird hier NICHT
+            // im DOM vorgegriffen: Die Zeile wandert in eine andere Liste,
+            // beide Plaene aendern ihre Laenge, und die Rotationsvorschau
+            // bleibt gleich -- das sauber im Browser nachzubauen waere mehr
+            // Code als ein Neuladen wert ist.
+            const hochP = knopf.classList.contains('pos-plan-hoch');
+            knopf.disabled = true;
+            const gut = await senden(plan, {
+                action: 'move_exercise',
+                plan_exercise_id: peId,
+                direction: hochP ? 'up' : 'down',
+            }, 'Verschoben.');
             if (!gut) knopf.disabled = false;
             return;
         }

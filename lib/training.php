@@ -64,13 +64,20 @@ function satz_vorlage_normalisieren(mixed $wert): string {
 }
 
 /**
- * Alle Plaene eines Benutzers in Rotationsreihenfolge.
+ * Alle Plaene EINES SPLITS in Rotationsreihenfolge.
+ *
+ * Seit 1.2.0 ist der Split und nicht der Benutzer die Klammer um eine
+ * Rotation (§6.4, §7.6). Wer hier mit einer user_id einsteigt, mischt zwei
+ * Splits in einer Reihenfolge -- nach Push kaeme dann irgendwann Ganzkoerper B.
+ *
+ * plans.user_id kommt bewusst nicht mehr vor: Sie ist tot, die Zugehoerigkeit
+ * traegt splits.user_id (siehe schema.sql).
  */
-function plaene_von(int $userId): array {
+function plaene_im_split(int $splitId): array {
     $stmt = db()->prepare(
-        'SELECT id, name, sort_order FROM plans WHERE user_id = ? ORDER BY sort_order, id'
+        'SELECT id, name, sort_order FROM plans WHERE split_id = ? ORDER BY sort_order, id'
     );
-    $stmt->execute([$userId]);
+    $stmt->execute([$splitId]);
     return $stmt->fetchAll();
 }
 
@@ -99,18 +106,29 @@ function plaene_von(int $userId): array {
  * Sortiert wird nach started_at UND id absteigend, aus demselben Grund wie in
  * letztes_gewicht(): Zeitstempel haben Sekundenaufloesung.
  *
- * @return int|null Plan-ID oder null, wenn es noch keine Einheit gibt
+ * Seit 1.2.0 zaehlt nur, was IN DIESEM SPLIT trainiert wurde. Genau daran
+ * haengt, dass ein Splitwechsel nichts vergisst: Wer von Push/Pull auf
+ * Ganzkoerper wechselt und spaeter zurueck, bekommt wieder Pull vorgeschlagen
+ * und nicht Push. Ein Zaehler je Split waere dafuer nicht noetig -- und waere
+ * genau die zweite Quelle, die Fallstrick 21 beschreibt.
+ *
+ * Der JOIN ersetzt zugleich das fruehere "AND s.plan_id IS NOT NULL": Eine
+ * Einheit auf einem inzwischen geloeschten Plan (ON DELETE SET NULL) faellt
+ * heraus, und die Rotation faengt vorne an -- unveraendertes Verhalten.
+ *
+ * @return int|null Plan-ID oder null, wenn in diesem Split noch nichts lief
  */
-function zuletzt_trainierter_plan(int $userId): ?int {
+function zuletzt_trainierter_plan(int $userId, int $splitId): ?int {
     $stmt = db()->prepare(
         'SELECT s.plan_id
            FROM sessions s
+           JOIN plans p ON p.id = s.plan_id
           WHERE s.user_id = ?
-            AND s.plan_id IS NOT NULL
+            AND p.split_id = ?
           ORDER BY s.started_at DESC, s.id DESC
           LIMIT 1'
     );
-    $stmt->execute([$userId]);
+    $stmt->execute([$userId, $splitId]);
 
     return to_int_or_null($stmt->fetchColumn());
 }
@@ -128,17 +146,20 @@ function zuletzt_trainierter_plan(int $userId): ?int {
  * protokolliert oder zeigt der Eintrag auf einen geloeschten Plan, faengt die
  * Rotation vorne an.
  *
+ * Die Rotation laeuft INNERHALB eines Splits (§6.4, §7.6) -- der Split ist
+ * die Klammer, nicht der Benutzer.
+ *
  * @param array|null $plaene Bereits geladene Plaene, spart eine Abfrage
  * @return array|null Der vorgeschlagene Plan oder null, wenn keiner existiert
  */
-function naechster_plan(int $userId, ?array $plaene = null): ?array {
-    $plaene ??= plaene_von($userId);
+function naechster_plan(int $userId, int $splitId, ?array $plaene = null): ?array {
+    $plaene ??= plaene_im_split($splitId);
 
     if ($plaene === []) {
         return null;
     }
 
-    $zuletzt = zuletzt_trainierter_plan($userId);
+    $zuletzt = zuletzt_trainierter_plan($userId, $splitId);
     if ($zuletzt === null) {
         return $plaene[0];
     }
@@ -835,12 +856,14 @@ function offene_einheit(int $userId): ?array {
 function einheiten_verlauf(int $userId, int $limit = 50): array {
     $stmt = db()->prepare(
         'SELECT s.id, s.started_at, s.ended_at, s.plan_id,
-                p.name AS plan_name,
+                p.name  AS plan_name,
+                sp.name AS split_name,
                 (SELECT COUNT(*) FROM workout_log wl
                   WHERE wl.session_id = s.id AND wl.done = 1) AS erledigt,
                 (SELECT COUNT(*) FROM plan_exercises pe WHERE pe.plan_id = s.plan_id) AS gesamt
            FROM sessions s
-           LEFT JOIN plans p ON p.id = s.plan_id
+           LEFT JOIN plans  p  ON p.id  = s.plan_id
+           LEFT JOIN splits sp ON sp.id = p.split_id
           WHERE s.user_id = ? AND s.ended_at IS NOT NULL
           ORDER BY s.started_at DESC, s.id DESC
           LIMIT ' . (int)$limit

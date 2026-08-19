@@ -140,6 +140,16 @@ CREATE TABLE IF NOT EXISTS users (
     -- Wirkt nur im Expertenmodus; im einfachen Modus gibt es keine Saetze.
     satz_vorlage         TEXT    NOT NULL DEFAULT 'gleicher_satz',
     last_plan_id         INTEGER REFERENCES plans(id) ON DELETE SET NULL,
+    -- Welcher Split gerade gewaehlt ist (§7.6). NULL = noch keiner; dann
+    -- verweist die Trainingsansicht auf splits.php.
+    --
+    -- Das ist eine AUSWAHL und keine ableitbare Tatsache -- deshalb darf sie
+    -- als Spalte stehen, anders als last_plan_id daneben. Die Rotation INNERHALB
+    -- des Splits wird weiterhin aus der Historie gelesen und nirgends notiert.
+    -- Damit die Auswahl nicht veraltet, setzt sie auch der Start einer Einheit,
+    -- und aktiver_split() faellt bei NULL auf den Split der letzten Einheit
+    -- zurueck, sonst auf den ersten eigenen.
+    active_split_id      INTEGER REFERENCES splits(id) ON DELETE SET NULL,
     -- Gesperrt: NULL = aktiv, sonst der Zeitpunkt der Sperre (§6.1).
     --
     -- EINE Spalte und nicht das Paar blocked/blocked_at, wie es exercises mit
@@ -183,12 +193,62 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_ip_time
 
 
 -- ---------------------------------------------------------------------------
--- Plaene
+-- Splits und Plaene
 -- ---------------------------------------------------------------------------
 
+-- Ein Workout-Split buendelt die Plaene, die miteinander rotieren:
+-- "Push / Pull" mit Push und Pull, "Ganzkoerper" mit A und B (§6.4, §7.6).
+--
+-- user_id IS NULL  -> VORLAGE. Fuer alle sichtbar, nur ein Admin bearbeitet
+--                     sie, und NIEMAND trainiert darauf. Sie ist ein Katalog.
+-- user_id = X      -> PERSOENLICHER Split von X. Nur X (und ein Admin) sieht
+--                     und bearbeitet ihn, und NUR darauf wird trainiert.
+--
+-- Es gibt keinen dritten Zustand und keine Verbindung zwischen beiden: Wer
+-- eine Vorlage benutzen will, KOPIERT sie zu sich (split_kopieren() in
+-- lib/splits.php). Danach sind beide Seiten unabhaengig -- eine spaetere
+-- Aenderung an der Vorlage wandert ausdruecklich NICHT nach, und ein
+-- dauerhafter Tausch beim Benutzer beruehrt die Vorlage nicht. Genau das ist
+-- der Zweck der Kopie: Zwei Benutzer duerfen denselben Split fahren, ohne
+-- sich gegenseitig in den Bestand zu schreiben.
+--
+-- Kein UNIQUE auf name: Zwei Benutzer duerfen denselben Splitnamen haben, und
+-- derselbe Benutzer darf mehrere Fassungen einer Vorlage nebeneinander halten
+-- ("Push / Pull" und "Push / Pull (2)"). Die Unterscheidung ist Sache des
+-- Namens, nicht der Datenbank.
+CREATE TABLE IF NOT EXISTS splits (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT    NOT NULL,
+    beschreibung TEXT,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL
+);
+
+-- Der Index steht auch in apply_migrations(), damit eine Bestandsdatenbank
+-- ihn ebenfalls bekommt. Hier ist er unkritisch: splits entsteht als ganze
+-- Tabelle, die Spalte gibt es also in jedem Fall.
+CREATE INDEX IF NOT EXISTS idx_splits_user
+    ON splits(user_id, sort_order);
+
+
+-- split_id traegt die Zugehoerigkeit. Es steht hier UND als ALTER TABLE in
+-- apply_migrations() -- dieselbe Doppelung wie bei exercises.image_crop: die
+-- eine Haelfte fuer die frische Datenbank, die andere fuer den Bestand.
+--
+-- user_id ist seit 1.2.0 TOT und wird ausserhalb der Migration weder gelesen
+-- noch fuer Zugriffsentscheidungen benutzt; wem ein Plan gehoert, sagt allein
+-- splits.user_id. Sie bleibt aus einem einzigen, aber zwingenden Grund stehen:
+-- Wird eine Sicherung von VOR 1.2.0 eingespielt, stehen dort wieder Plaene
+-- ohne split_id, und nur user_id sagt dann noch, wem sie gehoeren. Ohne die
+-- Spalte waeren solche Plaene unrettbar unsichtbar -- die Migration in
+-- apply_migrations() ist der einzige Leser. Neu angelegte Plaene fuellen sie
+-- weiterhin (NOT NULL), bei Vorlagen mit der ID des handelnden Admins.
+-- Nicht wieder in Betrieb nehmen; dasselbe gilt fuer users.last_plan_id.
 CREATE TABLE IF NOT EXISTS plans (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+    split_id   INTEGER          REFERENCES splits(id) ON DELETE CASCADE,
     name       TEXT    NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT    NOT NULL

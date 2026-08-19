@@ -6,17 +6,33 @@ require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/training.php';
 require_once __DIR__ . '/../lib/geraete.php';
+require_once __DIR__ . '/../lib/splits.php';
 
 bootstrap_session();
 require_login_api();
 require_passwort_gesetzt_api();
-require_admin_api();
 
 /**
- * Planverwaltung (§6.4).
+ * Planverwaltung innerhalb eines Splits (§6.4).
  *
  * Die Reihenfolge der Plaene ist hier keine Anzeigesache: sie bestimmt die
- * Rotation in §7.6. Push -> Pull -> Legs ist genau diese Sortierung.
+ * Rotation in §7.6. Push -> Pull -> Legs ist genau diese Sortierung -- jetzt
+ * innerhalb EINES Splits.
+ *
+ * ACHTUNG, hier stand bis 1.1.15 ein require_admin_api(). Das ist die
+ * folgenreichste Zeile dieser Datei, und sie ist ABSICHTLICH weg: Seit 1.2.0
+ * bearbeitet jeder Benutzer seine eigenen Splits. Weil der Endpunkt admin-only
+ * war, prueften plan_laden() und position_laden() frueher UEBERHAUPT KEINEN
+ * Besitzer -- sie mussten nicht.
+ *
+ * Jetzt muss jede Aktion es tun, und deshalb gibt es dafuer GENAU EINE Stelle:
+ * plan_zugriff() bzw. position_zugriff(), beide ueber split_zugriff_api() in
+ * lib/splits.php. Zehn einzeln geschriebene Pruefungen waeren neun
+ * Gelegenheiten, eine zu vergessen -- und eine vergessene oeffnet fremde
+ * Plaene zum Schreiben.
+ *
+ * Die Regel in einem Satz: Der Eigentuemer des Splits darf, ein Admin darf
+ * alles, und eine VORLAGE (splits.user_id IS NULL) darf nur ein Admin anfassen.
  */
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -37,6 +53,7 @@ match (to_str($eingabe['action'] ?? '')) {
     'exercise_picker'    => aktion_uebungs_auswahl($eingabe),
     'add_exercise'       => aktion_uebung_hinzufuegen($eingabe),
     'remove_exercise'    => aktion_uebung_entfernen($eingabe),
+    'move_exercise'      => aktion_uebung_verschieben($eingabe),
     'reorder_exercises'  => aktion_uebungen_sortieren($eingabe),
     'swap_suggestions'   => aktion_tausch_vorschlaege($eingabe),
     'swap_exercise'      => aktion_uebung_tauschen($eingabe),
@@ -59,10 +76,19 @@ function hat_offene_einheit(int $userId): bool {
  * aendern -- sonst verschiebt sich das `n` in der Fortschrittsanzeige "x/n"
  * mitten im Training (§6.4).
  */
-function struktur_sperre_pruefen(int $userId): void {
+function struktur_sperre_pruefen(?int $userId): void {
+    // Eine VORLAGE hat keinen Eigentuemer und wird von niemandem trainiert --
+    // sie laesst sich deshalb jederzeit bearbeiten, auch waehrend im Haus
+    // jemand trainiert. Das ist kein Schlupfloch, sondern die Folge daraus,
+    // dass eine Vorlage nur ein Katalog ist: Wer sie kopiert hat, haengt nicht
+    // mehr an ihr.
+    if ($userId === null) {
+        return;
+    }
+
     if (hat_offene_einheit($userId)) {
         json_err(
-            'Dieser Benutzer hat gerade eine offene Trainingseinheit. '
+            'Es läuft gerade eine offene Trainingseinheit. '
             . 'Solange lässt sich die Zusammensetzung des Plans nicht ändern.',
             409
         );
@@ -70,15 +96,27 @@ function struktur_sperre_pruefen(int $userId): void {
 }
 
 /**
- * Laedt einen Plan samt Besitzer oder bricht mit 404 ab.
+ * Laedt einen Plan samt Split UND prueft den Zugriff.
+ *
+ * Beides in einer Funktion, damit es keinen Aufruf gibt, der das eine ohne das
+ * andere tut. Der Rueckgabewert traegt split_user_id -- NULL bei einer
+ * Vorlage -- und genau der Wert geht anschliessend in struktur_sperre_pruefen().
  */
-function plan_laden(int $planId): array {
-    $stmt = db()->prepare('SELECT id, user_id, name, sort_order FROM plans WHERE id = ?');
+function plan_zugriff(int $planId): array {
+    $stmt = db()->prepare(
+        'SELECT p.id, p.name, p.sort_order, p.split_id, sp.user_id AS split_user_id
+           FROM plans p
+           JOIN splits sp ON sp.id = p.split_id
+          WHERE p.id = ?'
+    );
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
     if ($plan === false) {
         json_err('Diesen Plan gibt es nicht (mehr).', 404);
     }
+
+    split_zugriff_api((int)$plan['split_id']);
+
     return $plan;
 }
 
@@ -96,28 +134,28 @@ function plan_name_pruefen(array $eingabe): string {
 }
 
 function aktion_plan_anlegen(array $eingabe): never {
-    $userId = to_int_or_null($eingabe['user_id'] ?? null);
-    if ($userId === null) {
-        json_err('Kein Benutzer angegeben.', 422);
+    $splitId = to_int_or_null($eingabe['split_id'] ?? null);
+    if ($splitId === null) {
+        json_err('Kein Split angegeben.', 422);
     }
 
-    $stmt = db()->prepare('SELECT COUNT(*) FROM users WHERE id = ?');
-    $stmt->execute([$userId]);
-    if ((int)$stmt->fetchColumn() === 0) {
-        json_err('Diesen Benutzer gibt es nicht.', 404);
-    }
-
-    $name = plan_name_pruefen($eingabe);
+    $split = split_zugriff_api($splitId);
+    $name  = plan_name_pruefen($eingabe);
 
     // Ans Ende der Rotation, nicht mittendrin einsortieren.
-    $stmt = db()->prepare('SELECT COALESCE(MAX(sort_order), 0) FROM plans WHERE user_id = ?');
-    $stmt->execute([$userId]);
+    $stmt = db()->prepare('SELECT COALESCE(MAX(sort_order), 0) FROM plans WHERE split_id = ?');
+    $stmt->execute([$splitId]);
     $max = (int)$stmt->fetchColumn();
 
+    // plans.user_id ist tot und entscheidet nichts (siehe schema.sql), sie ist
+    // nur NOT NULL. Bei einer Vorlage steht dort der handelnde Admin.
+    $besitzer = $split['user_id'] === null ? current_user_id() : (int)$split['user_id'];
+
     $stmt = db()->prepare(
-        'INSERT INTO plans (user_id, name, sort_order, created_at) VALUES (?, ?, ?, ?)'
+        'INSERT INTO plans (user_id, split_id, name, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?)'
     );
-    $stmt->execute([$userId, $name, $max + 10, now()]);
+    $stmt->execute([$besitzer, $splitId, $name, $max + 10, now()]);
 
     json_ok(['id' => (int)db()->lastInsertId()]);
 }
@@ -132,7 +170,7 @@ function aktion_plan_umbenennen(array $eingabe): never {
         json_err('Kein Plan angegeben.', 422);
     }
 
-    plan_laden($id);
+    plan_zugriff($id);
     $name = plan_name_pruefen($eingabe);
 
     db()->prepare('UPDATE plans SET name = ? WHERE id = ?')->execute([$name, $id]);
@@ -145,7 +183,7 @@ function aktion_plan_loeschen(array $eingabe): never {
         json_err('Kein Plan angegeben.', 422);
     }
 
-    $plan = plan_laden($id);
+    plan_zugriff($id);
 
     // §4.1: verboten, solange eine offene Einheit auf ihn zeigt.
     $stmt = db()->prepare(
@@ -175,20 +213,22 @@ function aktion_plan_loeschen(array $eingabe): never {
  * Neue Reihenfolge der Plaene -- und damit der Rotation.
  */
 function aktion_plaene_sortieren(array $eingabe): never {
-    $userId = to_int_or_null($eingabe['user_id'] ?? null);
-    $ids    = to_id_list($eingabe['ids'] ?? []);
+    $splitId = to_int_or_null($eingabe['split_id'] ?? null);
+    $ids     = to_id_list($eingabe['ids'] ?? []);
 
-    if ($userId === null || $ids === []) {
+    if ($splitId === null || $ids === []) {
         json_err('Keine Reihenfolge übermittelt.', 422);
     }
 
-    // Alle IDs muessen diesem Benutzer gehoeren -- sonst liesse sich ueber
-    // eine fremde Plan-ID die Sortierung eines anderen Kontos verbiegen.
+    split_zugriff_api($splitId);
+
+    // Alle IDs muessen zu DIESEM Split gehoeren -- sonst liesse sich ueber eine
+    // fremde Plan-ID die Rotation eines anderen Splits verbiegen.
     $platzhalter = implode(',', array_fill(0, count($ids), '?'));
     $stmt = db()->prepare(
-        "SELECT COUNT(*) FROM plans WHERE id IN ($platzhalter) AND user_id = ?"
+        "SELECT COUNT(*) FROM plans WHERE id IN ($platzhalter) AND split_id = ?"
     );
-    $stmt->execute([...$ids, $userId]);
+    $stmt->execute([...$ids, $splitId]);
     if ((int)$stmt->fetchColumn() !== count($ids)) {
         json_err('Ungültige Reihenfolge.', 422);
     }
@@ -231,7 +271,7 @@ function aktion_uebungs_auswahl(array $eingabe): never {
     if ($planId === null) {
         json_err('Kein Plan angegeben.', 422);
     }
-    $plan = plan_laden($planId);
+    $plan = plan_zugriff($planId);
 
     $gruppe = to_int_or_null($eingabe['group_id'] ?? null);
     $geraet = to_str($eingabe['equipment'] ?? '');
@@ -337,7 +377,8 @@ function aktion_uebungs_auswahl(array $eingabe): never {
         // Ein zweiter Tab kann den Dialog oeffnen, nachdem der Benutzer im
         // ersten ein Training gestartet hat. add_exercise antwortet dann mit
         // 409; die Auswahl sagt es vorher.
-        'gesperrt'  => hat_offene_einheit((int)$plan['user_id']),
+        'gesperrt'  => $plan['split_user_id'] !== null
+                       && hat_offene_einheit((int)$plan['split_user_id']),
     ]);
 }
 
@@ -407,8 +448,8 @@ function aktion_uebung_hinzufuegen(array $eingabe): never {
         json_err('Plan oder Übung fehlt.', 422);
     }
 
-    $plan = plan_laden($planId);
-    struktur_sperre_pruefen((int)$plan['user_id']);
+    $plan = plan_zugriff($planId);
+    struktur_sperre_pruefen(to_int_or_null($plan['split_user_id']));
 
     $stmt = db()->prepare('SELECT name_de, archived FROM exercises WHERE id = ?');
     $stmt->execute([$exerciseId]);
@@ -445,13 +486,18 @@ function aktion_uebung_hinzufuegen(array $eingabe): never {
 }
 
 /**
- * Laedt eine Planposition samt Uebung und Besitzer oder bricht mit 404 ab.
+ * Laedt eine Planposition samt Split UND prueft den Zugriff.
+ *
+ * Gegenstueck zu plan_zugriff(); dieselbe Begruendung dafuer, dass Laden und
+ * Pruefen nicht zu trennen sind.
  */
-function position_laden(int $peId): array {
+function position_zugriff(int $peId): array {
     $stmt = db()->prepare(
-        'SELECT pe.id, pe.plan_id, pe.exercise_id, p.user_id
+        'SELECT pe.id, pe.plan_id, pe.exercise_id, p.split_id, p.sort_order AS plan_sort,
+                sp.user_id AS split_user_id
            FROM plan_exercises pe
-           JOIN plans p ON p.id = pe.plan_id
+           JOIN plans  p  ON p.id  = pe.plan_id
+           JOIN splits sp ON sp.id = p.split_id
           WHERE pe.id = ?'
     );
     $stmt->execute([$peId]);
@@ -460,7 +506,97 @@ function position_laden(int $peId): array {
     if ($position === false) {
         json_err('Diese Planposition gibt es nicht (mehr).', 404);
     }
+
+    split_zugriff_api((int)$position['split_id']);
+
     return $position;
+}
+
+/**
+ * Eine Uebung in den Plan darueber oder darunter verschieben (§6.4).
+ *
+ * Der Nachbarplan wird SERVERSEITIG bestimmt -- aus der Sortierung innerhalb
+ * desselben Splits, also aus derselben Reihenfolge, die auch die Rotation
+ * bildet. Der Client schickt nur die Richtung; er koennte sonst eine beliebige
+ * Ziel-Plan-ID unterschieben, und die Pruefung dagegen waere eine weitere,
+ * die man vergessen kann.
+ *
+ * VERSCHOBEN wird die Zeile, sie wird nicht geloescht und neu angelegt -- und
+ * das ist der entscheidende Unterschied fuer die Historie: plan_exercises.id
+ * bleibt dieselbe, alle workout_log-Eintraege behalten also ihren Bezug. Ein
+ * DELETE+INSERT haette workout_log.plan_exercise_id per ON DELETE SET NULL
+ * geleert und damit die Zuordnung protokollierter Saetze zur Planposition
+ * verloren -- lautlos, und erst Wochen spaeter im Verlauf sichtbar.
+ *
+ * Der historische Eintrag behaelt sein plan_id vom Tag der Ausfuehrung. Das
+ * ist richtig so: Dort WURDE die Uebung gemacht. Nur das "n" in "x/n" zaehlt
+ * die Positionen des Plans, wie er heute aussieht -- dasselbe gilt seit jeher
+ * beim Entfernen und Hinzufuegen (§7.8).
+ */
+function aktion_uebung_verschieben(array $eingabe): never {
+    $peId     = to_int_or_null($eingabe['plan_exercise_id'] ?? null);
+    $richtung = to_str($eingabe['direction'] ?? '');
+
+    if ($peId === null || !in_array($richtung, ['up', 'down'], true)) {
+        json_err('Planposition oder Richtung fehlt.', 422);
+    }
+
+    $position = position_zugriff($peId);
+    struktur_sperre_pruefen(to_int_or_null($position['split_user_id']));
+
+    // Der Nachbar in der Rotationsreihenfolge. Die id als zweites Kriterium,
+    // weil zwei Plaene dieselbe sort_order tragen koennen -- dieselbe
+    // Ueberlegung wie bei letztes_gewicht() und zuletzt_trainierter_plan().
+    $auf = $richtung === 'up';
+    $stmt = db()->prepare(
+        'SELECT id, name FROM plans
+          WHERE split_id = ?
+            AND (sort_order ' . ($auf ? '<' : '>') . ' ?
+                 OR (sort_order = ? AND id ' . ($auf ? '<' : '>') . ' ?))
+          ORDER BY sort_order ' . ($auf ? 'DESC' : 'ASC') . ', id ' . ($auf ? 'DESC' : 'ASC') . '
+          LIMIT 1'
+    );
+    $stmt->execute([
+        (int)$position['split_id'], (int)$position['plan_sort'],
+        (int)$position['plan_sort'], (int)$position['plan_id'],
+    ]);
+    $ziel = $stmt->fetch();
+
+    if ($ziel === false) {
+        json_err(
+            $auf ? 'Darüber gibt es keinen Plan.' : 'Darunter gibt es keinen Plan.',
+            409
+        );
+    }
+
+    $zielId = (int)$ziel['id'];
+
+    // Dieselbe Uebung zweimal in einem Plan ist nicht darstellbar -- dieselbe
+    // Regel wie beim Hinzufuegen, nur an anderer Stelle.
+    $stmt = db()->prepare(
+        'SELECT e.name_de FROM plan_exercises pe
+           JOIN exercises e ON e.id = pe.exercise_id
+          WHERE pe.plan_id = ? AND pe.exercise_id = ?'
+    );
+    $stmt->execute([$zielId, (int)$position['exercise_id']]);
+    $schon = $stmt->fetchColumn();
+    if ($schon !== false) {
+        json_err(
+            '„' . $schon . '“ steht bereits in „' . $ziel['name'] . '“.',
+            409
+        );
+    }
+
+    // Ans Ende des Zielplans, nicht an dieselbe Stelle: Die Position im einen
+    // Plan sagt nichts darueber, wo die Uebung im anderen hingehoert.
+    $stmt = db()->prepare('SELECT COALESCE(MAX(sort_order), 0) FROM plan_exercises WHERE plan_id = ?');
+    $stmt->execute([$zielId]);
+    $max = (int)$stmt->fetchColumn();
+
+    db()->prepare('UPDATE plan_exercises SET plan_id = ?, sort_order = ? WHERE id = ?')
+        ->execute([$zielId, $max + 10, $peId]);
+
+    json_ok(['plan_exercise_id' => $peId, 'plan_id' => $zielId, 'plan_name' => $ziel['name']]);
 }
 
 function aktion_uebung_entfernen(array $eingabe): never {
@@ -469,8 +605,8 @@ function aktion_uebung_entfernen(array $eingabe): never {
         json_err('Keine Planposition angegeben.', 422);
     }
 
-    $position = position_laden($peId);
-    struktur_sperre_pruefen((int)$position['user_id']);
+    $position = position_zugriff($peId);
+    struktur_sperre_pruefen(to_int_or_null($position['split_user_id']));
 
     // Der workout_log bleibt erhalten -- plan_exercise_id wird per
     // ON DELETE SET NULL geleert, die Historie zeigt weiter auf exercise_id (§4.1).
@@ -506,7 +642,7 @@ function aktion_tausch_vorschlaege(array $eingabe): never {
         json_err('Keine Planposition angegeben.', 422);
     }
 
-    $position = position_laden($peId);
+    $position = position_zugriff($peId);
     $uebungId = (int)$position['exercise_id'];
 
     $vorschlaege = tausch_vorschlaege($uebungId, plan_ausschluss($position));
@@ -517,7 +653,8 @@ function aktion_tausch_vorschlaege(array $eingabe): never {
         // Wie viele Alternativen fielen weg, weil sie schon im Plan stehen?
         // Ohne diese Zahl wirkt eine kurze Liste wie ein Fehler.
         'im_plan'     => count($alle) - count($vorschlaege),
-        'gesperrt'    => hat_offene_einheit((int)$position['user_id']),
+        'gesperrt'    => $position['split_user_id'] !== null
+                         && hat_offene_einheit((int)$position['split_user_id']),
     ]);
 }
 
@@ -537,8 +674,8 @@ function aktion_uebung_tauschen(array $eingabe): never {
         json_err('Planposition oder Übung fehlt.', 422);
     }
 
-    $position = position_laden($peId);
-    struktur_sperre_pruefen((int)$position['user_id']);
+    $position = position_zugriff($peId);
+    struktur_sperre_pruefen(to_int_or_null($position['split_user_id']));
 
     if ($neueId === (int)$position['exercise_id']) {
         json_err('Diese Übung steht bereits an dieser Position.', 409);
@@ -574,8 +711,8 @@ function aktion_uebungen_sortieren(array $eingabe): never {
         json_err('Keine Reihenfolge übermittelt.', 422);
     }
 
-    $plan = plan_laden($planId);
-    struktur_sperre_pruefen((int)$plan['user_id']);
+    $plan = plan_zugriff($planId);
+    struktur_sperre_pruefen(to_int_or_null($plan['split_user_id']));
 
     $platzhalter = implode(',', array_fill(0, count($ids), '?'));
     $stmt = db()->prepare(

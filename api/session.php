@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/training.php';
+require_once __DIR__ . '/../lib/splits.php';
 
 bootstrap_session();
 require_login_api();
@@ -13,18 +14,16 @@ require_passwort_gesetzt_api();
 /**
  * Trainingseinheiten (§7.6).
  *
- * Eine Einheit entsteht auf DREI Wegen (§7.6):
- *   1. ausdruecklich ueber "start" hier,
- *   2. beim Abhaken der ersten Uebung (api/log.php),
- *   3. beim Tausch "nur diese Einheit" (api/swap.php).
+ * Eine Einheit entsteht auf GENAU EINEM Weg: ausdruecklich ueber "start" hier
+ * (§7.6, Fallstrick 1). api/log.php und api/swap.php antworten seit 1.1.6 mit
+ * 409, statt eine anzulegen.
  *
- * Weg 1 kam am 2026-08-07 dazu. Vorher entstand die Einheit fruehestens beim
- * Abhaken -- der Zeitstempel hielt damit das ENDE der ersten Uebung fest, nicht
- * den Trainingsbeginn. Bei drei Saetzen sind das schnell zehn Minuten, und die
- * Auswertung zeigte durchweg zu kurze Dauern.
- *
- * Die Wege 2 und 3 bleiben, damit niemand feststeckt, der den Knopf uebersieht.
- * Blosses Anschauen startet weiterhin nichts.
+ * Der Knopf kam am 2026-08-07 dazu. Vorher entstand die Einheit fruehestens
+ * beim Abhaken -- der Zeitstempel hielt damit das ENDE der ersten Uebung fest,
+ * nicht den Trainingsbeginn. Bei drei Saetzen sind das schnell zehn Minuten,
+ * und die Auswertung zeigte durchweg zu kurze Dauern. Die beiden anderen Wege
+ * fielen am 2026-08-12: Ein Fehlgriff beim blossen Durchsehen begann ein
+ * Training, das niemand wollte, und verstellte danach die Rotation.
  */
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -110,14 +109,29 @@ function aktion_starten(array $eingabe): never {
     $userId = current_user_id();
 
     // Der Plan muss dem Benutzer gehoeren -- sonst liesse sich eine Einheit auf
-    // einen fremden Plan eroeffnen (IDOR, §5).
-    $stmt = db()->prepare('SELECT COUNT(*) FROM plans WHERE id = ? AND user_id = ?');
-    $stmt->execute([$planId, $userId]);
-    if ((int)$stmt->fetchColumn() === 0) {
+    // einen fremden Plan eroeffnen (IDOR, §5). Seit 1.2.0 entscheidet das
+    // splits.user_id und nicht mehr plans.user_id (die ist tot, siehe
+    // schema.sql).
+    //
+    // plan_gehoert() liefert fuer eine VORLAGE immer false, auch bei einem
+    // Admin -- und das ist die wichtigste Sperre dieser Datei. Wer auf einer
+    // Vorlage trainierte, schriebe mit dem ersten dauerhaften Tausch (§7.5) in
+    // den Bestand aller Benutzer. Der fehlende Startknopf in der Oberflaeche
+    // ist nur die Bequemlichkeit davor.
+    if (!plan_gehoert($planId, $userId)) {
         json_err('Diesen Plan gibt es nicht.', 404);
     }
 
-    json_ok(['session_id' => einheit_sicherstellen($userId, $planId)]);
+    $sessionId = einheit_sicherstellen($userId, $planId);
+
+    // Die Auswahl nachziehen, damit sie nicht hinter der Wirklichkeit
+    // zurueckbleibt: Wer in einem Split trainiert, hat ihn gewaehlt.
+    $split = split_von_plan($planId);
+    if ($split !== null) {
+        aktiven_split_setzen($userId, (int)$split['split_id']);
+    }
+
+    json_ok(['session_id' => $sessionId]);
 }
 
 /**

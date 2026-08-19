@@ -144,13 +144,23 @@ foreach (db()->query(
     $zuordnung[(int)$z['exercise_id']][] = $z;
 }
 
+// In welchen Plaenen steht diese Uebung? Seit 1.2.0 haengt der Plan am Split
+// und nicht mehr am Benutzer -- und die Auskunft muss VORLAGEN nennen koennen.
+//
+// Ohne diese Unterscheidung waere die Meldung beim Archivieren irrefuehrend:
+// Steht eine Uebung nur im Katalog, suchte man den Plan bei einem Benutzer,
+// der ihn gar nicht hat. Dasselbe gilt fuer "endgueltig loeschen" -- eine
+// Uebung in einer Vorlage ist durch ON DELETE RESTRICT gesperrt, und der Grund
+// muss ablesbar sein.
 $planReferenzen = [];
 foreach (db()->query(
-    'SELECT pe.exercise_id, p.name AS plan_name, u.name AS benutzer
+    'SELECT pe.exercise_id, p.name AS plan_name, sp.name AS split_name,
+            sp.user_id AS split_user_id, u.name AS benutzer
        FROM plan_exercises pe
-       JOIN plans p ON p.id = pe.plan_id
-       LEFT JOIN users u ON u.id = p.user_id
-      ORDER BY u.name, p.name'
+       JOIN plans  p  ON p.id  = pe.plan_id
+       JOIN splits sp ON sp.id = p.split_id
+       LEFT JOIN users u ON u.id = sp.user_id
+      ORDER BY sp.user_id IS NOT NULL, u.name, sp.name, p.name'
 ) as $r) {
     $planReferenzen[(int)$r['exercise_id']][] = $r;
 }
@@ -558,8 +568,12 @@ require __DIR__ . '/lib/view_header.php';
                                 In Plänen:
                                 <?php
                                 $namen = array_map(
-                                    static fn(array $p): string =>
-                                        $p['plan_name'] . ' (' . ($p['benutzer'] ?? 'gelöschter Benutzer') . ')',
+                                    static fn(array $p): string => $p['plan_name'] . ' ('
+                                        . ($p['split_user_id'] === null
+                                            ? 'Vorlage: ' . $p['split_name']
+                                            : ($p['benutzer'] ?? 'gelöschter Benutzer')
+                                              . ': ' . $p['split_name'])
+                                        . ')',
                                     $plaene
                                 );
                                 echo h(implode(', ', $namen));

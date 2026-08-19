@@ -228,12 +228,39 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec("ALTER TABLE users ADD COLUMN satz_vorlage TEXT NOT NULL DEFAULT 'gleicher_satz'");
     }
 
+    // 2026-08-18: Workout-Splits als Ebene ueber den Plaenen (§6.4, §7.6).
+    //
+    // Die Tabelle splits selbst kommt aus schema.sql -- CREATE TABLE IF NOT
+    // EXISTS legt sie auch auf der Bestandsdatenbank an, so wie seinerzeit
+    // workout_sets. Nur die beiden Spalten brauchen den Umweg hierher, weil
+    // ALTER TABLE kein IF NOT EXISTS kennt.
+    //
+    // Beide sind nullbar und ohne Vorgabe -- das ist bei ADD COLUMN mit
+    // REFERENCES auch die einzige zulaessige Form, solange Fremdschluessel
+    // eingeschaltet sind. Gefuellt wird split_id gleich darunter von
+    // splits_nachziehen().
+    if (!column_exists($pdo, 'plans', 'split_id')) {
+        $pdo->exec('ALTER TABLE plans ADD COLUMN split_id INTEGER
+                        REFERENCES splits(id) ON DELETE CASCADE');
+    }
+
+    if (!column_exists($pdo, 'users', 'active_split_id')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN active_split_id INTEGER
+                        REFERENCES splits(id) ON DELETE SET NULL');
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die
     // Spalte in jedem Fall bereits, bei frischer wie bei bestehender Datenbank.
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_muscle_groups_parent
                     ON muscle_groups(parent_id, sort_order)');
+
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_plans_split
+                    ON plans(split_id, sort_order)');
+
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_splits_user
+                    ON splits(user_id, sort_order)');
 
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_exercises_equipment
                     ON exercises(equipment, name_de)');
@@ -249,6 +276,77 @@ function apply_migrations(PDO $pdo): void {
     // GRENZE: SQLites NOCASE faltet ausschliesslich ASCII A-Z. "Mueller" und
     // "mueller" fallen zusammen, "Müller" und "müller" nicht.
     index_name_nocase($pdo);
+
+    // Zum Schluss, weil sie die Spalten von oben braucht.
+    splits_nachziehen($pdo);
+}
+
+/**
+ * Haengt Plaene ohne Split an einen persoenlichen Split ihres Besitzers.
+ *
+ * Das ist die Datenmigration zu 1.2.0 -- und sie steht bewusst HIER und nicht
+ * in einem Skript, das einmal von Hand lief. backup_wiederherstellen() ruft
+ * nach dem Einspielen db() auf und damit init_schema(); eine Sicherung aus der
+ * Zeit vor den Splits wird auf diesem Weg mitgezogen und ist unmittelbar
+ * danach wieder benutzbar. Ein Einmalskript liesse genau dort Plaene zurueck,
+ * die keinem Split angehoeren -- und die waeren in der Oberflaeche unsichtbar,
+ * ohne dass irgendetwas eine Meldung erzeugte.
+ *
+ * plans.user_id ist der einzige Anker, an dem sich das entscheiden laesst, und
+ * der einzige Grund, warum die Spalte stehenbleibt (siehe schema.sql).
+ *
+ * Idempotent in beide Richtungen: Der zweite Lauf findet nichts mehr vor und
+ * legt deshalb auch keinen zweiten Split an. Der Name "Meine Plaene" ist
+ * bewusst nichtssagend -- welches Konzept dahintersteckt, weiss nur der
+ * Benutzer, und Umbenennen ist ein Handgriff.
+ */
+function splits_nachziehen(PDO $pdo): void {
+    $offen = $pdo->query(
+        'SELECT DISTINCT user_id FROM plans WHERE split_id IS NULL'
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($offen as $userId) {
+        $userId = (int)$userId;
+
+        // Einen vorhandenen persoenlichen Split wiederverwenden, statt bei
+        // jedem Lauf einen weiteren anzulegen. Der aelteste gewinnt.
+        $stmt = $pdo->prepare(
+            'SELECT id FROM splits WHERE user_id = ? ORDER BY sort_order, id LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $splitId = to_int_or_null($stmt->fetchColumn());
+
+        if ($splitId === null) {
+            $pdo->prepare(
+                'INSERT INTO splits (user_id, name, sort_order, created_at)
+                 VALUES (?, ?, 1, ?)'
+            )->execute([$userId, 'Meine Pläne', now()]);
+            $splitId = (int)$pdo->lastInsertId();
+        }
+
+        $pdo->prepare('UPDATE plans SET split_id = ? WHERE user_id = ? AND split_id IS NULL')
+            ->execute([$splitId, $userId]);
+    }
+
+    // Und die Auswahl setzen, damit niemand nach dem Rollout vor einer leeren
+    // Trainingsansicht steht. Der Split der zuletzt begonnenen Einheit ist die
+    // richtige Antwort -- er ist der, in dem man zuletzt trainiert hat.
+    $pdo->exec(
+        'UPDATE users
+            SET active_split_id = COALESCE(
+                (SELECT p.split_id
+                   FROM sessions s
+                   JOIN plans p ON p.id = s.plan_id
+                  WHERE s.user_id = users.id AND p.split_id IS NOT NULL
+                  ORDER BY s.started_at DESC, s.id DESC
+                  LIMIT 1),
+                (SELECT sp.id
+                   FROM splits sp
+                  WHERE sp.user_id = users.id
+                  ORDER BY sp.sort_order, sp.id
+                  LIMIT 1))
+          WHERE active_split_id IS NULL'
+    );
 }
 
 /**

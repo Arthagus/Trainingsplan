@@ -15,7 +15,10 @@ require_admin();
 
 $benutzer = db()->query(
     'SELECT u.id, u.name, u.is_admin, u.must_change_password, u.blocked_at, u.created_at,
-            (SELECT COUNT(*) FROM plans p            WHERE p.user_id = u.id) AS plaene,
+            (SELECT COUNT(*) FROM splits sp          WHERE sp.user_id = u.id) AS splits,
+            (SELECT COUNT(*) FROM plans p
+               JOIN splits sp ON sp.id = p.split_id
+              WHERE sp.user_id = u.id) AS plaene,
             (SELECT COUNT(*) FROM sessions s         WHERE s.user_id = u.id) AS einheiten,
             (SELECT COUNT(*) FROM sessions s         WHERE s.user_id = u.id AND s.ended_at IS NULL) AS offen,
             (SELECT COUNT(*) FROM remember_tokens rt WHERE rt.user_id = u.id) AS geraete

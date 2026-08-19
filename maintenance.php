@@ -31,6 +31,11 @@ $zahlen = [
     'Benutzer'       => (int)db()->query('SELECT COUNT(*) FROM users')->fetchColumn(),
     'Muskelgruppen'  => (int)db()->query('SELECT COUNT(*) FROM muscle_groups')->fetchColumn(),
     'Übungen'        => (int)db()->query('SELECT COUNT(*) FROM exercises')->fetchColumn(),
+    // Splits getrennt nach Katalog und Bestand: Die Zahl der Vorlagen sagt,
+    // wie viel Auswahl es gibt, die der persoenlichen, wie viel wirklich
+    // benutzt wird. Zusammengezaehlt saehe man beides nicht.
+    'Vorlagen'       => (int)db()->query('SELECT COUNT(*) FROM splits WHERE user_id IS NULL')->fetchColumn(),
+    'Splits'         => (int)db()->query('SELECT COUNT(*) FROM splits WHERE user_id IS NOT NULL')->fetchColumn(),
     'Pläne'          => (int)db()->query('SELECT COUNT(*) FROM plans')->fetchColumn(),
     'Einheiten'      => (int)db()->query('SELECT COUNT(*) FROM sessions')->fetchColumn(),
     'Protokollzeilen'=> (int)db()->query('SELECT COUNT(*) FROM workout_log')->fetchColumn(),

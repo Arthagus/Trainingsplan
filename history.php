@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/training.php';
+require_once __DIR__ . '/lib/splits.php';
 
 bootstrap_session();
 require_login();
@@ -33,6 +34,10 @@ if (!in_array($ansicht, ['einheiten', 'uebungen'], true)) {
 $einheiten = einheiten_verlauf($userId);
 $uebungen  = uebungen_mit_verlauf($userId);
 $offen     = offene_einheit($userId);
+
+// Nur wenn es mehrere Splits gibt, ist der Splitname im Verlauf eine
+// Information -- bei einem einzigen waere er in jeder Zeile dasselbe Wort.
+$mehrereSplits = count(splits_von($userId)) > 1;
 
 /**
  * Baut die Zelle „Saetze" als umbrechendes Gitter statt als eine Zeile.
@@ -182,6 +187,13 @@ require __DIR__ . '/lib/view_header.php';
                                 <?= $e['plan_name'] === null
                                     ? '<em class="matt">gelöschter Plan</em>'
                                     : h((string)$e['plan_name']) ?>
+                                <?php // Der Split dahinter, sobald es mehr als
+                                      // einen gibt: "Ganzkörper A" allein ist
+                                      // nicht einzuordnen, wenn zwei Splits
+                                      // einen Plan dieses Namens fuehren. ?>
+                                <?php if ($mehrereSplits && $e['split_name'] !== null): ?>
+                                    <span class="matt">· <?= h((string)$e['split_name']) ?></span>
+                                <?php endif; ?>
                             </span>
                             <span class="matt einheit-eckdaten">
                                 <?= h(dauer_text($e['started_at'], $e['ended_at'])) ?>

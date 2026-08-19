@@ -6,6 +6,7 @@ require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/training.php';
 require_once __DIR__ . '/lib/geraete.php';
+require_once __DIR__ . '/lib/splits.php';
 
 bootstrap_session();
 require_login();
@@ -21,22 +22,41 @@ require_login();
 $benutzer = current_user();
 $userId   = (int)$benutzer['id'];
 
-$offen  = offene_einheit($userId);
-$plaene = plaene_von($userId);
+$offen = offene_einheit($userId);
+
+// Der Split ist seit 1.2.0 die Klammer um die Rotation (§6.4, §7.6). Laeuft
+// eine Einheit, gilt DEREN Split -- sonst zeigte die Seite eine Auswahl aus
+// einem anderen Split, waehrend darunter ein Training aus einem dritten laeuft.
+$split = null;
+if ($offen !== null && $offen['plan_id'] !== null) {
+    $herkunft = split_von_plan((int)$offen['plan_id']);
+    $split    = $herkunft === null ? null : split_laden((int)$herkunft['split_id']);
+}
+$split ??= aktiver_split($userId);
+
+$splitId = $split === null ? null : (int)$split['id'];
+$plaene  = $splitId === null ? [] : plaene_im_split($splitId);
 
 if ($offen !== null) {
     // Eine laufende Einheit gewinnt immer -- unabhaengig vom Datum. Sie laeuft
     // ueber Mitternacht weiter (§7.2).
     $planId = to_int_or_null($offen['plan_id']);
+} elseif ($splitId === null) {
+    $planId = null;
 } else {
     // Ohne offene Einheit: Rotationsvorschlag, per ?plan= umschaltbar.
+    //
+    // $erlaubt umfasst ausschliesslich die Plaene des AKTIVEN Splits, nicht
+    // alle eigenen: Die Liste ist hier der einzige Schutz gegen eine
+    // untergeschobene Plan-ID, und sie haelt zugleich zwei Splits davon ab,
+    // sich in einer Rotation zu vermischen.
     $gewuenscht = to_int_or_null($_GET['plan'] ?? null);
     $erlaubt    = array_map(static fn(array $p): int => (int)$p['id'], $plaene);
 
     if ($gewuenscht !== null && in_array($gewuenscht, $erlaubt, true)) {
         $planId = $gewuenscht;
     } else {
-        $vorschlag = naechster_plan($userId, $plaene);
+        $vorschlag = naechster_plan($userId, $splitId, $plaene);
         $planId    = $vorschlag === null ? null : (int)$vorschlag['id'];
     }
 }
@@ -122,24 +142,37 @@ $pageTitle = $plan === null ? 'Training' : (string)$plan['name'];
 require __DIR__ . '/lib/view_header.php';
 ?>
 
-<?php if ($plaene === []): ?>
+<?php if ($splitId === null): ?>
+
+    <?php // Der Einstieg seit 1.2.0: Ohne gewaehlten Split gibt es nichts zu
+          // trainieren, und die Antwort darauf ist nicht "frag den Admin",
+          // sondern der Katalog. ?>
+    <div class="karte">
+        <p><strong>Noch kein Workout-Split gewählt.</strong></p>
+        <p class="matt">
+            Ein Split bündelt die Pläne, die miteinander abwechseln — etwa
+            „Push / Pull“ oder „Ganzkörper A/B“. Such dir einen aus den Vorlagen
+            aus; er wird zu dir kopiert, und ab dann gehört er dir allein.
+        </p>
+        <p>
+            <a class="knopf" href="<?= h(base_path()) ?>/splits.php">Split auswählen</a>
+        </p>
+    </div>
+
+<?php elseif ($plaene === []): ?>
 
     <div class="karte">
-        <p><strong>Für Sie ist noch kein Trainingsplan hinterlegt.</strong></p>
+        <p><strong>In „<?= h((string)$split['name']) ?>“ steht noch kein Plan.</strong></p>
         <p class="matt">
-            <?php if ((int)$benutzer['is_admin'] === 1): ?>
-                Pläne werden im Adminbereich angelegt.
-            <?php else: ?>
-                Der Administrator legt die Pläne an — bitte dort nachfragen.
-            <?php endif; ?>
+            Ein Split braucht mindestens einen Plan — bei zweien wechseln sie
+            sich ab, bei dreien läuft die Reihenfolge durch.
         </p>
-        <?php if ((int)$benutzer['is_admin'] === 1): ?>
-            <p>
-                <a class="knopf" href="<?= h(base_path()) ?>/admin_plans.php?user=<?= $userId ?>">
-                    Plan anlegen
-                </a>
-            </p>
-        <?php endif; ?>
+        <p>
+            <a class="knopf" href="<?= h(base_path()) ?>/plans.php?split=<?= $splitId ?>">
+                Pläne bearbeiten
+            </a>
+            <a class="knopf zweit" href="<?= h(base_path()) ?>/splits.php">Anderer Split</a>
+        </p>
     </div>
 
 <?php else: ?>
@@ -179,9 +212,9 @@ require __DIR__ . '/lib/view_header.php';
                         data-plan="<?= (int)$planId ?>">Training starten</button>
             </p>
             <p class="matt">
-                Startet die Einheit mit der aktuellen Uhrzeit. Sie beginnt ohnehin
-                automatisch, sobald die erste Übung abgehakt oder getauscht wird —
-                dann zählt aber erst dieser spätere Moment.
+                Startet die Einheit mit der aktuellen Uhrzeit. Erst danach lassen
+                sich Übungen abhaken und für heute tauschen — bloßes Durchsehen
+                beginnt kein Training.
             </p>
 
             <?php if (count($plaene) > 1): ?>
@@ -194,6 +227,14 @@ require __DIR__ . '/lib/view_header.php';
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
+
+            <?php // Welcher Split gilt gerade -- und der Weg zu einem anderen.
+                  // Ohne diese Zeile waere der Plan-Vorschlag nicht einzuordnen,
+                  // sobald jemand mehr als einen Split fuehrt. ?>
+            <p class="matt split-zeile">
+                Split: <strong><?= h((string)$split['name']) ?></strong>
+                · <a href="<?= h(base_path()) ?>/splits.php">wechseln</a>
+            </p>
         </div>
     <?php endif; ?>
 
@@ -217,12 +258,11 @@ require __DIR__ . '/lib/view_header.php';
     <?php elseif ($positionen === []): ?>
         <div class="karte">
             <p><strong>In „<?= h((string)$plan['name']) ?>“ steht noch keine Übung.</strong></p>
-            <p class="matt">
-                <?php if ((int)$benutzer['is_admin'] === 1): ?>
-                    Übungen werden im Adminbereich zum Plan hinzugefügt.
-                <?php else: ?>
-                    Der Administrator ergänzt die Übungen — bitte dort nachfragen.
-                <?php endif; ?>
+            <p class="matt">Der Split gehört dir — du kannst die Übungen selbst ergänzen.</p>
+            <p>
+                <a class="knopf" href="<?= h(base_path()) ?>/plans.php?split=<?= $splitId ?>">
+                    Übungen hinzufügen
+                </a>
             </p>
         </div>
     <?php else: ?>

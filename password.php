@@ -18,6 +18,27 @@ $experte   = (int)($benutzer['expert_mode'] ?? 0) === 1;
 // bedienbar angeboten: Ein Knopf, der sicher in ein 409 laeuft, waere unehrlich.
 $laeuftEinheit = $erzwungen ? false : offene_einheit((int)$benutzer['id']) !== null;
 
+// Die Geraeteverwaltung (§7.7) lag bis 1.2.2 auf einer eigenen Seite
+// devices.php mit eigenem Menuepunkt. Sie steht jetzt hier: Es ist dieselbe
+// Frage -- was gehoert zu meinem Konto --, und die Kopfzeile traegt am Handy
+// nur, was man beim Trainieren braucht.
+$geraete = [];
+if (!$erzwungen) {
+    purge_expired_remember_tokens();
+
+    $stmt = db()->prepare(
+        'SELECT id, selector, created_at, last_used_at, expires_at, user_agent
+           FROM remember_tokens
+          WHERE user_id = ?
+          ORDER BY COALESCE(last_used_at, created_at) DESC'
+    );
+    $stmt->execute([(int)$benutzer['id']]);
+    $geraete = $stmt->fetchAll();
+}
+
+// Das aktuelle Geraet erkennt man am Selector im eigenen Cookie.
+$eigenerSelector = explode(':', (string)($_COOKIE[REMEMBER_COOKIE] ?? ''), 2)[0];
+
 $pageTitle = 'Konto';
 require __DIR__ . '/lib/view_header.php';
 ?>
@@ -208,6 +229,74 @@ require __DIR__ . '/lib/view_header.php';
         <?php endif; ?>
     </div>
 
+    <h2>Geräte</h2>
+
+    <p class="matt">
+        Hier stehen die Geräte, auf denen „Angemeldet bleiben“ aktiv ist. Ein
+        abgemeldetes Gerät verlangt beim nächsten Aufruf wieder das Passwort.
+    </p>
+
+    <?php if ($geraete === []): ?>
+        <div class="karte">
+            <p>Kein Gerät ist dauerhaft angemeldet.</p>
+            <p class="matt">
+                Beim nächsten Anmelden lässt sich „Angemeldet bleiben“ ankreuzen —
+                dann erscheint das Gerät hier.
+            </p>
+        </div>
+    <?php else: ?>
+        <ul id="geraete-liste" class="liste-schlicht">
+            <?php foreach ($geraete as $g): ?>
+                <?php $eigenes = $eigenerSelector !== ''
+                                 && hash_equals((string)$g['selector'], $eigenerSelector); ?>
+                <li class="karte" data-token="<?= (int)$g['id'] ?>">
+                    <div class="geraet-kopf">
+                        <strong><?= h(geraete_bezeichnung($g['user_agent'])) ?></strong>
+                        <?php if ($eigenes): ?>
+                            <span class="abzeichen">dieses Gerät</span>
+                        <?php endif; ?>
+                    </div>
+                    <p class="matt">
+                        Angemeldet am <?= h(format_datetime($g['created_at'])) ?>
+                        <?php if (!empty($g['last_used_at'])): ?>
+                            · zuletzt genutzt <?= h(format_datetime($g['last_used_at'])) ?>
+                        <?php endif; ?>
+                        · gültig bis <?= h(format_datetime($g['expires_at'])) ?>
+                    </p>
+                    <p>
+                        <button type="button" class="leise geraet-abmelden">
+                            <?= $eigenes ? 'Dieses Gerät abmelden' : 'Abmelden' ?>
+                        </button>
+                    </p>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+
+        <p>
+            <button type="button" id="alle-abmelden" class="gefahr">
+                Auf allen Geräten abmelden
+            </button>
+        </p>
+    <?php endif; ?>
+
 <?php endif; ?>
+
+<?php // Abmelden steht AUSSERHALB des !$erzwungen-Blocks, und das ist kein
+      // Versehen: Wer ein Startpasswort hat, kommt auf keine andere Seite --
+      // ohne diesen Link säße er fest, seit der Punkt nicht mehr in der
+      // Kopfzeile steht. Weiter unten als alles andere, weil man sich nicht
+      // ständig abmeldet; als leiser Knopf, nicht als Gefahr — es geht nichts
+      // verloren. ?>
+<h2>Abmelden</h2>
+
+<div class="karte">
+    <p class="matt">
+        Meldet dich auf <em>diesem</em> Gerät ab. „Angemeldet bleiben“ wird dabei
+        für dieses Gerät widerrufen; andere Geräte bleiben angemeldet.
+    </p>
+    <p>
+        <a class="knopf zweit" href="<?= h(base_path()) ?>/logout.php">Abmelden</a>
+    </p>
+</div>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>

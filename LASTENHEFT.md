@@ -3,83 +3,13 @@
 Zentral gepflegte Web-App zur Verwaltung und mobilen Nutzung von Studio-Trainingsplänen
 für mehrere Benutzer. Umsetzung mit Claude Code.
 
-> **Stand:** überarbeitete Fassung vom 2026-08-05. Gegenüber der Erstfassung wurden fünf
-> Widersprüche aufgelöst (§4 `plan_exercise_id`, §6.3 Soft-Delete, §7.5 Tausch vor Sessionstart,
-> §7.6 Auto-Ende, §7.3 Gewichts-Fallback) und vier Funktionen ergänzt (§6.5 Wartung, §7.7
-> Passwortwechsel und Geräteverwaltung, §7.6 Hinweis bei alter Einheit). Die Erstfassung liegt
-> im Git-Verlauf (Commit „Lastenheft (Originalfassung)").
+> **Diese Datei beschreibt den SOLL-Zustand**, nicht seine Entstehung. Wie sie dorthin
+> gekommen ist — welcher Nachtrag wann welche Annahme der Erstfassung abgelöst hat —, steht
+> in `doku/historie.md`. Der Code beschreibt den Ist-Zustand; bei Widerspruch gewinnt für
+> das **Was** dieses Dokument, für das **Wie** `CLAUDE.md`.
 >
-> **Nachtrag:** Muskelgruppen hängen nicht mehr als einzelner Fremdschlüssel an der Übung,
-> sondern als n:m-Zuordnung mit Primär-Kennzeichnung (§4 `exercise_muscle_groups`,
-> §6.3 Checkbox-Auswahl, §7.5 Tauschlogik).
->
-> **Nachtrag 2026-08-11 (`1.1.3` und `1.1.4`):** Zwei weitere Punkte aus dem Einsatz —
-> (1) Beim Weiterspringen nach dem Abhaken landete die nächste Karte **unter der
-> Verbindungsleiste** (sticky, wird genau in dem Moment sichtbar); ihre Höhe wird jetzt
-> abgezogen (§7.3). (2) **Abgehakte Übungen sind festgeschrieben**: Im Expertenmodus ließen
-> sich Wiederholungen und Gewicht nachträglich ändern und Sätze hinzufügen oder löschen. Das
-> war ein Überbleibsel aus `1.1.0`, als der erste Satz die Übung noch selbst abhakte; mit dem
-> Schalter aus `1.1.1` ist die Begründung entfallen. Gesperrt wird **serverseitig**, mit einer
-> ausdrücklichen Ausnahme für unveränderte Nutzlasten — sonst zerbräche die Idempotenz der
-> Warteschlange (§7.4).
->
-> **Nachtrag 2026-08-11 (Feinschliff aus dem zweiten Einsatz, `1.1.2`):** Vier Punkte, alle
-> zur Bedienung am Gerät — (1) **Farbleitsystem am linken Kartenrand**: grün = hier bist du,
-> blau = erledigt, grau = kommt noch. Grün zieht den Blick, und den soll ziehen, was als
-> Nächstes zu tun ist (§7.3). (2) **Aktive Position und aufgeklappter Satzblock nur während
-> eines Trainings**; „Training starten" öffnet die erste Übung und scrollt dorthin (§7.3).
-> (3) Der **Wartezustand** strichelt die vorhandene Balkenfarbe, statt orange zu werden, und
-> der Hinweissatz in der Karte entfällt — er veränderte die Kartenhöhe und ließ die Liste bei
-> jedem Satz springen (§7.4). (4) Der **Fokusrahmen** des Wiederholungsfeldes lag über den
-> Steppern; die Satzzeile hat jetzt ein nachgerechnetes Breitenbudget.
->
-> **Nachtrag 2026-08-11 (Korrekturen aus dem ersten Einsatz, `1.1.1`):** Drei Punkte aus dem
-> Praxistest von `1.1.0` — (1) **„Erledigt" ist ein Schalter**, kein Nebeneffekt der Sätze:
-> Wer den ersten Satz einträgt, ist nicht fertig mit der Übung. Dafür trennt die neue Spalte
-> `workout_log.done` „protokolliert" von „fertig" (§4, §7.4). Abhaken klappt den Satzblock zu
-> und springt zur nächsten offenen Übung. (2) Eine **noch leere Satzzeile wird nicht
-> abgeschickt** — sie lief sonst in ein 422 und markierte die Zeile als fehlerhaft, obwohl
-> nichts falsch war (§7.4). (3) **Farbhierarchie**: Der Satzkopf ist leise, kräftig ist
-> „+ Satz". Dazu stehen alle `:hover`-Regeln hinter `@media (hover: hover)` — auf einem
-> Touchscreen blieb Hover am zuletzt angetippten Element kleben und ließ die Knöpfe ihre
-> Blautöne tauschen.
->
-> **Nachtrag 2026-08-11 (Expertenmodus, `1.1.0`):** Satzgenaues Protokollieren war in §9 aus
-> v1 ausgenommen und in §10 vorgemerkt; es kommt auf Wunsch des Benutzers hinein — als
-> **je Benutzer abschaltbarer Expertenmodus**, der den einfachen Weg unangetastet lässt.
-> Damit wird die Zusage von 2026-08-07 eingelöst: Die Wiederholungen kehren **nicht** als
-> Spalte zurück (die Begründung dagegen gilt unverändert), sondern als eigene Tabelle
-> `workout_sets` — genau so, wie §4 es angekündigt hatte. `workout_log.weight` bleibt als
-> **Leitgewicht** bestehen und trägt im Expertenmodus den schwersten Satz; dadurch bleiben
-> „letztes Gewicht", Gewichtsverlauf und Bestwert über beide Modi hinweg durchgehend. Neu
-> oder geändert: §4 (`workout_sets`, `users.expert_mode`), §7.3, §7.4, §7.7, §7.8 (Sätze,
-> Volumen, geschätztes 1RM) und Abnahmekriterium 19.
->
-> **Nachtrag 2026-08-07 (Trainingshistorie):** Die Auswertung war in §9 ausdrücklich aus v1
-> ausgenommen und in §10 vorgemerkt. Sie kommt auf Wunsch des Benutzers doch hinein — die
-> Daten lagen ohnehin vollständig vor, es fehlte nur die Ansicht. Neu: §7.8, `history.php`.
->
-> **Nachtrag 2026-08-07 (nach dem ersten Studio-Training):** Vier Änderungen aus dem
-> Praxistest — (1) **Wiederholungen entfallen ersatzlos**, Feld und Spalte
-> `workout_log.reps`: Ein Wert je Einheit kann 12/10/9 über drei Sätze nicht abbilden (§4,
-> §7.3, §7.4). (2) Das Gewichtsfeld ist nach dem Abhaken **schreibgeschützt**; geändert wird
-> über Häkchen entfernen → korrigieren → neu abhaken (§7.4). (3) Eine Einheit lässt sich
-> **ausdrücklich starten** — vorher hielt der Zeitstempel das Ende der ersten Übung fest
-> statt des Trainingsbeginns (§7.6). (4) Hauptgruppen mit Untergruppen sind in der
-> Übungsmaske **nicht mehr wählbar** (§6.3). Einzelheiten in
-> `doku/rueckmeldungen_praxistest.md`.
->
-> **Nachtrag 2026-08-06 (Pläne):** Die Obergrenze von zwei Plänen je Benutzer entfällt
-> (§6.4). Aus der Plan-*Alternation* wird damit eine Plan-*Rotation* entlang der
-> Sortierreihenfolge (§7.6); bei zwei Plänen verhält sie sich unverändert. Anlass ist eine
-> mögliche Umstellung auf Push/Pull/Legs. Die Planpflege bleibt ausdrücklich Adminsache —
-> Benutzer stellen sich keine eigenen Pläne zusammen.
->
-> **Nachtrag 2026-08-06:** Die Zielumgebung steht und ist eingerichtet — Subdomain,
-> Proxy-Ziel und Volume-Pfade sind in §3.1 als verbindliche Werte nachgetragen. Die
-> Erstfassung ging von einem allgemeinen Setting aus; wo ihre Annahmen dem widersprechen,
-> wurden sie gestrichen. Betroffen: das Port-Binding (`127.0.0.1` → LXC-IP `10.10.10.2:8066`)
-> und die Beschreibung der internen Strecke (nicht `localhost`, sondern Proxmox-Internetz).
+> **Konkrete Umgebungswerte schlagen allgemeine Annahmen:** §3.1 und `doku/nginx-vhost.conf`
+> sind verbindlich.
 
 ---
 
@@ -112,7 +42,7 @@ Assets — `assets/*.css`, `assets/*.js`, `manifest.json` und die Icons — mit 
 **`stale-while-revalidate`**: Die Antwort kommt sofort aus dem Cache, parallel wird die
 frische Fassung geholt und abgelegt.
 
-> Ursprünglich stand hier `cache-first`. Das hat sich am 2026-08-07 als Falle erwiesen: Ein
+> **Nicht `cache-first`.** Das ist eine Falle: Ein
 > Service Worker wird nur neu installiert, wenn sich **seine eigene Datei** ändert. Bleibt
 > `sw.js` unverändert, läuft `install()` nie wieder — und `caches.match()` liefert bis in
 > alle Ewigkeit die Fassung vom ersten Besuch. `style.css` und `app.js` waren dadurch in
@@ -163,13 +93,16 @@ Fehlerquelle. Stattdessen zwei Partials `lib/view_header.php` und `lib/view_foot
 ```
 Trainingsplan/
 ├── index.php  index.js          # Handy-Ansicht: aktive Einheit / Planvorschlag
-├── login.php  logout.php  password.php  devices.php  history.php
-├── admin_users.php  admin_exercises.php  admin_plans.php
+├── login.php  logout.php  password.php  history.php
+├── splits.php  splits.js       # Splits waehlen und kopieren -- fuer ALLE Benutzer
+├── plans.php   plans.js        # Plaene eines Splits -- ebenfalls fuer alle
+├── admin.php                   # Einstieg in die Verwaltung, nur Kacheln
+├── admin_users.php  admin_exercises.php
 ├── admin_muscle_groups.php  maintenance.php  download_backup.php
 ├── image.php                    # Bild-Ausliefer-Endpoint mit Path-Jail
-├── api/    auth.php  session.php  log.php  swap.php
+├── api/    auth.php  session.php  log.php  swap.php  splits.php
 │           exercises.php  plans.php  users.php  muscle_groups.php
-├── lib/    db.php  auth.php  csrf.php  helpers.php  upload.php
+├── lib/    db.php  auth.php  csrf.php  helpers.php  upload.php  splits.php
 │           view_header.php  view_footer.php   (+ .htaccess: Require all denied)
 ├── assets/ style.css  app.js  sw.js  manifest.json  icon-192.png  icon-512.png
 ├── data/     trainingsplan.db          ← Volume, .htaccess gesperrt
@@ -233,8 +166,7 @@ Platzhalter aus der Erstfassung und den Werten dieser Tabelle nachgeordnet.
   **`libsqlite3-dev` ist zwingend** und fehlte in der Erstfassung dieses Beispiels: Das
   Basis-Image bringt SQLite zur Laufzeit mit, aber nicht die Header und die
   pkg-config-Datei. Ohne das Paket bricht `docker-php-ext-install pdo_sqlite` mit
-  *„Package 'sqlite3', required by 'virtual:world', not found"* ab — beim ersten
-  Image-Bau am 2026-08-06 genau so passiert.
+  *„Package 'sqlite3', required by 'virtual:world', not found"* ab.
   Der Repo-Wurzelordner **ist** das Anwendungsverzeichnis (`index.php` liegt im Root, siehe
   §2.2) — es gibt kein Unterverzeichnis `app/`. Was nicht ins Image gehört, steht in
   `.dockerignore`.
@@ -390,9 +322,16 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   Admin jederzeit einsehbar (§6.3).
 
 **users** — Benutzer
+- `active_split_id` (FK → splits, nullable) trägt seit `1.2.0`, welcher Split gerade
+  gewählt ist. Das ist eine **Auswahl** und keine ableitbare Tatsache — deshalb darf sie
+  als Spalte stehen, anders als `last_plan_id` daneben. Die Rotation *innerhalb* des
+  Splits wird weiterhin aus der Historie gelesen und nirgends notiert. Damit die Auswahl
+  nicht veraltet, setzt der Start einer Einheit sie mit; ist sie leer oder zeigt sie ins
+  Leere, fällt die App auf den Split der letzten Einheit zurück, sonst auf den ersten
+  eigenen.
 - `id`, `name` (eindeutiger Login-Name), `password_hash`, `is_admin` (bool),
   `must_change_password` (bool, Default 0), `expert_mode` (bool, Default 0),
-  `last_plan_id` (FK → plans, nullable — **seit 2026-08-12 unbenutzt**, siehe §7.6;
+  `last_plan_id` (FK → plans, nullable — **unbenutzt**, siehe §7.6;
   die Spalte bleibt nur stehen, weil ihr Entfernen eine löschende Migration ohne
   Gegenwert wäre), `blocked_at` (nullable, siehe §6.1),
   `satz_vorlage` (Codeliste, Default `gleicher_satz`, siehe §7.4), `created_at`
@@ -412,8 +351,43 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - Bewusst eine Tabelle und nicht `$_SESSION`: Ein sessionbasierter Zähler ist durch simples
   Löschen des Cookies zu umgehen.
 
-**plans** — Trainingspläne (1–2 pro Benutzer)
-- `id`, `user_id` (FK), `name`, `sort_order`, `created_at`
+**splits** — Workout-Splits, die Klammer um eine Rotation (seit `1.2.0`)
+- `id`, `user_id` (FK → users, **nullable**), `name`, `beschreibung`, `sort_order`,
+  `created_at`
+- **Zwei Arten, kein dritter Zustand:**
+  - `user_id IS NULL` → **Vorlage.** Der Katalog. Für alle Benutzer sichtbar, nur von
+    Admins bearbeitbar, und **niemand trainiert darauf**.
+  - `user_id = X` → **persönlicher Split von X.** Nur X (und ein Admin) sieht und
+    bearbeitet ihn, und **nur darauf wird trainiert**.
+- **Zwischen beiden gibt es genau eine Verbindung, und die ist eine Kopie.** Wer eine
+  Vorlage benutzen will, kopiert sie zu sich (Split, Pläne und Positionen werden neu
+  angelegt); danach sind beide Seiten unabhängig. Es gibt keinen Verweis, keine
+  Vererbung und keinen Abgleich:
+  - Ändert der Admin die Vorlage, bleibt jede bestehende Kopie unberührt. Wer den neuen
+    Stand will, kopiert erneut und unterscheidet die beiden am Namen (`Push / Pull` und
+    `Push / Pull (2)`).
+  - Ändert ein Benutzer seine Kopie — dauerhafter Tausch, Übung entfernen, ergänzen,
+    umsortieren —, merkt davon weder die Vorlage noch ein anderer Benutzer. **Das ist
+    der Zweck des Ganzen:** Zwei Leute dürfen denselben Split fahren, ohne sich
+    gegenseitig in den Bestand zu schreiben.
+- **Dass auf einer Vorlage niemand trainiert, ist keine Frage der Oberfläche.** Der
+  dauerhafte Tausch schreibt in `plan_exercises` (§7.5) — auf einer Vorlage wäre das ein
+  Schreibzugriff auf fremden Bestand. Durchgesetzt wird es serverseitig in
+  `api/session.php`, `api/log.php` und `api/swap.php`; der fehlende Startknopf ist nur
+  die Bequemlichkeit davor.
+- Kein `UNIQUE` auf `name`: Zwei Benutzer dürfen denselben Splitnamen führen, und
+  derselbe Benutzer mehrere Fassungen einer Vorlage nebeneinander.
+
+**plans** — Trainingspläne innerhalb eines Splits
+- `id`, `split_id` (FK → splits), `name`, `sort_order`, `created_at`
+- `sort_order` ist die **Rotationsreihenfolge innerhalb des Splits** (§7.6), nicht bloß
+  Anzeigesache.
+- `user_id` (FK → users) steht weiter in der Tabelle, ist seit `1.2.0` aber **tot**: Wem
+  ein Plan gehört, sagt allein `splits.user_id`. Sie bleibt aus einem einzigen Grund
+  stehen — sie ist der Anker der Migration. Wird eine Sicherung von vor `1.2.0`
+  eingespielt, stehen dort wieder Pläne ohne `split_id`, und nur `user_id` sagt dann
+  noch, wem sie gehören. Einziger Leser ist `apply_migrations()`. **Nicht wieder in
+  Betrieb nehmen** — dasselbe gilt für `users.last_plan_id`.
 
 **plan_exercises** — Übungen innerhalb eines Plans, geordnet
 - `id`, `plan_id` (FK), `exercise_id` (FK), `sort_order`
@@ -436,8 +410,7 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   wie im Verlauf. **Die Tauschsperre (§7.5) hängt dagegen an der Existenz der Zeile**: Wer
   zwei Sätze Bankdrücken gemacht hat, kann die Position nicht mehr tauschen, auch ohne
   Häkchen. Die zwei Sätze waren Bankdrücken.
-- **Hier steht keine Wiederholungsspalte, und die Begründung von 2026-08-07 gilt
-  unverändert.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich passiert — bei
+- **Hier steht keine Wiederholungsspalte.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich passiert — bei
   drei Sätzen etwa 12, dann 10, dann 9. Ein solches Feld täuscht eine Genauigkeit vor, die
   es nicht hat. Genau deshalb bekam das satzgenaue Protokollieren seit `1.1.0` **eine eigene
   Tabelle** (`workout_sets`) statt einer Spalte hier — so, wie es an dieser Stelle
@@ -500,9 +473,10 @@ laufenden Einheit** — Begründung in §7.4.
 |---|---|
 | Übung löschen | Regelfall: kein hartes Löschen, sondern `archived = 1` (§6.3) — Historie bleibt vollständig. Hartes Löschen nur, wenn die Übung weder in einem Plan referenziert wird noch `workout_log`-Einträge hat; dann inkl. Bilddatei und Thumbnail. |
 | Muskelgruppe löschen | Nur zulässig, wenn keine Zuordnung in `exercise_muscle_groups` auf sie zeigt — auch keine von archivierten Übungen. Sonst Hinweis mit der Liste der betroffenen Übungen. Umbenennen und Umsortieren sind immer erlaubt. |
+| Split löschen | Verboten, solange eine offene Einheit auf einen seiner Pläne zeigt. Sonst kaskadiert er auf `plans` und weiter auf `plan_exercises`; `sessions`/`workout_log` bleiben erhalten und zeigen danach „gelöschter Plan". Eine gelöschte **Vorlage** berührt keine einzige Kopie — die Kopien hängen nicht an ihr. |
 | Plan löschen | Verboten, solange eine offene Einheit auf ihn zeigt. Sonst: `plan_exercises` kaskadiert, `sessions.plan_id` → `ON DELETE SET NULL`, `sessions`/`workout_log` bleiben erhalten. Eine Einheit ohne Plan zählt für die Rotation nicht mehr mit (§7.6). |
 | Planposition entfernen | Verboten, solange eine offene Einheit läuft (§6.4). Sonst bleibt der `workout_log` erhalten; die Historie zeigt weiter auf `exercise_id`. |
-| Benutzer löschen | Löscht `remember_tokens` und `plans` kaskadierend, entfernt aber **nicht** `sessions`/`workout_log` — der Admin bekommt vor dem Löschen die Anzahl betroffener Einheiten angezeigt und bestätigt explizit. |
+| Benutzer löschen | Löscht `remember_tokens` und `splits` (und damit `plans`) kaskadierend, entfernt aber **nicht** `sessions`/`workout_log` — der Admin bekommt vor dem Löschen die Anzahl betroffener Einheiten angezeigt und bestätigt explizit. |
 
 ---
 
@@ -566,6 +540,17 @@ laufenden Einheit** — Begründung in §7.4.
 ## 6. Admin-Weboberfläche
 
 Nur für Benutzer mit `is_admin`.
+
+**Der Einstieg ist `admin.php`** (seit `1.2.2`): eine Seite mit vier Kacheln zu
+Übungen (§6.3), Muskelgruppen (§6.2), Benutzern (§6.1) und Wartung (§6.5), jede mit
+einem Satz dazu, wofür sie da ist. Sie hat **kein eigenes Können** und verlinkt nur —
+Funktionen dort wären eine fünfte Verwaltungsoberfläche neben den vieren, die es gibt.
+
+Der Grund ist die Kopfzeile am Handy: Acht Punkte nebeneinander sind dort unbrauchbar, und
+die vier hinteren braucht im Studio niemand. Sie liegen jetzt hinter **einem** Punkt
+*Admin*, der auch dann hervorgehoben bleibt, wenn man auf einer seiner Unterseiten steht —
+sonst wirkte die Kopfzeile dort, als stünde man nirgends. **Splits und Pläne bleiben oben**:
+Sie sind seit `1.2.0` keine Adminsache mehr, jeder Benutzer verwaltet seine eigenen.
 
 **6.1 Benutzerverwaltung**
 - Benutzer anlegen (Name, Passwort, Admin-Flag), **umbenennen**, Passwort zurücksetzen,
@@ -689,14 +674,93 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Fall: Tippfehler beim Anlegen). Der Button ist sonst deaktiviert, mit Begründung als
   Tooltip. Beim Löschen wird auch die Bilddatei samt Thumbnail aus `uploads/` entfernt.
 
-**6.4 Planverwaltung**
-- Pro Benutzer **beliebig viele** Pläne anlegen — mindestens einer, nach oben ohne feste
-  Grenze. Zwei Pläne (Ober-/Unterkörper) und drei (Push/Pull/Legs) sind die erwarteten
-  Fälle; die Rotation in §7.6 ist für jede Anzahl definiert.
+**6.4 Splits und Planverwaltung**
+
+**Seit `1.2.0` steht über den Plänen der Workout-Split** (§4). Er ist die Klammer um eine
+Rotation: „Push / Pull" sind zwei Pläne in einem Split, „Ganzkörper" die beiden A/B, und
+„Upper / Lower / Push / Pull / Legs" eben fünf. Ein Benutzer führt beliebig viele Splits
+nebeneinander und wechselt jederzeit zwischen ihnen; die Rotation läuft **je Split
+getrennt** weiter (§7.6).
+
+- **Die Seite heißt `splits.php` und ist für alle da**, nicht nur für Admins. Sie zeigt
+  zwei Listen: *Meine Splits* — der eigene Bestand, auf dem trainiert wird — und
+  *Vorlagen*, den Katalog.
+- **Eine Vorlage wird beim Auswählen kopiert, nicht verwendet.** „Zu mir kopieren" legt
+  Split, Pläne und Positionen neu an; ab da gehört die Kopie dem Benutzer allein. Er
+  darf darin tauschen (einmalig wie dauerhaft), Übungen entfernen, ergänzen und
+  umsortieren — nichts davon wirkt auf die Vorlage oder auf andere Benutzer, und eine
+  spätere Änderung des Admins an der Vorlage wirkt nicht auf die Kopie. Wer den neuen
+  Stand will, kopiert erneut; die zweite Fassung heißt automatisch `… (2)` und ist
+  umbenennbar.
+- **Auf einer Vorlage trainiert niemand**, auch kein Admin. Sie ist Katalog, kein
+  Bestand — sonst schriebe der erste dauerhafte Tausch in den Bestand aller.
+- **Wer darf was:** Jeder Benutzer legt eigene Splits an, benennt sie um, dupliziert und
+  löscht sie und bearbeitet ihre Pläne. **Vorlagen** legt und bearbeitet nur ein Admin.
+  Ein Admin darf zusätzlich die Splits anderer Benutzer bearbeiten (Nachfolger des
+  früheren Benutzer-Dropdowns).
+- **`splits.php` hat für einen Admin drei Abschnitte**, und ihre Zuschnitte sind
+  verschieden, weil die Handlungen es sind:
+  1. **Meine Splits** — der eigene Bestand, als Kartenliste mit allem, was Verwaltung
+     ausmacht: trainieren, Pläne bearbeiten, umbenennen, duplizieren, löschen.
+  2. **User Splits** *(nur Admin)* — ein **Pulldown** über die persönlichen Splits
+     **aller** Benutzer, die eigenen eingeschlossen, und darunter **genau ein** Knopf:
+     *Als Vorlage übernehmen*. Bewusst keine Kartenliste und bewusst kein Umbenennen
+     oder Löschen — das sind fremde persönliche Splits, und die Seite soll nur einen
+     einzigen Zweck erfüllen: aus einem davon eine Vorlage machen.
+     - **Was inhaltlich schon im Katalog steht, erscheint nicht.** Verglichen wird
+       allein der Inhalt — die Reihenfolge der Pläne und darin die der Übungen —,
+       **ohne jeden Namen**. Wer eine Vorlage kopiert und sie umbenennt, hat kein neues
+       Konzept, sondern dasselbe mit eigener Beschriftung; wäre der Name Teil des
+       Vergleichs, füllte sich der Katalog mit Dubletten. Sobald jemand eine Übung
+       tauscht oder die Planreihenfolge ändert, taucht der Split wieder auf.
+     - Splits **ohne jeden Plan** erscheinen ebenfalls nicht — an ihnen ist nichts zu
+       veröffentlichen.
+     - Nach dem Veröffentlichen verschwindet der Split von selbst aus dem Pulldown:
+       Seine Signatur entspricht jetzt der neuen Vorlage.
+  3. **Vorlagen** — der Katalog. *Zu mir kopieren* für alle; für Admins zusätzlich
+     *Umbenennen* (der Name steht dann als Eingabefeld da, wie beim eigenen Split),
+     *Vorlage bearbeiten*, *Duplizieren* und *Löschen*.
+     - **Duplizieren legt eine zweite Vorlage an**, keine persönliche Kopie — dafür steht
+       *Zu mir kopieren* daneben. Es ist der Weg zu einer **Variante im Katalog**:
+       duplizieren, umbenennen, dann *Vorlage bearbeiten*. Ohne ihn führte der einzige
+       Weg über eine persönliche Kopie und ein erneutes Veröffentlichen.
+     - **Duplizieren fragt nicht nach dem Namen.** Die Kopie heißt `… (Kopie)`, und beim
+       zweiten Mal `… (Kopie) (2)`. Der Grund: Beim Duplizieren weiß man noch gar nicht,
+       wie die Variante heißen soll — das ergibt sich erst beim Bearbeiten. Eine
+       Rückfrage, die man mit dem Vorschlag bestätigt, ist keine Frage, sondern ein Klick
+       mehr. Umbenannt wird danach an der Karte.
+- **Veröffentlichen ist eine Kopie**, kein Verschieben: Der Benutzer behält seinen Stand
+  unverändert und wird von späteren Änderungen an der Vorlage nicht berührt. Der Name im
+  Katalog wird beim Veröffentlichen eigens erfragt — er ist eine öffentliche Beschriftung
+  und muss nicht heißen wie der private Split.
+- Die Planverwaltung selbst heißt seit `1.2.0` **`plans.php`** (vorher `admin_plans.php`)
+  und bearbeitet **einen Split**, gewählt über ein Auswahlfeld: erst die eigenen Splits,
+  für Admins darunter die Vorlagen und die Splits der anderen. Ein unbekannter oder
+  fremder `?split=`-Wert fällt auf den ersten erlaubten zurück — die Liste selbst ist
+  der IDOR-Schutz, wie `$erlaubt` in `index.php`.
+- Pro Split **beliebig viele** Pläne — mindestens einer, nach oben ohne feste Grenze.
+  Zwei Pläne (Ober-/Unterkörper) und drei (Push/Pull/Legs) sind die erwarteten Fälle;
+  die Rotation in §7.6 ist für jede Anzahl definiert.
 - **Die Reihenfolge der Pläne ist fachlich bedeutsam**, nicht bloß Anzeigesache: Sie legt
-  die Rotationsreihenfolge fest (§7.6). Push → Pull → Legs muss sich deshalb sortieren
-  lassen, mit denselben Mitteln wie die Übungen innerhalb eines Plans.
+  die Rotationsreihenfolge **innerhalb des Splits** fest (§7.6). Push → Pull → Legs muss
+  sich deshalb sortieren lassen, mit denselben Mitteln wie die Übungen innerhalb eines
+  Plans. Die Reihenfolge der *Splits* untereinander ist dagegen reine Anzeigesache.
 - Übungen zu einem Plan hinzufügen/entfernen und **in Reihenfolge sortieren**.
+- **Eine Übung in den Nachbarplan verschieben** (seit `1.2.4`): Neben den Pfeilen ↑ ↓, die
+  innerhalb des Plans sortieren, stehen ⇈ und ⇊ — sie schieben die Übung in den Plan
+  *darüber* bzw. *darunter*, also entlang derselben Reihenfolge, die auch die Rotation
+  bildet. Im ersten Plan ist ⇈ deaktiviert, im letzten ⇊ (mit Begründung als Tooltip);
+  deaktiviert und nicht weggelassen, damit die Knopfzeile nicht je nach Plan anders breit
+  ist.
+  - **Den Zielplan bestimmt der Server** aus der Sortierung; der Client schickt nur die
+    Richtung. Eine mitgeschickte Ziel-ID wäre eine weitere Prüfung, die man vergessen kann.
+  - Die Übung landet **am Ende** des Zielplans: Wo sie im einen Plan stand, sagt nichts
+    darüber, wo sie im anderen hingehört.
+  - Steht sie dort bereits, wird abgelehnt — dieselbe Regel wie beim Hinzufügen.
+- **Ein Planname wird beim Umbenennen sofort auch in der Rotationsvorschau nachgezogen**
+  (seit `1.2.4`). Die Seite lädt dabei bewusst *nicht* neu — Umbenennen ist der eine
+  Vorgang, der die Seitenstruktur nicht ändert —, aber zwei Stellen auf einem Bildschirm
+  dürfen sich nicht widersprechen.
 - **Hinzugefügt wird über eine überlagerte Auswahl**, nicht über ein Dropdown mit allen
   aktiven Übungen: Ein Knopf *Übung hinzufügen* öffnet einen Dialog, der sich nach
   **Muskelgruppe und Trainingsgerät** filtern lässt — einzeln oder kombiniert, mit denselben
@@ -723,7 +787,10 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   - Archivierte Übungen erscheinen nicht (§6.3).
 - **Sperre bei offener Einheit:** Hat der betroffene Benutzer eine offene Einheit, ist die
   Planbearbeitung blockiert (Hinweis anzeigen). Sonst würde sich `n` in der laufenden
-  Fortschrittsanzeige „x/n" mitten im Training verschieben.
+  Fortschrittsanzeige „x/n" mitten im Training verschieben. Ebenso gesperrt sind der
+  **Splitwechsel** und das **Löschen eines Splits**.
+  **Vorlagen sind davon ausgenommen** und das ist kein Schlupfloch: Auf ihnen trainiert
+  niemand, und wer sie kopiert hat, hängt nicht mehr an ihnen.
 
 **6.5 Wartung & Backup**
 - Eigene Seite `maintenance.php`, nur für Admins, nach dem Muster aus
@@ -765,8 +832,12 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 - Existiert für den Benutzer eine **offene Einheit** (§7.6), wird diese fortgesetzt und
   angezeigt — **unabhängig vom Datum**, inkl. bereits abgehakter Übungen. Damit bleibt ein
   über Mitternacht laufendes Training nahtlos erhalten.
-- Existiert keine offene Einheit, schlägt die App den nächsten Plan vor (§7.6) und zeigt ihn
-  startbereit an.
+- Existiert keine offene Einheit, schlägt die App den nächsten Plan **des gewählten
+  Splits** vor (§7.6) und zeigt ihn startbereit an.
+- **Hat der Benutzer noch keinen Split**, verweist die Seite auf `splits.php` — mit einem
+  Satz, was ein Split ist, und dem Knopf „Split auswählen". Nicht „bitte beim
+  Administrator nachfragen": Seit `1.2.0` kann sich jeder selbst einen aus dem Katalog
+  ziehen.
 
 **7.3 Plan-/Übungsansicht**
 - Übungen des Plans in Reihenfolge. Pro Übung:
@@ -796,11 +867,10 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Grün für „erledigt" wäre naheliegend und falsch herum: Grün zieht den Blick, und den soll
   das ziehen, was als Nächstes zu tun ist.
 
-  **Aktiv ist nicht „die erste noch nicht erledigte"** (Änderung vom 2026-08-12). Das war es
-  bis dahin und geht schief, sobald man eine Übung auslässt, weil das Gerät besetzt ist: Die
-  Markierung blieb auf der ausgelassenen Übung stehen, während man längst zwei Geräte weiter
-  war, und dass die ausgelassene noch aussteht, war von „kommt noch" nicht zu unterscheiden.
-  Die Regel lautet, in dieser Reihenfolge:
+  **Aktiv ist nicht „die erste noch nicht erledigte".** Das geht schief, sobald man eine
+  Übung auslässt, weil das Gerät besetzt ist: Die Markierung bliebe auf der ausgelassenen
+  stehen, während man längst zwei Geräte weiter ist. Die Regel lautet, in dieser
+  Reihenfolge:
 
   1. die Position, an der **gerade protokolliert wird** — sie hat einen Eintrag, ist aber
      noch nicht abgehakt (bei mehreren die spätere);
@@ -831,9 +901,9 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Gewicht, `performed_at`). Ein Eintrag pro Einheit + Planposition.
 - **Nach dem Abhaken ist das Gewichtsfeld schreibgeschützt.** Wer den Wert korrigieren will,
   entfernt das Häkchen, ändert ihn und hakt neu ab. Damit gibt es **einen** Mechanismus
-  statt zweier — genau so ist der Übungstausch geregelt (§7.5). **Seit `1.1.4` weist auch der
-  Server einen abweichenden Wert auf einer abgehakten Position ab** (409); bis dahin war das
-  nur eine Regel der Oberfläche.
+  statt zweier — genau so ist der Übungstausch geregelt (§7.5). **Der Server weist einen
+  abweichenden Wert auf einer abgehakten Position ab** (409); das schreibgeschützte Feld ist
+  nur die Bequemlichkeit davor.
 
   Der Preis: Wer abwählt, ändert und dann vergisst, wieder abzuhaken, hat für diese Position
   nichts protokolliert. Das ist aber sichtbar — das Häkchen fehlt und „x/n" steht niedriger.
@@ -1040,6 +1110,11 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   - **Dauerhaft (neue Default-Übung):** Der `plan_exercises`-Eintrag wird geändert
     (`exercise_id` = Ersatzübung). Ab sofort fester Bestandteil des Plans.
 
+    **Seit `1.2.0` heißt „dauerhaft" ausdrücklich „dauerhaft für mich".** Der Plan steht
+    in der eigenen Kopie des Splits (§4, §6.4) — die Vorlage, aus der sie stammt, und
+    jede Kopie anderer Benutzer bleiben unberührt. Das ist genau der Grund, warum eine
+    Vorlage kopiert und nicht verwendet wird.
+
     **Dieser Weg verlangt eine Rückfrage**, die beide Übungsnamen nennt und sagt, dass die
     Änderung für alle künftigen Trainings gilt und protokollierte Einheiten unberührt
     bleiben. Die zwei Knöpfe stehen im Studio nebeneinander auf einem kleinen Bildschirm
@@ -1078,11 +1153,10 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   leicht zehn Minuten, und jede Auswertung der Trainingsdauer (§10) wäre systematisch zu
   kurz.
 
-  **Warum ausschließlich** (Änderung vom 2026-08-12): Bis dahin startete auch das erste
-  „Erledigt" und ein Tausch „nur für diese Einheit" eine Einheit — als Auffangnetz für den,
-  der den Knopf übersieht. Das Netz fing das Falsche: Ein Fehlgriff beim bloßen Durchsehen
-  des Plans begann ein Training, das niemand wollte, und die versehentliche Einheit stand
-  danach im Verlauf und verstellte die Rotation. Beide Wege sind deshalb geschlossen.
+  **Warum ausschließlich:** Ein Auffangnetz — die Einheit beginnt auch beim ersten
+  „Erledigt" oder beim Tausch — fängt das Falsche. Ein Fehlgriff beim bloßen Durchsehen des
+  Plans begänne ein Training, das niemand wollte, und stünde danach im Verlauf, wo es die
+  Rotation verstellt.
 
   Daraus folgt für die Trainingsansicht: **Solange keine Einheit läuft, sind „Erledigt",
   „+ Satz" und das Gewichtsfeld deaktiviert.** Serverseitig antworten `api/log.php` und
@@ -1116,6 +1190,11 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
 - **Plan-Rotation:** Liegt keine offene Einheit vor, schlägt die App den Plan vor, der in
   der Sortierreihenfolge (§6.4) **auf den Plan der letzten Einheit in der Historie folgt** —
   zyklisch, nach dem letzten kommt wieder der erste.
+  - **Gezählt wird ausschließlich, was IN DIESEM SPLIT trainiert wurde** (seit `1.2.0`).
+    Genau daran hängt, dass ein Splitwechsel nichts vergisst: Wer von Push/Pull auf
+    Ganzkörper wechselt und später zurück, bekommt wieder *Pull* vorgeschlagen und nicht
+    *Push*. Ein gespeicherter Zähler je Split wäre dafür nicht nötig — und wäre genau die
+    zweite Quelle, vor der die Regel darunter warnt.
   - Bei **einem** Plan ist das immer derselbe.
   - Bei **zwei** Plänen ergibt die Regel exakt die frühere Alternation: vorgeschlagen wird
     der jeweils andere.
@@ -1123,11 +1202,10 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   - Gibt es **noch keine Einheit** oder zeigt die letzte auf einen gelöschten Plan, wird der
     **erste** Plan der Sortierung vorgeschlagen.
 
-  **Maßgeblich ist die Historie, nicht ein gemerkter Wert** (Änderung vom 2026-08-12). Bis
-  dahin stand der Ausgangspunkt in `users.last_plan_id` — geschrieben nur beim *Beenden*
-  einer Einheit, zurückgenommen beim *Löschen* nie. Eine gelöschte Testeinheit verstellte
-  den Vorschlag dauerhaft: Die Einheit war weg, ihre Wirkung blieb. Die Spalte bleibt in der
-  Tabelle stehen, wird aber weder gelesen noch geschrieben.
+  **Maßgeblich ist die Historie, nicht ein gemerkter Wert.** Ein gemerkter Wert wird beim
+  *Beenden* geschrieben und beim *Löschen* einer Einheit vergessen — die Einheit ist weg,
+  ihre Wirkung auf den Vorschlag bliebe. `users.last_plan_id` steht deshalb zwar noch in der
+  Tabelle, wird aber weder gelesen noch geschrieben.
 
   **Gezählt wird jede Einheit, auch eine ohne Protokollzeile.** Die Rotation richtet sich
   starr nach der Historie; eine leere Einheit steht in der Historie und zählt deshalb mit.
@@ -1137,7 +1215,19 @@ der Admin muss jederzeit sehen können, was und wie viel deaktiviert ist:
   Ein Rotationszähler ist nicht nötig: Die Position in der Reihenfolge bestimmt den
   Nachfolger eindeutig.
 - Der Vorschlag ist vor dem Start **manuell auf jeden anderen Plan umschaltbar**. Bei mehr
-  als zwei Plänen ist dafür eine Auswahl nötig, kein bloßes Umschalten.
+  als zwei Plänen ist dafür eine Auswahl nötig, kein bloßes Umschalten. Die Auswahl
+  umfasst die Pläne **des aktiven Splits**, nicht alle eigenen — sonst mischten sich zwei
+  Splits in einer Rotation.
+
+  Damit ist zugleich der Fall abgedeckt, dass eine Woche ausfällt: Wer gewohnt ist, dass
+  Mittwoch der Beine-Tag ist, springt vor dem Start einfach auf *Legs*; die Rotation setzt
+  danach hinter *Legs* fort, weil sie aus der Historie liest.
+- **Den Split wechselt man auf `splits.php`**, nicht hier. Er wird in
+  `users.active_split_id` festgehalten und bleibt über Seitenaufrufe und Geräte hinweg
+  stehen. **Während einer offenen Einheit ist der Wechsel gesperrt** (409, wie der
+  Moduswechsel in §7.4): Die laufende Einheit hängt an einem Plan des aktuellen Splits und
+  gewinnt die Anzeige ohnehin — ein Wechsel darunter wäre eine Änderung, die man erst nach
+  dem Beenden zu sehen bekäme.
 
 **7.7 Konto & Geräte**
 
@@ -1170,10 +1260,15 @@ Die Seite heißt `password.php` und trägt im Menü **„Konto"** — sie hat zw
     dann deaktiviert mit Hinweis, statt in ein sicheres 409 zu laufen.
   - Schlägt das Speichern fehl, springt der Schalter zurück: Eine Anzeige, die etwas anderes
     behauptet als der Server, wäre schlimmer als die Fehlermeldung.
-- **Geräte** (`devices.php`): Liste der aktiven `remember_tokens` des Benutzers (angelegt am,
-  zuletzt genutzt, Gerätekennung aus `user_agent`, das aktuelle Gerät markiert), einzeln
-  abmeldbar, plus **„Auf allen Geräten abmelden"**. Das ist die Oberfläche zu der in §5
-  zugesagten serverseitigen Widerrufbarkeit.
+- **Geräte** (seit `1.2.3` auf derselben Seite, vorher `devices.php`): Liste der aktiven
+  `remember_tokens` des Benutzers (angelegt am, zuletzt genutzt, Gerätekennung aus
+  `user_agent`, das aktuelle Gerät markiert), einzeln abmeldbar, plus **„Auf allen Geräten
+  abmelden"**. Das ist die Oberfläche zu der in §5 zugesagten serverseitigen
+  Widerrufbarkeit.
+- **Abmelden** (seit `1.2.3`): ganz unten auf der Seite, als leiser Knopf. Es stand bis
+  dahin dauerhaft in der Kopfzeile — die präsenteste Stelle der App für ihre seltenste
+  Handlung. **Der Abschnitt erscheint auch bei erzwungenem Passwortwechsel**, sonst käme
+  ein Benutzer mit Startpasswort nicht mehr heraus.
 - **Einheiten löschen** (in `history.php`, §7.8): Eine abgeschlossene Einheit lässt sich
   samt Protokoll entfernen — für versehentlich gestartete Einheiten, abgebrochene Trainings
   oder Testdaten. Nur die **eigenen**; die offene Einheit ist ausgenommen, die wird beendet.
@@ -1212,7 +1307,7 @@ eine Filterleiste umschaltbar:
 - **1RM** nach Epley (`kg × (1 + Wdh ÷ 30)`) aus dem besten Satz, **mit sichtbarem Vorbehalt
   direkt an der Zahl**: eine Näherung, kein gemessener Wert. Der Hinweis ist nicht Zierde —
   eine geschätzte Zahl sieht aus wie eine gemessene, und genau diese vorgetäuschte
-  Genauigkeit hat 2026-08-07 das Wiederholungsfeld gekostet.
+  Genauigkeit hat das Wiederholungsfeld gekostet (§4).
 
 **Jeder sieht ausschließlich seine eigenen Daten — auch Admins.** Trainingsdaten sind
 persönlich. Es gibt hier bewusst keine Benutzerauswahl; die `user_id` stammt durchgehend aus
@@ -1247,10 +1342,10 @@ Trainingsansicht: Sie hat noch keine Dauer.
 - **Vollständiger Offline-Betrieb.** Die App bleibt online-only: Seiten, Pläne, der Verlauf
   und die Verwaltung brauchen eine Verbindung.
 
-  Die ursprüngliche Annahme „das Netz im Studio ist stabil" hat sich allerdings nicht
-  gehalten. Fällt das WLAN vor Ort aus, hängt das Handy am Mobilfunk, und dort ist der
-  Regelfall nicht *kein* Empfang, sondern *schlechter* — Anfragen, die weder ankommen noch
-  fehlschlagen, sondern hängen. Deshalb sind zwei Dinge **doch** im Umfang, siehe §7.4:
+  **Zwei Dinge sind trotzdem im Umfang** (§7.4), weil das Netz im Studio nicht stabil ist:
+  Fällt das WLAN aus, hängt das Handy am Mobilfunk, und dort ist der Regelfall nicht *kein*
+  Empfang, sondern *schlechter* — Anfragen, die weder ankommen noch fehlschlagen, sondern
+  hängen.
 
   - **Zeitlimit und Wiederversuche** auf jedem Serveraufruf (`apiFetch`).
   - **Eine Warteschlange ausschließlich für das Abhaken** innerhalb einer bereits laufenden
@@ -1260,10 +1355,6 @@ Trainingsansicht: Sie hat noch keine Dauer.
   minütlich am Gerät stehend passiert, und die einzige, deren Endpunkt beliebig oft
   wiederholt werden darf (`api/log.php` schreibt per Upsert über
   `(session_id, plan_exercise_id)`).
-- ~~Getrennte Erfassung mehrerer Sätze pro Übung~~ — **umgesetzt in `1.1.0`** als
-  abschaltbarer Expertenmodus, siehe §7.4. (Die frühere Klammer „ein Gewicht/Wiederholungen
-  pro Übung und Einheit" war schon seit `1.0.3` falsch: Wiederholungen entfielen damals
-  ersatzlos.)
 - Passwort-Reset per E-Mail (Reset erfolgt durch den Admin; der Benutzer kann sein Passwort
   aber selbst ändern, §7.7).
 - Kalenderbasierte Wochenpläne (fester Plan je Wochentag). Die Anzahl der Pläne ist
@@ -1273,10 +1364,9 @@ Trainingsansicht: Sie hat noch keine Dauer.
 
 ## 10. Spätere Erweiterungen (vorgemerkt)
 
-- ~~Fortschritts-Charts je Übung~~ — **umgesetzt am 2026-08-07** als `history.php`, siehe
-  §7.8.
-- ~~Satz-genaues Logging (mehrere Sätze pro Übung)~~ — **umgesetzt am 2026-08-11** als
-  Expertenmodus, siehe §7.4 und die Tabelle `workout_sets` in §4.
+Was hier stand und inzwischen umgesetzt ist — Fortschritts-Charts (§7.8), satzgenaues
+Logging (§7.4) —, steht in `doku/historie.md`. Offen sind:
+
 - Wochentags-/Kalenderplanung (welcher Plan an welchem Tag).
 - Kalenderansicht der Einheiten (Monatsraster) — die Listenansicht in §7.8 deckt den
   Alltag ab; ein Kalender wäre Zierde.
@@ -1290,7 +1380,8 @@ Trainingsansicht: Sie hat noch keine Dauer.
 Manuell am echten Handy über die Subdomain zu prüfen — `Secure`-Cookies, Remember-Me und die
 PWA-Installation lassen sich lokal nicht sinnvoll testen.
 
-1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und mindestens 2 Pläne an. Mindestens eine Übung
+1. Admin legt Benutzer, Muskelgruppen, 5 Übungen mit Bild und mindestens einen **Split
+   mit 2 Plänen** an. Mindestens eine Übung
    bekommt **zwei** Muskelgruppen (z. B. Bankdrücken → Brust als Primärgruppe + Trizeps); ein
    Speichern **ohne** angehakte Gruppe wird abgelehnt. Der Versuch, eine noch zugeordnete
    Muskelgruppe zu löschen, wird mit Nennung der betroffenen Übungen verweigert.
@@ -1308,25 +1399,41 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
 7. Ein Häkchen ab-wählen → Log-Eintrag verschwindet, Zähler springt zurück.
 8. Alle Übungen abhaken → **Abschluss-Bestätigung** erscheint; „Noch nicht" lässt die Einheit
    offen, ein Häkchen ist danach weiterhin ab-wählbar.
-9. „Training beendet" → `ended_at` gesetzt, `last_plan_id` aktualisiert.
+9. „Training beendet" → `ended_at` gesetzt. Sonst nichts — die Rotation merkt sich nichts,
+   sie liest die Historie (§7.6).
 10. App neu starten → **der nächste Plan der Reihenfolge** wird vorgeschlagen (Rotation).
     Gegenprobe mit drei Plänen (Push/Pull/Legs): Nach Push wird Pull vorgeschlagen, nach
     Legs wieder Push — und nicht etwa der zuletzt nicht benutzte.
 11. Nächste Einheit: die getauschte Position zeigt wieder die **Original**-Übung; die
     vorbelegten Gewichte entsprechen dem letzten Mal.
 12. Als Benutzer A per manipulierter ID einen Plan/Log von Benutzer B aufrufen → **403**.
-13. Eine benutzte Übung archivieren → sie verschwindet aus Dropdowns und Tauschvorschlägen,
+    Dazu die Split-Fälle (§4, §6.4), je einzeln: eine Einheit auf einem **Vorlagen**-Plan
+    starten → **404**, auch als Admin; als Nicht-Admin eine Übung in einer Vorlage
+    hinzufügen, dort dauerhaft tauschen oder protokollieren → je **403**; eine Vorlage als
+    aktiven Split wählen → **403** mit dem Hinweis „bitte zuerst Zu mir kopieren".
+13. **Splits** (§6.4): Admin legt die Vorlage *Push / Pull* mit zwei Plänen an. Benutzer B
+    kopiert sie zu sich, tauscht darin eine Übung dauerhaft und entfernt eine Position →
+    **die Vorlage bleibt unverändert**. Danach ändert der Admin die Vorlage → **Bs Kopie
+    bleibt unverändert**. B kopiert ein zweites Mal → die Kopie heißt *Push / Pull (2)*
+    und steht neben der ersten. Gegenprobe zur Rotation: In Split 1 *Push* trainieren und
+    beenden → Vorschlag *Pull*; auf Split 2 wechseln, dort *Push* trainieren → Vorschlag
+    dort *Pull*; zurück auf Split 1 → Vorschlag weiterhin **Pull**, nicht Push.
+14. **Migration und Restore** (§4): Eine Sicherung von vor `1.2.0` einspielen → jeder
+    Benutzer bekommt automatisch einen Split *Meine Pläne* mit seinen bisherigen Plänen in
+    unveränderter Reihenfolge, Historie und Gewichte sind vollständig, und die Rotation
+    schlägt denselben Plan vor wie vor dem Umbau.
+15. Eine benutzte Übung archivieren → sie verschwindet aus Dropdowns und Tauschvorschlägen,
     der Filter zeigt „Archiviert (1)", die Zeile nennt Archivierungsdatum, betroffene Pläne
     und die Anzahl der Log-Einträge; „endgültig löschen" ist deaktiviert. Reaktivieren bringt
     sie zurück. Eine nie benutzte Übung lässt sich dagegen endgültig löschen, Bild inklusive.
-14. Eine `.php`-Datei mit Bild-Endung hochladen → **abgelehnt**; ein gültiges Bild landet
+16. Eine `.php`-Datei mit Bild-Endung hochladen → **abgelehnt**; ein gültiges Bild landet
     re-enkodiert unter Zufallsnamen und ist über `/uploads/...` **nicht ausführbar**.
-15. 6× falsches Passwort → Sperre greift; nach erfolgreichem Login ist der Zähler zurückgesetzt.
-16. Ein Gerät über `devices.php` abmelden → dieses Gerät verlangt beim nächsten Aufruf wieder
+17. 6× falsches Passwort → Sperre greift; nach erfolgreichem Login ist der Zähler zurückgesetzt.
+18. Ein Gerät über den Abschnitt *Geräte* auf der Kontoseite abmelden → dieses Gerät verlangt beim nächsten Aufruf wieder
     das Passwort, die anderen nicht.
-17. Backup erstellen, herunterladen, wieder einspielen → Datenbestand unverändert.
-18. Container `down` + `up --build` → Daten und Bilder sind vollständig da.
-19. **Expertenmodus** (§7.4): Auf der Kontoseite „Sätze einzeln erfassen" einschalten — bei
+19. Backup erstellen, herunterladen, wieder einspielen → Datenbestand unverändert.
+20. Container `down` + `up --build` → Daten und Bilder sind vollständig da.
+21. **Expertenmodus** (§7.4): Auf der Kontoseite „Sätze einzeln erfassen" einschalten — bei
     laufendem Training ist der Schalter gesperrt. Training starten, bei einer Übung **ohne
     Vorgeschichte** einmal „+ Satz" antippen → es erscheint eine leere Zeile, **kein** roter
     Rand und **kein** „Erneut versuchen". Bei einer Übung **mit** Vorgeschichte dreimal

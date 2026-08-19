@@ -6,40 +6,79 @@ require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/training.php';
 require_once __DIR__ . '/lib/geraete.php';
+require_once __DIR__ . '/lib/splits.php';
 
 bootstrap_session();
 require_login();
-require_admin();
 
 /**
- * Planverwaltung (§6.4).
+ * Planverwaltung innerhalb EINES Splits (§6.4).
  *
- * Je Benutzer beliebig viele Plaene. Die Reihenfolge der Plaene ist die
- * Rotationsreihenfolge aus §7.6 -- deshalb steht sie hier nicht nur zum
- * Sortieren bereit, sondern wird als Vorschau ausgegeben.
+ * Die Seite hiess bis 1.1.15 admin_plans.php und war ausschliesslich fuer
+ * Admins. Seit 1.2.0 bearbeitet jeder Benutzer seine eigenen Splits, und der
+ * Dateiname darf das nicht mehr anders behaupten. Eine zweite,
+ * benutzerseitige Fassung daneben waere die Dublette, die frueher oder spaeter
+ * abweicht -- es ist DIESELBE Arbeit, nur an einem anderen Bestand.
+ *
+ * Die Reihenfolge der Plaene ist die Rotationsreihenfolge aus §7.6 -- deshalb
+ * steht sie hier nicht nur zum Sortieren bereit, sondern als Vorschau.
+ *
+ * Was waehlbar ist, entscheidet $waehlbar weiter unten und NICHT der
+ * ?split=-Parameter: Ein unbekannter oder fremder Wert faellt auf den ersten
+ * erlaubten Split zurueck. Damit ist der IDOR-Schutz (§5) hier keine Pruefung,
+ * die man vergessen kann, sondern die Liste selbst -- dasselbe Muster wie
+ * $erlaubt in index.php.
  */
 
-$benutzer = db()->query(
-    'SELECT id, name, is_admin FROM users ORDER BY name'
-)->fetchAll();
+$benutzer = current_user();
+$userId   = (int)$benutzer['id'];
+$istAdmin = (int)$benutzer['is_admin'] === 1;
 
-$gewaehlt = to_int_or_null($_GET['user'] ?? null);
+// Die Splits, die dieser Benutzer bearbeiten darf, in der Reihenfolge, in der
+// sie im Auswahlfeld stehen sollen: erst die eigenen, dann -- fuer Admins --
+// der Katalog und die Splits der anderen.
+$waehlbar = [];
+foreach (splits_von($userId) as $sp) {
+    $waehlbar[] = $sp + ['gruppe' => 'Meine Splits', 'zusatz' => ''];
+}
+if ($istAdmin) {
+    foreach (vorlagen() as $sp) {
+        $waehlbar[] = $sp + ['gruppe' => 'Vorlagen', 'zusatz' => ''];
+    }
+    foreach (db()->query(
+        'SELECT sp.id, sp.user_id, sp.name, sp.beschreibung, sp.sort_order,
+                u.name AS besitzer
+           FROM splits sp
+           JOIN users u ON u.id = sp.user_id
+          WHERE sp.user_id IS NOT NULL
+          ORDER BY u.name, sp.sort_order, sp.id'
+    ) as $sp) {
+        if ((int)$sp['user_id'] === $userId) {
+            continue;
+        }
+        $waehlbar[] = $sp + ['gruppe' => 'Andere Benutzer', 'zusatz' => (string)$sp['besitzer'] . ': '];
+    }
+}
 
-$aktuellerBenutzer = null;
-foreach ($benutzer as $b) {
-    if ((int)$b['id'] === $gewaehlt) {
-        $aktuellerBenutzer = $b;
+$gewaehlt = to_int_or_null($_GET['split'] ?? null);
+
+$split = null;
+foreach ($waehlbar as $sp) {
+    if ((int)$sp['id'] === $gewaehlt) {
+        $split = $sp;
         break;
     }
 }
 
-// Fehlender oder unbekannter Parameter (etwa ein Lesezeichen auf einen
-// geloeschten Benutzer): auf den ersten zurueckfallen, statt eine leere
-// Auswahl mit nicht funktionierendem Formular zu zeigen.
-if ($aktuellerBenutzer === null && $benutzer !== []) {
-    $aktuellerBenutzer = $benutzer[0];
-    $gewaehlt = (int)$aktuellerBenutzer['id'];
+// Fehlender, unbekannter oder fremder Parameter: auf den ersten erlaubten
+// zurueckfallen, statt eine leere Seite mit totem Formular zu zeigen.
+if ($split === null && $waehlbar !== []) {
+    $split    = $waehlbar[0];
+    $gewaehlt = (int)$split['id'];
 }
+
+$istVorlage = $split !== null && $split['user_id'] === null;
+$besitzerId = ($split === null || $split['user_id'] === null) ? null : (int)$split['user_id'];
 
 $plaene            = [];
 $positionen        = [];
@@ -49,11 +88,16 @@ $vorschlag         = null;
 $zuletzt           = null;
 $aktiveUebungen    = 0;
 
-if ($aktuellerBenutzer !== null) {
-    $plaene        = plaene_von($gewaehlt);
-    $offeneEinheit = offene_einheit($gewaehlt);
-    $vorschlag     = naechster_plan($gewaehlt, $plaene);
-    $zuletzt       = zuletzt_trainierter_plan($gewaehlt);
+if ($split !== null) {
+    $plaene = plaene_im_split($gewaehlt);
+
+    // Eine Vorlage hat keinen Besitzer und wird von niemandem trainiert --
+    // es gibt also weder eine offene Einheit noch eine Rotation zu zeigen.
+    if ($besitzerId !== null) {
+        $offeneEinheit = offene_einheit($besitzerId);
+        $vorschlag     = naechster_plan($besitzerId, $gewaehlt, $plaene);
+        $zuletzt       = zuletzt_trainierter_plan($besitzerId, $gewaehlt);
+    }
 
     if ($plaene !== []) {
         $planIds = array_map(static fn(array $p): int => (int)$p['id'], $plaene);
@@ -121,24 +165,46 @@ $pageTitle = 'Pläne';
 require __DIR__ . '/lib/view_header.php';
 ?>
 
-<?php if ($benutzer === []): ?>
-    <div class="karte hinweis-warnung">
-        <strong>Noch kein Benutzer angelegt.</strong>
-        <p><a class="knopf" href="<?= h(base_path()) ?>/admin_users.php">Zur Benutzerverwaltung</a></p>
+<?php if ($waehlbar === []): ?>
+    <div class="karte">
+        <strong>Noch kein Workout-Split.</strong>
+        <p class="matt">
+            Pläne stehen immer in einem Split — er bestimmt, welche Pläne
+            miteinander abwechseln (§7.6).
+        </p>
+        <p><a class="knopf" href="<?= h(base_path()) ?>/splits.php">Zu den Splits</a></p>
     </div>
 <?php else: ?>
 
 <form method="get" class="karte">
-    <label for="user">Pläne von</label>
-    <select id="user" name="user" onchange="this.form.submit()">
-        <?php foreach ($benutzer as $b): ?>
-            <option value="<?= (int)$b['id'] ?>" <?= (int)$b['id'] === $gewaehlt ? 'selected' : '' ?>>
-                <?= h((string)$b['name']) ?><?= (int)$b['is_admin'] === 1 ? ' (Admin)' : '' ?>
+    <label for="split">Pläne im Split</label>
+    <select id="split" name="split" onchange="this.form.submit()">
+        <?php $letzteGruppe = null; ?>
+        <?php foreach ($waehlbar as $sp): ?>
+            <?php if ($sp['gruppe'] !== $letzteGruppe): ?>
+                <?php if ($letzteGruppe !== null): ?></optgroup><?php endif; ?>
+                <optgroup label="<?= h((string)$sp['gruppe']) ?>">
+                <?php $letzteGruppe = $sp['gruppe']; ?>
+            <?php endif; ?>
+            <option value="<?= (int)$sp['id'] ?>" <?= (int)$sp['id'] === $gewaehlt ? 'selected' : '' ?>>
+                <?= h($sp['zusatz'] . (string)$sp['name']) ?>
             </option>
         <?php endforeach; ?>
+        <?php if ($letzteGruppe !== null): ?></optgroup><?php endif; ?>
     </select>
     <noscript><button type="submit">Anzeigen</button></noscript>
 </form>
+
+<?php if ($istVorlage): ?>
+    <div class="karte hinweis-vorlage">
+        <strong>Das ist eine Vorlage.</strong>
+        <p class="matt">
+            Sie steht allen Benutzern im Katalog zur Auswahl. Wer sie benutzt,
+            bekommt eine <em>Kopie</em> — Änderungen hier wirken deshalb nur auf
+            künftige Kopien und nicht auf jemanden, der sie schon gezogen hat.
+        </p>
+    </div>
+<?php endif; ?>
 
 <?php if ($gesperrt): ?>
     <div class="karte hinweis-warnung">
@@ -155,11 +221,30 @@ require __DIR__ . '/lib/view_header.php';
     <h2>Rotation</h2>
     <?php if ($plaene === []): ?>
         <p class="matt">Noch kein Plan angelegt.</p>
+    <?php elseif ($istVorlage): ?>
+        <p class="rotation-kette">
+            <?php foreach ($plaene as $i => $p): ?>
+                <?php if ($i > 0): ?><span class="rotation-pfeil">→</span><?php endif; ?>
+                <span data-plan-name="<?= (int)$p['id'] ?>"
+                      class="rotation-glied"><?= h((string)$p['name']) ?></span>
+            <?php endforeach; ?>
+            <span class="rotation-pfeil">↺</span>
+        </p>
+        <p class="matt">
+            In dieser Reihenfolge wechseln die Pläne bei jedem ab, der die
+            Vorlage kopiert. Wo er darin gerade steht, ist seine Sache — auf
+            einer Vorlage trainiert niemand.
+        </p>
     <?php else: ?>
         <p class="rotation-kette">
             <?php foreach ($plaene as $i => $p): ?>
                 <?php if ($i > 0): ?><span class="rotation-pfeil">→</span><?php endif; ?>
-                <span class="<?= $vorschlag !== null && (int)$p['id'] === (int)$vorschlag['id'] ? 'rotation-naechster' : 'rotation-glied' ?>">
+                <?php // data-plan-name traegt die Plan-ID: Nach dem Umbenennen
+                      // zieht plans.js die Kette hier nach, statt die Seite neu
+                      // zu laden. Ohne das stand oben weiter der alte Name --
+                      // gemeldet am 2026-08-19. ?>
+                <span data-plan-name="<?= (int)$p['id'] ?>"
+                      class="<?= $vorschlag !== null && (int)$p['id'] === (int)$vorschlag['id'] ? 'rotation-naechster' : 'rotation-glied' ?>">
                     <?= h((string)$p['name']) ?>
                 </span>
             <?php endforeach; ?>
@@ -167,7 +252,8 @@ require __DIR__ . '/lib/view_header.php';
         </p>
         <p class="matt">
             <?php if ($vorschlag !== null): ?>
-                Als Nächstes wird <strong><?= h((string)$vorschlag['name']) ?></strong> vorgeschlagen.
+                Als Nächstes wird <strong data-plan-name="<?= (int)$vorschlag['id'] ?>"><?=
+                    h((string)$vorschlag['name']) ?></strong> vorgeschlagen.
             <?php endif; ?>
             <?php if ($zuletzt === null): ?>
                 (Noch nichts protokolliert — die Rotation beginnt vorne.)
@@ -176,7 +262,7 @@ require __DIR__ . '/lib/view_header.php';
     <?php endif; ?>
 
     <form id="plan-neu" class="zeile-eingabe" novalidate>
-        <input type="hidden" name="user_id" value="<?= (int)$gewaehlt ?>">
+        <input type="hidden" name="split_id" value="<?= (int)$gewaehlt ?>">
         <label for="plan_name" class="nur-lesbar">Name des neuen Plans</label>
         <input type="text" id="plan_name" name="name" placeholder="z. B. Push" required>
         <button type="submit">Plan hinzufügen</button>
@@ -191,12 +277,17 @@ require __DIR__ . '/lib/view_header.php';
     </div>
 <?php endif; ?>
 
-<ul id="plan-liste" class="liste-schlicht" data-user="<?= (int)$gewaehlt ?>"
+<ul id="plan-liste" class="liste-schlicht" data-split="<?= (int)$gewaehlt ?>"
     data-gesperrt="<?= $gesperrt ? '1' : '0' ?>">
-    <?php foreach ($plaene as $p): ?>
+    <?php foreach ($plaene as $planNr => $p): ?>
         <?php
         $pid   = (int)$p['id'];
         $eintr = $positionen[$pid] ?? [];
+        // Fuer die Doppelpfeile: Im ersten Plan gibt es kein "darueber", im
+        // letzten kein "darunter". Deaktiviert statt weggelassen -- eine
+        // Knopfzeile, die je nach Plan anders breit ist, liest sich unruhig.
+        $ersterPlan  = $planNr === 0;
+        $letzterPlan = $planNr === count($plaene) - 1;
         ?>
         <li class="karte plan" data-id="<?= $pid ?>">
             <div class="gruppe-zeile plan-kopf">
@@ -262,7 +353,7 @@ require __DIR__ . '/lib/view_header.php';
                                       // eine zweite Kopie im Stylesheet. ?>
                                 <div class="uebung-text">
                                     <?php // .position-titel bleibt am Namen: Dialogtitel und
-                                          // Rueckfrage in admin_plans.js lesen ihn darueber,
+                                          // Rueckfrage in plans.js lesen ihn darueber,
                                           // und ohne eigenes Element laesen sie die
                                           // Abzeichen als Teil des Uebungsnamens mit. ?>
                                     <strong class="position-titel"><?= h((string)$z['name_de']) ?></strong>
@@ -303,11 +394,23 @@ require __DIR__ . '/lib/view_header.php';
                                         <?= $gesperrt ? 'disabled' : '' ?>>Tauschen</button>
                                 <?php // Die Pfeile in die Mitte: gleicher Abstand nach
                                       // links zum Tauschen und nach rechts zum Entfernen. ?>
+                                <?php // Vier Pfeile, paarweise: aussen der grosse Sprung
+                                      // in den Nachbarplan, innen der kleine
+                                      // innerhalb des Plans. Der Doppelpfeil steht
+                                      // jeweils neben seinem einfachen. ?>
                                 <span class="pos-pfeile">
+                                    <button type="button" class="leise pos-plan-hoch"
+                                            aria-label="In den Plan darüber verschieben"
+                                            title="<?= $ersterPlan ? 'Darüber gibt es keinen Plan' : 'In den Plan darüber verschieben' ?>"
+                                            <?= $gesperrt || $ersterPlan ? 'disabled' : '' ?>>⇈</button>
                                     <button type="button" class="leise pos-hoch" aria-label="Nach oben"
                                             <?= $gesperrt ? 'disabled' : '' ?>>↑</button>
                                     <button type="button" class="leise pos-runter" aria-label="Nach unten"
                                             <?= $gesperrt ? 'disabled' : '' ?>>↓</button>
+                                    <button type="button" class="leise pos-plan-runter"
+                                            aria-label="In den Plan darunter verschieben"
+                                            title="<?= $letzterPlan ? 'Darunter gibt es keinen Plan' : 'In den Plan darunter verschieben' ?>"
+                                            <?= $gesperrt || $letzterPlan ? 'disabled' : '' ?>>⇊</button>
                                 </span>
                                 <button type="button" class="gefahr pos-entfernen"
                                         <?= $gesperrt ? 'disabled' : '' ?>>Entfernen</button>
@@ -349,7 +452,7 @@ require __DIR__ . '/lib/view_header.php';
         protokollierte Einheiten bleiben unverändert.
     </p>
     <?php // Wie im Training: Der Gerätefilter arbeitet auf der bereits geladenen
-          // Vorschlagsliste, ohne zweiten Abruf. Die Auswahl füllt admin_plans.js
+          // Vorschlagsliste, ohne zweiten Abruf. Die Auswahl füllt plans.js
           // aus den tatsächlich vorhandenen Vorschlägen — deshalb steht hier nur
           // die erste Option. ?>
     <p class="tausch-filter" hidden>

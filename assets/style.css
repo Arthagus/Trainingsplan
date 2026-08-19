@@ -89,7 +89,11 @@ body {
     gap: 0.3em;
 }
 
-.haupt-nav, .konto {
+/* .konto stand hier bis 1.2.3 daneben -- der Block rechts mit Geräte, Konto und
+   Abmelden. Er ist ersatzlos entfallen: Geräte und Abmelden liegen jetzt auf der
+   Kontoseite, und „Konto" ist ein Menüpunkt wie jeder andere. Damit verschwindet
+   auch die ungleiche Lücke davor, die aus dem column-gap von .kopf stammte. */
+.haupt-nav {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1800,3 +1804,72 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 .platzhalter-liste dd button { margin-top: 0.4rem; }
 
 .einheit-aktionen { margin: 0.75rem 0 0; }
+
+/* --------------------------------------------------------------------------
+   Workout-Splits (§6.4, §7.6)
+
+   Zwei Listen auf splits.php, und der optische Unterschied trägt die
+   Fachlichkeit: Eigene Splits sind der Bestand, auf dem trainiert wird — der
+   aktive darunter ist grün markiert, aus demselben Grund wie .zeile-aktiv im
+   Training. Vorlagen sind Katalog und deshalb ruhig.
+   -------------------------------------------------------------------------- */
+
+/* Sekundärer Knopf als LINK — button.leise geht dafür nicht, der Selektor
+   trifft nur <button>. Dieselbe Optik, damit „Pläne bearbeiten“ neben
+   „Umbenennen“ nicht wie eine andere Art von Bedienelement aussieht. */
+.knopf.zweit {
+    background: var(--grund);
+    color: var(--schrift);
+    border-color: var(--linie);
+}
+
+.split-kopf { align-items: center; }
+
+.split-kopf .abzeichen {
+    background: var(--gut);
+    border-color: var(--gut);
+    color: #fff;
+}
+
+/* Grün = hier bist du, wie beim Balken der Übungskarte. */
+.split.ist-aktiv { border-left: 4px solid var(--gut); }
+
+.hinweis-vorlage {
+    border-left: 4px solid var(--schrift-matt);
+    background: var(--grund-tief);
+}
+
+/* Welcher Split gerade gilt, steht klein unter der Planauswahl — es ist eine
+   Einordnung und keine Aktion, deshalb kein Knopf. */
+.split-zeile { margin-top: 0.5rem; }
+
+/* --- Admin-Einstieg (admin.php) ------------------------------------------
+   Kacheln statt einer Linkliste: Am Handy ist die ganze Fläche das Tippziel,
+   nicht nur das Wort. Breiter als das Statusraster der Wartungsseite, weil
+   hier ein erklärender Satz mitläuft — bei 8rem bräche der in Silben um. */
+
+.admin-gitter {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.75rem;
+}
+
+.admin-kachel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-height: var(--tippziel);
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--linie);
+    border-radius: var(--radius);
+    background: var(--grund);
+    color: var(--schrift);
+    text-decoration: none;
+}
+
+.admin-kachel strong { font-size: 1.05rem; }
+.admin-kachel .matt  { font-size: 0.9rem; }
+
+@media (hover: hover) {
+    .admin-kachel:hover { border-color: var(--akzent); background: var(--grund-tief); }
+}

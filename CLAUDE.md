@@ -9,6 +9,15 @@ Arbeitsanweisungen für Claude Code in diesem Repo. `LASTENHEFT.md` ist maßgebl
 Bei Widerspruch gewinnt der Code als Beschreibung des Ist-Zustands, das Lastenheft als
 Beschreibung des Soll-Zustands.
 
+**Vier Dateien, vier Fragen** — was in die eine gehört, gehört in keine andere:
+
+| Frage | Datei |
+|---|---|
+| Wie arbeite ich hier? | **`CLAUDE.md`** — ändert sich nur mit dem Code |
+| Was muss die App können? | **`LASTENHEFT.md`** — der Soll-Zustand, ohne seine Entstehung |
+| Was läuft gerade, was ist offen? | **`doku/stand.md`** — kurz, nach jedem Rollout nachziehen |
+| Wie kam es dazu? | **`doku/historie.md`** — Chronik, **keine** Anweisung |
+
 **Diese Datei enthält nur Dauerhaftes.** Welche Version läuft, welche Daten drin sind und
 was gerade offen ist, steht in **`doku/stand.md`** — dort nachsehen und dort nachziehen.
 Was hier steht, ändert sich nur mit dem Code.
@@ -23,8 +32,9 @@ korrigieren, nicht zu befolgen. Im Zweifel nachfragen statt raten.
 
 | Datei | Inhalt |
 |---|---|
-| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 19 Abnahmekriterien |
-| `doku/stand.md` | **Flüchtig:** laufende Version, Datenstand, offene Punkte |
+| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 21 Abnahmekriterien |
+| `doku/stand.md` | **Flüchtig:** laufende Version, Datenstand, offene Punkte — kurz gehalten |
+| `doku/historie.md` | **Chronik:** was wann ausgerollt wurde und warum. Keine Anweisung — hier steht, was WAR |
 | `doku/deployment.md` | Topologie, Portainer-Ablauf, Fehlersuche |
 | `deploy/ANLEITUNG.md` | Schritt-für-Schritt-Anleitung zum Ausrollen |
 | `doku/bestand_gruppen_uebungen.md` | Muskelgruppen, Übungen und Pläne im Wortlaut |
@@ -51,7 +61,11 @@ Werte aus dem Stack; lokal muss man sie selbst setzen:
 php -r 'putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
         require "lib/db.php"; db();
         db()->prepare("UPDATE users SET must_change_password = 0,
-                                        expert_mode = 1")->execute();'
+                                        expert_mode = 1")->execute();
+        db()->prepare("INSERT INTO splits (user_id, name, sort_order, created_at)
+                       VALUES (1, \"Test\", 10, ?)")->execute([date("Y-m-d H:i:s")]);
+        db()->prepare("UPDATE users SET active_split_id = last_insert_rowid()
+                        WHERE id = 1")->execute();'
 ```
 
 Das `UPDATE` ist kein Schönheitsfehler, sondern nötig: Ohne es sperrt
@@ -59,6 +73,19 @@ Das `UPDATE` ist kein Schönheitsfehler, sondern nötig: Ohne es sperrt
 und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht. `expert_mode = 1`
 nur, wenn die Satzerfassung geprüft werden soll — im Standardmodus rendert `index.php` gar
 keinen Satzblock, und man sucht den Fehler an der falschen Stelle.
+
+**Der Split ist seit `1.2.0` genauso nötig.** Ohne ihn steht die Trainingsansicht auf
+„Noch kein Workout-Split gewählt" und verweist auf `splits.php` — man sucht den Fehler dann
+in `plan_positionen()`, wo keiner ist.
+
+**Ohne `APP_SECRET` gibt es lokal kein „Angemeldet bleiben".** `remember_me_available()`
+prüft die Variable; fehlt sie, wird `remember: true` **stillschweigend** verworfen, kein
+Token entsteht, und der Geräte-Abschnitt auf `password.php` bleibt leer — was wie ein
+Fehler in der Seite aussieht. Für Prüfungen daran den Server so starten:
+
+```bash
+APP_SECRET=beliebig php -S 127.0.0.1:8100 -t "$(pwd)"
+```
 
 Danach `data/trainingsplan.db*` wieder löschen — die Datei gehört nicht in den
 Arbeitsstand, und ein liegengebliebener Testbestand verfälscht die nächste Prüfung.
@@ -82,7 +109,7 @@ node --check assets/app.js
 ```
 
 **Geprüft wird gegen den Dev-Server per `curl`**: Sitzung aufbauen, Endpunkt aufrufen,
-Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 19 manuellen Kriterien
+Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 21 manuellen Kriterien
 in `LASTENHEFT.md` §11.
 
 Der Sitzungsaufbau, weil das Token die einzige fummelige Stelle ist:
@@ -171,7 +198,10 @@ putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
 require "lib/db.php"; db(); $p = db(); $n = date("Y-m-d H:i:s");
 $p->prepare("UPDATE users SET must_change_password = 0, expert_mode = 1")->execute();
 $g = (int)$p->query("SELECT id FROM muscle_groups LIMIT 1")->fetchColumn();
-$p->prepare("INSERT INTO plans (user_id,name,sort_order,created_at) VALUES (1,?,1,?)")->execute(["Push",$n]);
+$p->prepare("INSERT INTO splits (user_id,name,sort_order,created_at) VALUES (1,?,1,?)")->execute(["Push/Pull",$n]);
+$split = (int)$p->lastInsertId();
+$p->prepare("UPDATE users SET active_split_id = ? WHERE id = 1")->execute([$split]);
+$p->prepare("INSERT INTO plans (user_id,split_id,name,sort_order,created_at) VALUES (1,?,?,1,?)")->execute([$split,"Push",$n]);
 $plan = (int)$p->lastInsertId();
 foreach (["Bankdrücken","Schrägbank","Butterfly"] as $i => $name) {
     $p->prepare("INSERT INTO exercises (name_de,equipment,created_at) VALUES (?,?,?)")->execute([$name,"maschine",$n]);
@@ -181,6 +211,11 @@ foreach (["Bankdrücken","Schrägbank","Butterfly"] as $i => $name) {
 }
 $p->prepare("INSERT INTO sessions (user_id,plan_id,started_at) VALUES (1,?,?)")->execute([$plan, date("Y-m-d H:i:s", time()-2820)]);'
 ```
+
+**Ohne `plans.split_id` ist der Plan unsichtbar** — `plaene_im_split()` findet ihn nicht,
+und die Trainingsansicht verweist auf `splits.php`. Ohne `users.active_split_id` sucht
+sich `aktiver_split()` beim ersten Aufruf selbst einen; das ist bequem, aber wer den Wert
+im Skript setzt, sieht sofort, was er gebaut hat.
 
 Die Spalten heißen `plans.sort_order` (nicht `position`) und `plan_exercises.sort_order` —
 beides schon einmal falsch geraten. Für eine **abgeschlossene** Einheit zusätzlich
@@ -217,6 +252,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse, Kontosperre |
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Auffangnetz |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
+| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Inhaltssignatur, **die zentrale Rechteprüfung** `split_zugriff_api()` |
 | `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
@@ -230,13 +266,41 @@ kennen muss: `api/token.php` liefert ein frisches CSRF-Token (Fallstrick 23) und
 **einzige** Endpunkt ohne `csrf_check()`; `api/maintenance.php` bedient die Wartungsseite
 (Sicherungen anlegen, prüfen, einspielen — die Fachlichkeit steckt in `lib/backup.php`).
 
-Die Seiten erklären sich über ihren Namen, mit **einer** Ausnahme: **`devices.php` ist die
-Geräteverwaltung** (§7.7) — die Oberfläche zu der in §5 zugesagten serverseitigen
-Widerrufbarkeit der Remember-Me-Tokens. Sie listet `remember_tokens` des angemeldeten
-Benutzers und erkennt das eigene Gerät am Selector aus dem Cookie; widerrufen wird über
-`api/auth.php → revoke_device` / `revoke_all`. Nicht mit `lib/geraete.php` verwechseln —
-das sind die *Trainings*geräte (Hantel, Maschine), zwei völlig verschiedene Dinge unter
-ähnlichem Namen. Abnahmekriterium 16 („ein Gerät abmelden") hängt an dieser Seite.
+**`admin.php` ist der Einstieg in die Verwaltung und kann selbst nichts** (seit `1.2.2`):
+vier Kacheln zu `admin_exercises.php`, `admin_muscle_groups.php`, `admin_users.php` und
+`maintenance.php`, sonst nichts. Wer dort eine Funktion einbaut, hat eine fünfte
+Verwaltungsoberfläche neben den vieren, die es schon gibt. Der Menüpunkt *Admin* bleibt
+auch auf den Unterseiten hervorgehoben — die Liste dafür steht in `lib/view_header.php`
+und **muss mitwachsen**, wenn eine fünfte Adminseite dazukommt; sonst wirkt die Kopfzeile
+dort, als stünde man nirgends.
+
+**`splits.php` und `plans.php` sind seit `1.2.0` KEINE Adminseiten mehr** — trotz des
+Nachbarn `admin_exercises.php` und obwohl `plans.php` bis dahin `admin_plans.php` hieß.
+Jeder Benutzer verwaltet dort seine eigenen Splits und deren Pläne; was ein Admin
+zusätzlich darf (Vorlagen pflegen, fremde Splits bearbeiten), entscheidet
+`split_zugriff_api()` und **nicht** ein `require_admin()` am Seitenkopf. Wer eines
+ergänzt, sperrt die normalen Benutzer aus ihrem eigenen Bestand aus.
+
+**`password.php` heißt „Konto" und trägt VIER Aufgaben** (§7.7): Passwort ändern,
+Benutzername ändern, Trainingsansicht (Expertenmodus und Satz-Vorbelegung) — und seit
+`1.2.3` die **Geräteverwaltung** samt **Abmelden**. Die Geräte lagen bis dahin auf einer
+eigenen Seite `devices.php` mit eigenem Menüpunkt; beide sind ersatzlos entfallen. Damit
+ist auch die alte Verwechslungsgefahr weg: `lib/geraete.php` sind die *Trainings*geräte
+(Hantel, Maschine), etwas völlig anderes.
+
+Zwei Dinge daran sind nicht beliebig:
+
+- **Der Abmelden-Abschnitt steht AUSSERHALB des `!$erzwungen`-Blocks.** Wer ein
+  Startpasswort hat, erreicht keine andere Seite (Fallstrick 3) — und seit der Punkt nicht
+  mehr in der Kopfzeile steht, säße er ohne diesen Link fest.
+- Widerrufen wird weiter über `api/auth.php → revoke_device` / `revoke_all`; die Logik
+  aus `devices.js` liegt jetzt am Ende von `password.js`. Abnahmekriterium 18 („ein Gerät
+  abmelden") hängt an diesem Abschnitt.
+
+**`logout.php` ist GET und bewusst ohne `csrf_check()`.** Ein erzwungenes Abmelden ist
+lästig, aber kein Schaden — ein Abmeldeweg, der an einem abgelaufenen Token scheitert, wäre
+schlimmer. Es ist auch bei erzwungenem Passwortwechsel erreichbar und hängt seit `1.2.3`
+**nur noch** am Abschnitt *Abmelden* auf der Kontoseite.
 
 **Pflicht-Boilerplate am Kopf jeder geschützten Seite:**
 
@@ -251,8 +315,8 @@ require_login();          // in api/*: require_login_api()
 require_admin();          // nur auf Admin-Seiten
 ```
 
-**Seite = `.php` + gleichnamige `.js`.** `index.php` lädt `index.js`, `admin_plans.php` lädt
-`admin_plans.js` — `lib/view_footer.php` bindet sie selbsttätig ein. Geteiltes gehört in
+**Seite = `.php` + gleichnamige `.js`.** `index.php` lädt `index.js`, `admin_exercises.php` lädt
+`admin_exercises.js` — `lib/view_footer.php` bindet sie selbsttätig ein. Geteiltes gehört in
 `assets/app.js`.
 
 **Layout über Partials, nicht kopiert.** Das ist die bewusste Abweichung von
@@ -481,593 +545,513 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
 
 ## Fachliche Fallstricke
 
-Die Stellen, an denen eine naive Umsetzung falsch wird. Fast jede steht hier, weil sie schon
-einmal zugeschlagen hat — die Ausnahme ist **22**, der beim Lesen des Endpunkts auffiel,
-bevor er es konnte. Er steht trotzdem hier, weil sein Schaden lautlos gewesen wäre: Die
-Antwort lautet auch dann `ok:true`, wenn die halbe Zeile verlorengeht.
+Die Stellen, an denen eine naive Umsetzung falsch wird. **Fast jede steht hier, weil sie
+schon einmal zugeschlagen hat** — die Ausnahmen sind 22 und 24–26, die beim Entwurf
+auffielen. Die Nummern sind nach Entstehung vergeben, nicht nach Wichtigkeit.
 
-1. **Eine Einheit entsteht AUSSCHLIESSLICH über „Training starten"** (§7.6, seit `1.1.6`).
+**Wo anfangen:** an Splits und Plänen arbeitet man mit **24–26**, am Training mit
+**1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**.
+
+**Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
+Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
+
+1. **Eine Einheit entsteht AUSSCHLIESSLICH über „Training starten"** (§7.6).
    `einheit_sicherstellen()` hat genau **einen** Aufrufer: `api/session.php → start`. Wer
-   einen zweiten ergänzt, hebt die Zusicherung auf.
+   einen zweiten ergänzt, hebt die Zusicherung auf. `api/log.php` und `api/swap.php`
+   („nur diese Einheit") antworten deshalb mit **409**, statt anzulegen — ein Fehlgriff
+   beim bloßen Durchsehen begann sonst ein Training, das niemand wollte, und `started_at`
+   hielt den Fehlgriff fest statt des Trainingsbeginns.
 
-   Bis `1.1.5` war es umgekehrt: Auch das erste „Erledigt" (`api/log.php`) und ein Tausch
-   „nur diese Einheit" (`api/swap.php`) legten stillschweigend eine Einheit an. Die
-   Begründung war der reale Ablauf im Studio — Plan öffnen, Gerät besetzt vorfinden,
-   tauschen, *dann* trainieren. In der Praxis überwog der andere Fall: Ein Fehlgriff beim
-   bloßen Durchsehen begann ein Training, das niemand wollte, und `started_at` hielt dann
-   den Fehlgriff fest statt des Trainingsbeginns. Beide Endpunkte antworten deshalb mit
-   **409**, statt anzulegen.
+   Daraus die Sperre in der Oberfläche: **Vor dem Start sind „Erledigt", „+ Satz" und das
+   Gewichtsfeld deaktiviert** (`index.php` über `$laeuft`, `index.js` über `sessionId > 0`)
+   — Bequemlichkeit vor der serverseitigen Regel.
 
-   Daraus folgt die Sperre in der Oberfläche: **Vor dem Start sind „Erledigt", „+ Satz"
-   und das Gewichtsfeld deaktiviert** (`index.php` über `$laeuft`, `index.js` über
-   `sessionId > 0`). Das ist nur die Bequemlichkeit davor — verboten wird es serverseitig.
+   **Der dauerhafte Tausch bleibt vor dem Start möglich**: Er schreibt in `plan_exercises`
+   und braucht keine `session_id`. Nur „Nur diese Einheit" braucht eine und wird vorher
+   gar nicht erst angeboten (`TAUSCH_KNOEPFE` in `index.js`) — mit Hinweissatz, sonst
+   sieht der fehlende Knopf wie ein Fehler aus.
 
-   **Der dauerhafte Tausch bleibt vor dem Start möglich**, und das ist kein Versehen: Er
-   schreibt in `plan_exercises` und braucht überhaupt keine `session_id`. Nur „Nur diese
-   Einheit" braucht eine und wird deshalb vorher gar nicht erst angeboten (`TAUSCH_KNOEPFE`
-   in `index.js`) — mit einem Hinweissatz, sonst sieht der fehlende zweite Knopf wie ein
-   Fehler aus.
-
-2. **Eine Einheit gehört zu genau einem Plan.** Jeder Endpunkt, der eine
-   `plan_exercise_id` entgegennimmt, prüft neben der Eigentümerschaft auch, dass die Position
-   zum Plan der laufenden Einheit gehört (`position_passt_zur_einheit()`). Ohne diese Prüfung
-   ließe sich eine Position aus einem anderen Plan in die offene Einheit protokollieren:
-   `workout_log.plan_id` widerspräche dann `sessions.plan_id`, und weil „x" über die Einheit,
-   „n" aber über den Plan gezählt wird, stünde in der Anzeige so etwas wie „2/1". Über die
-   Oberfläche nicht erreichbar — über einen zweiten Tab mit veraltetem Plan schon.
+2. **Eine Einheit gehört zu genau einem Plan.** Jeder Endpunkt mit `plan_exercise_id`
+   prüft neben der Eigentümerschaft, dass die Position zum Plan der laufenden Einheit
+   gehört (`position_passt_zur_einheit()`). Sonst ließe sich eine Position aus einem
+   anderen Plan in die offene Einheit protokollieren: `workout_log.plan_id` widerspräche
+   `sessions.plan_id`, und weil „x" über die Einheit, „n" aber über den Plan gezählt wird,
+   stünde in der Anzeige „2/1". Über die Oberfläche nicht erreichbar — über einen zweiten
+   Tab mit veraltetem Plan schon.
 
 3. **Die API kennt dieselben Sperren wie die Seiten.** `require_login_api()` allein genügt
-   nicht: `require_passwort_gesetzt_api()` gehört in **jeden** Endpunkt außer `api/auth.php`.
-   Sonst kann jemand mit dem vom Admin vergebenen Startpasswort die ganze API benutzen, ohne
-   je ein eigenes Passwort zu setzen — und `must_change_password` wäre wirkungslos.
+   nicht: `require_passwort_gesetzt_api()` gehört in **jeden** Endpunkt außer
+   `api/auth.php`. Sonst benutzt jemand mit dem vom Admin vergebenen Startpasswort die
+   ganze API, ohne je ein eigenes zu setzen — und `must_change_password` wäre wirkungslos.
 
 4. **`workout_log` ist eindeutig über `(session_id, plan_exercise_id)`**, nicht über
    `exercise_id` (§4). Nach einem Tausch steht in `exercise_id` die Ersatzübung; ohne die
    Planposition ist weder „x/n" zählbar noch der Schlüssel eindeutig.
 
+   **Daraus folgt für jeden Umbau an Planpositionen: VERSCHIEBEN, nicht löschen und neu
+   anlegen.** `api/plans.php → move_exercise` (Übung in den Nachbarplan) ändert deshalb
+   `plan_exercises.plan_id` per `UPDATE` — die `id` bleibt, alle `workout_log`-Zeilen
+   behalten ihren Bezug. `DELETE` + `INSERT` hätte `plan_exercise_id` über
+   `ON DELETE SET NULL` geleert und die Zuordnung protokollierter Sätze verloren —
+   **lautlos, mit `ok:true`**, sichtbar erst Wochen später im Verlauf.
+
 5. **Kein Auto-Ende ohne Rückfrage** (§7.6). Sind alle Positionen abgehakt, erscheint eine
    Bestätigung — die Einheit schließt sich nie von selbst, sonst wird das Ab-wählen eines
    versehentlichen Häkchens undefiniert.
 
-6. **Eine abgehakte Position lässt sich nicht tauschen** (§7.5) — weder für die Einheit noch
-   dauerhaft. Der Weg ist: Häkchen entfernen, tauschen, neu abhaken. Grund: Ein
-   Protokolleintrag dokumentiert eine *tatsächlich ausgeführte* Übung. Ihn beim Tausch auf
-   die Ersatzübung umzuschreiben würde das erreichte Gewicht einer Übung zuschlagen, die gar
-   nicht gemacht wurde; ihn stehen zu lassen, während die Ansicht etwas anderes zeigt, wäre
-   ebenso falsch. Gesperrt wird **serverseitig** (`api/swap.php`); der deaktivierte Knopf ist
-   nur die Bequemlichkeit davor.
+6. **Eine abgehakte Position lässt sich nicht tauschen** (§7.5) — weder für die Einheit
+   noch dauerhaft. Der Weg: Häkchen entfernen, tauschen, neu abhaken. Grund: Ein
+   Protokolleintrag dokumentiert eine *tatsächlich ausgeführte* Übung; ihn umzuschreiben
+   schlüge das erreichte Gewicht einer Übung zu, die nicht gemacht wurde. Gesperrt wird
+   **serverseitig** (`position_abgehakt()` in `api/swap.php`), der deaktivierte Knopf ist
+   nur die Bequemlichkeit.
 
-   **Dasselbe gilt für Werte:** Geändert wird, indem man das Häkchen entfernt — nicht durch
-   direktes Bearbeiten (§7.4). Das Gewichtsfeld ist nach dem Abhaken `readonly`, und
-   `api/log.php` hat bewusst **keine** `update`-Aktion. Ein Mechanismus statt zweier.
+   **Dasselbe gilt für Werte:** Geändert wird durch Ab-wählen, nicht durch Bearbeiten
+   (§7.4). Das Gewichtsfeld ist nach dem Abhaken `readonly`, und `api/log.php` hat bewusst
+   **keine** `update`-Aktion. Ein Mechanismus statt zweier.
 
 7. **Übungen werden archiviert, nicht gelöscht** (`archived = 1`, §6.3). Hartes Löschen
    verletzt die Fremdschlüssel des `workout_log` — die Historie muss vollständig bleiben.
-   Archiviert heißt aber **versteckt, nicht verschwunden**: Die Admin-Übungsliste hat einen
-   Filter *Aktiv / Archiviert / Alle* mit sichtbaren Anzahlen, und jede archivierte Zeile
-   nennt Archivierungsdatum, betroffene Pläne und die Anzahl ihrer Log-Einträge. Endgültig
-   löschbar ist nur, was weder in einem Plan steht noch Log-Einträge hat.
+   Archiviert heißt **versteckt, nicht verschwunden**: Filter *Aktiv / Archiviert / Alle*
+   mit sichtbaren Anzahlen, jede archivierte Zeile nennt Datum, betroffene Pläne und die
+   Anzahl ihrer Log-Einträge. Endgültig löschbar ist nur, was weder in einem Plan steht
+   noch Log-Einträge hat.
 
 8. **„Letztes Gewicht" überspringt leere Werte:** `WHERE weight IS NOT NULL ORDER BY
    performed_at DESC, id DESC LIMIT 1` (§4). Sonst geht ein Gewicht verloren, nur weil es
-   einmal nicht eingetragen wurde. Das `id DESC` ist Pflicht und keine Kosmetik: Zeitstempel
-   haben Sekundenauflösung, und zwei Einträge derselben Sekunde hätten ohne zweites
-   Sortierkriterium keine definierte Reihenfolge — die Vorbelegung wäre dann zufällig.
+   einmal nicht eingetragen wurde. Das `id DESC` ist Pflicht: Zeitstempel haben
+   Sekundenauflösung, zwei Einträge derselben Sekunde hätten sonst keine definierte
+   Reihenfolge — die Vorbelegung wäre zufällig.
 
    **Wiederholungen gibt es nicht** (§4): Ein Feld je Einheit kann 12/10/9 über drei Sätze
    nicht abbilden. Nicht wieder einführen, ohne satzgenau zu protokollieren.
 
 9. **Muskelgruppen sind zweistufig, und der Tausch vergleicht die HAUPTGRUPPE** (§4, §7.5).
-   Hauptgruppen haben `parent_id IS NULL`, Untergruppen zeigen darauf; mehr als zwei Ebenen
-   gibt es nicht. Dadurch darf die Unterteilung beliebig fein werden, ohne die Vorschläge
-   auszudünnen — eine Übung an `Brust (oben)` bekommt alles unter `Brust` als Ersatz.
+   Hauptgruppen haben `parent_id IS NULL`, mehr als zwei Ebenen gibt es nicht. Dadurch darf
+   die Unterteilung beliebig fein werden, ohne die Vorschläge auszudünnen — eine Übung an
+   `Brust (oben)` bekommt alles unter `Brust` als Ersatz.
 
    In der Übungsmaske sind Hauptgruppen **mit** Untergruppen deshalb nicht wählbar, sondern
-   Gliederungsüberschrift; sonst gäbe es zwei Wege für dieselbe Aussage. Ein Hinweistext an
-   der Maske erklärt die Tauschregel — ohne ihn überrascht es, dass man `Trizeps` anhakt und
+   Gliederungsüberschrift; sonst gäbe es zwei Wege für dieselbe Aussage. Ein Hinweistext
+   erklärt die Tauschregel — ohne ihn überrascht es, dass man `Trizeps` anhakt und
    Bizeps-Übungen vorgeschlagen bekommt.
 
 10. **Genau eine Primärgruppe je Übung** (`exercise_muscle_groups`, §4), abgesichert durch
-    den partiellen Unique-Index `idx_emg_one_primary`. Primär = die Gruppe, **wegen der** man
-    die Übung macht; sekundär = wird mittrainiert. Beim Umsetzen erst alle auf 0, dann die
-    neue auf 1 — **in einer Transaktion**, sonst schlägt der Index zwischendurch zu.
+    den partiellen Unique-Index `idx_emg_one_primary`. Primär = die Gruppe, **wegen der**
+    man die Übung macht. Beim Umsetzen erst alle auf 0, dann die neue auf 1 — **in einer
+    Transaktion**, sonst schlägt der Index zwischendurch zu.
 
-11. **Eine Einheit wird ausdrücklich gestartet** (§7.6, `api/session.php` → `start`) — seit
-    `1.1.6` ist das nicht mehr der Regelfall, sondern der **einzige** Weg; siehe
-    Fallstrick 1. Ohne den Knopf hielt `started_at` das *Ende* der ersten Übung fest — für
-    jede Auswertung der Trainingsdauer systematisch zu kurz.
+11. **Eine Einheit wird ausdrücklich gestartet** (§7.6) — siehe Fallstrick 1. Ohne den
+    Knopf hielt `started_at` das *Ende* der ersten Übung fest, und jede Auswertung der
+    Trainingsdauer war systematisch zu kurz.
 
-12. **Der Service-Worker-Cache friert Assets ein, wenn `sw.js` unverändert bleibt.** Ein
-    Service Worker wird **nur neu installiert, wenn sich seine eigene Datei ändert**. Bleibt
-    sie gleich, läuft `install()` nie wieder, `cache.addAll()` ebenso wenig — und
-    `caches.match()` liefert bis in alle Ewigkeit die Fassung vom ersten Besuch. `style.css`
-    und `app.js` waren dadurch über mehrere Versionen in jedem Browser eingefroren; keine
-    einzige Stiländerung kam an, obwohl Server und HTML korrekt waren.
+12. **Es gibt ZWEI Caches hintereinander, und der Service Worker erreicht nur den ersten.**
+    Der eingefrorene Asset-Cache hat zweimal zugeschlagen und war beide Male über mehrere
+    Versionen unsichtbar (Hergang: `doku/historie.md`, `1.1.7`/`1.1.8`).
 
-    **Das Hochzählen von `CACHE` war die Antwort darauf — und sie hat nicht gereicht.** In
-    `1.1.7` ist derselbe Fehler ein zweites Mal aufgetreten, diesmal **nur am Smartphone**,
-    während der PC korrekt aussah. Die Nummer war ordentlich hochgezählt. Der Grund liegt
-    eine Ebene tiefer:
+    Die Mechanik, die man kennen muss:
 
-    **Es gibt ZWEI Caches hintereinander, und `CACHE` erreicht nur den ersten.** Hinter dem
-    Service-Worker-Cache sitzt der gewöhnliche HTTP-Cache des Browsers. Apache sendete für
-    Assets **kein `Cache-Control`**, nur `ETag` und `Last-Modified` — und ohne Angabe zur
-    Haltbarkeit darf ein Browser *heuristisch* cachen, üblicherweise 10 % der Zeit seit
-    `Last-Modified`. Der Ablauf, der daraus folgt:
+    - Ein Service Worker wird **nur neu installiert, wenn sich seine eigene Datei ändert**.
+      Bleibt sie gleich, läuft `install()` nie wieder und `caches.match()` liefert ewig die
+      Fassung vom ersten Besuch.
+    - Hinter dem SW-Cache sitzt der **HTTP-Cache des Browsers**. `cache.addAll()` holt die
+      Dateien mit normalem `fetch` — also durch ihn hindurch. Der frische SW-Cache füllt
+      sich dann mit dem alten Stand, dauerhaft und ohne Meldung.
+    - **`stale-while-revalidate` heilt das nicht, es zementiert es**: Die Revalidierung ist
+      ein gewöhnlicher `fetch` durch denselben HTTP-Cache und schreibt den alten Stand
+      zurück. Daran erkennt man den Fehler: Vier, fünf Neuladungen bringen keine Besserung.
 
-    1. Neues Image ausgerollt, `sw.js` mit neuem Cache-Namen → `install()` läuft.
-    2. `cache.addAll()` holt die Dateien mit **normalem** `fetch` — also **durch den
-       HTTP-Cache**. Der liefert die *alte* `style.css`.
-    3. `activate()` löscht den vorherigen Cache.
-    4. Der frische Cache enthält jetzt den alten Stand. Dauerhaft, und ohne jede Meldung.
+    **Die Lehre über den Einzelfall hinaus: Ein Reparaturweg, der durch die kaputte Ebene
+    läuft, ist keiner.**
 
-    Am PC fiel es nicht auf, weil dort hart neu geladen worden war. Am Handy blieb neues
-    HTML auf altem Stylesheet stehen — sichtbar daran, dass ein Element in einer *dritten*
-    Rasterspalte landete, die es weder im alten noch im neuen Entwurf gibt.
+    Was daraus folgt und zusammengehört:
 
-    **Und `stale-while-revalidate` hat den Zustand nicht geheilt, sondern zementiert.** Das
-    ist der Teil, den man beim Entwurf übersieht: Die Revalidierung ist ein gewöhnlicher
-    `fetch` und läuft damit durch **denselben** HTTP-Cache, der die veraltete Datei für
-    gültig hält. Sie schrieb den alten Stand bei jedem Aufruf zurück in den
-    Service-Worker-Cache. Vier bis fünf Neuladungen brachten deshalb keine Besserung — das
-    ist zugleich das Merkmal, an dem man diesen Fehler von einem bloßen Übergangszustand
-    nach einem Rollout unterscheidet.
-
-    Die Lehre über den Einzelfall hinaus: **Ein Reparaturweg, der durch die kaputte Ebene
-    läuft, ist keiner.** Wer einen Cache mit einem Selbstheilungsmechanismus absichert, muss
-    sicherstellen, dass dieser Mechanismus an der Fehlerquelle vorbeigeht.
-
-    **Seit `1.1.8` hängt die Version an der Adresse: `assets/style.css?v=1.1.8`**
-    (`lib/view_header.php`, `lib/view_footer.php`, aus `app_version()`). Das ist die einzige
-    Lösung, die nicht davon abhängt, dass sich jemand richtig verhält — eine geänderte
-    Adresse kann in **keinem** der beiden Caches einen alten Eintrag treffen. Dazu kommen
-    drei Dinge, die zusammengehören:
-
+    - **Die Version hängt an der Adresse** (`assets/style.css?v=1.2.4`, gesetzt in
+      `lib/view_header.php` / `view_footer.php` aus `app_version()`). Eine geänderte
+      Adresse kann in **keinem** der beiden Caches einen alten Eintrag treffen. **Wer eine
+      neue CSS- oder JS-Datei einbindet, hängt sie dort mit an.**
     - **`CACHE` wird nicht mehr von Hand gepflegt.** `sw.js` liest die Version aus seiner
-      eigenen Adresse (`self.location`), registriert wird als `assets/sw.js?v=…`. Damit gilt
-      der Worker dem Browser zugleich als neuer und wird sofort installiert, statt bis zu
-      24 Stunden auf die nächste Prüfung zu warten. **Es gibt keine Nummer mehr, die man
-      vergessen kann.**
-    - **`cache: 'reload'`** in `install()` **und** bei der Revalidierung im `fetch`-Handler.
-      Ohne das läuft auch die Revalidierung durch denselben HTTP-Cache und bestätigt nur den
-      alten Stand — deshalb heilte der zweite Seitenaufruf früher nichts.
-    - **`Cache-Control: no-cache`** für `assets/` und alle `*.js` (`apache-app.conf`). Das
-      heißt nicht „nicht speichern", sondern „vor jeder Benutzung rückfragen"; mit `ETag`
-      kostet es ein 304 ohne Rumpf.
+      eigenen Adresse (`self.location`), registriert wird als `assets/sw.js?v=…`. Es gibt
+      keine Nummer mehr, die man vergessen kann.
+    - **`cache: 'reload'`** in `install()` **und** bei der Revalidierung — sonst läuft auch
+      sie durch den HTTP-Cache.
+    - **`Cache-Control: no-cache`** für `assets/` und alle `*.js` (`apache-app.conf`):
+      nicht „nicht speichern", sondern „vor jeder Benutzung rückfragen".
+    - **Präcache-Adressen müssen exakt die sein, die der Header anfragt.** `ASSETS` in
+      `sw.js` führt `style.css` und `app.js` **mit** `?v=`, Manifest und Icons **ohne** —
+      genau so stehen sie im `<head>`. Sonst ist der Precache toter Ballast.
 
-    **Präcache-Adressen müssen exakt die sein, die der Header anfragt.** `ASSETS` in `sw.js`
-    führt `style.css` und `app.js` **mit** `?v=`, Manifest und Icons **ohne** — genau so
-    stehen sie im `<head>`. Ein Precache unter einer Adresse, die nie jemand anfragt, ist
-    toter Ballast, und der erste Aufruf ginge trotzdem ans Netz.
+13. **Die Warteschlange fürs Abhaken hängt an `user_id` UND `session_id`** (§7.4), jeder
+    Schlüssel aus eigenem Grund:
 
-13. **Die Warteschlange fürs Abhaken hängt an `user_id` UND `session_id`** (§7.4). Beide
-    Schlüssel sind Pflicht, und jeder aus einem eigenen Grund:
-
-    - `localStorage` gehört der **Herkunft**, nicht der Sitzung. Auf einem geteilten Gerät
+    - `localStorage` gehört der **Herkunft**, nicht der Sitzung — auf einem geteilten Gerät
       holte der nächste Angemeldete sonst die Häkchen seines Vorgängers nach.
-    - Ein wartendes Häkchen gehört zu **genau einer Einheit**. Läuft es in eine andere,
-      eröffnet `einheit_sicherstellen()` in `api/log.php` stillschweigend eine **neue**
-      Einheit — das ist verifiziert: Ein `check` nach dem Beenden liefert eine frische
-      `session_id` zurück, ohne Fehler. Passt der Schlüssel nicht, wird die Ablage deshalb
-      **verworfen**, nicht geraten.
+    - Ein wartendes Häkchen gehört zu **genau einer Einheit**. Passt der Schlüssel nicht,
+      wird die Ablage **verworfen**, nicht geraten.
 
-    Daraus folgt der Rest: **Beenden ist gesperrt, solange etwas aussteht** (die geschlossene
-    Einheit nähme nichts mehr an), **Tauschen einer wartenden Zeile ebenso** (der Server
-    kennt ihren Zustand noch nicht), und die Schlange läuft **nur innerhalb einer bereits
-    laufenden Einheit** — ohne offene Einheit gibt es keine `session_id`, an der sie hinge.
+    Daraus der Rest: **Beenden ist gesperrt, solange etwas aussteht**, **Tauschen einer
+    wartenden Zeile ebenso**, und die Schlange läuft **nur innerhalb einer laufenden
+    Einheit** — ohne offene Einheit gibt es keine `session_id`, an der sie hinge.
 
     **Eine 4xx-Antwort muss den Eintrag aus der Schlange entfernen.** Sie fällt bei jedem
     weiteren Versuch gleich aus; bliebe der Eintrag liegen, blockierte er alle folgenden
     dauerhaft. Nur `err.offline` darf ihn liegen lassen.
 
     **`navigator.onLine` ist als Verbindungsanzeige unbrauchbar** — es meldet nur, ob eine
-    Netzwerkschnittstelle da ist. Im Studio-WLAN ohne Internet und bei einem Balken Mobilfunk
-    steht es auf `true`, während jeder Aufruf ins Leere läuft. Deshalb speist `apiFetch` die
-    Leiste aus dem, was **tatsächlich gescheitert** ist, und deshalb braucht das Nachholen
-    einen **eigenen Zeitgeber**: Das `online`-Ereignis feuert in genau diesem Fall nie.
+    Schnittstelle da ist. Im Studio-WLAN ohne Internet steht es auf `true`, während jeder
+    Aufruf ins Leere läuft. Deshalb speist `apiFetch` die Leiste aus dem, was **tatsächlich
+    gescheitert** ist, und das Nachholen braucht einen **eigenen Zeitgeber**: Das
+    `online`-Ereignis feuert in genau diesem Fall nie.
 
-14. **Ein Restore ersetzt die Datenbankdatei, er mischt nicht** (`lib/backup.php`, §6.5) —
-    und daraus folgt mehr, als man zunächst sieht:
+14. **Ein Restore ersetzt die Datenbankdatei, er mischt nicht** (`lib/backup.php`, §6.5):
 
     - Der Erst-Admin des leeren Systems ist danach **weg**, mitsamt den Muskelgruppen aus
-      dem Seed. Das ist richtig so: `seed_muscle_groups()` und `bootstrap_first_admin()`
-      steigen bei nicht leerer Tabelle aus, es entstehen also keine Dubletten.
+      dem Seed. Richtig so: `seed_muscle_groups()` und `bootstrap_first_admin()` steigen bei
+      nicht leerer Tabelle aus, es entstehen keine Dubletten.
     - **`ADMIN_USER`/`ADMIN_PASSWORD` sind keine Schlüssel zu den Daten**, sondern eine
-      Starthilfe für die leere Benutzertabelle. Beim Wiederaufbau darf man sie frei neu
-      wählen; nach dem Einspielen gelten wieder die Passwörter aus der Sicherung.
-      Ebenso ist ein verlorenes `APP_SECRET` harmlos — es hängt allein am
-      Remember-Me-HMAC (`remember_validator_hash()`), Passwörter werden ohne Pepper
-      gehasht.
+      Starthilfe für die leere Benutzertabelle; nach dem Einspielen gelten die Passwörter
+      aus der Sicherung. Ein verlorenes `APP_SECRET` ist ebenso harmlos — es hängt allein
+      am Remember-Me-HMAC, Passwörter werden ohne Pepper gehasht.
     - **Die offene Sitzung überlebt den Restore und zeigt danach die falsche Person.** In
-      `$_SESSION` steht nur die `user_id`, und die gehört in der eingespielten Datenbank
-      jemand anderem. Kein Rechteproblem — einen Restore kann ohnehin nur ein Admin
-      auslösen —, aber verwirrend. Nach dem Einspielen ab- und neu anmelden.
-
-    Der ganze Weg ist durchgespielt: Klon → leeres System → Sicherung einspielen →
-    Zustand identisch, Anmeldung mit den alten Passwörtern.
+      `$_SESSION` steht nur die `user_id`. Nach dem Einspielen ab- und neu anmelden.
 
 15. **`history.php` zeigt ausschließlich eigene Daten** (§7.8) — auch Admins sehen nichts
     Fremdes. Die `user_id` kommt in jeder Abfrage aus der Sitzung, nie aus einem Parameter;
-    es gibt bewusst keine Benutzerauswahl. Wer das ändert, öffnet fremde Trainingsdaten.
+    es gibt bewusst keine Benutzerauswahl.
 
 16. **Das Trainingsgerät ist Anzeige und Filter — nicht Teil der Tauschlogik** (§6.3, §7.5).
-    `exercises.equipment` trägt einen Schlüssel aus der Codeliste `GERAETE` in
-    `lib/geraete.php`. Naheliegend und falsch wäre, den Tausch darauf einzuschränken: Der
-    häufigste Grund zu tauschen ist eine *besetzte Maschine*, und ein Filter auf dasselbe
-    Gerät verböte genau den Ausweg, den man in dem Moment sucht. `tausch_vorschlaege()`
-    liefert das Feld deshalb nur mit.
+    Naheliegend und falsch wäre, den Tausch darauf einzuschränken: Der häufigste Grund zu
+    tauschen ist eine *besetzte Maschine*, und ein Filter auf dasselbe Gerät verböte genau
+    den Ausweg. `tausch_vorschlaege()` liefert das Feld nur mit.
 
-    Der Gerätefilter **im** Tauschdialog ist davon unberührt: Er arbeitet auf der bereits
-    abgerufenen Antwort, rein im Browser, und bietet nur an, was darin vorkommt. Kein
-    zweiter Serverabruf — man steht damit im Studio, wo das Netz schwach ist, und die Liste
-    liegt vollständig vor. Beide Dialoge — Training und Planverwaltung — teilen sich dafür
-    `geraetFilterFuellen()` und `geraetGefiltert()` aus `assets/app.js`, aus demselben
-    Grund wie bei `vorschlagMarkup()`: zweimal gepflegt wären sie irgendwann verschieden.
+    Der Gerätefilter **im** Tauschdialog arbeitet auf der bereits abgerufenen Antwort, rein
+    im Browser, und bietet nur an, was darin vorkommt — kein zweiter Serverabruf, weil man
+    damit im Studio bei schwachem Netz steht. Beide Dialoge teilen sich dafür
+    `geraetFilterFuellen()` und `geraetGefiltert()` aus `assets/app.js`.
 
     **Die zwei Filter der Übungsauswahl (§6.4) schränken sich gegenseitig ein, und jede
-    Facette wird ohne ihren EIGENEN Filter gerechnet** (`auswahl_facetten()` in
-    `api/plans.php`). Beide Filter auf beide Listen anzuwenden ist der naheliegende Fehler:
-    Dann bliebe nach der Wahl von „Kurzhantel" nur noch „Kurzhantel" im Gerätefeld stehen,
-    und die Einschränkung wäre eine Sackgasse. Zur Gruppen-Facette gehören außerdem die
-    **Elterngruppen** der Treffer — eine Hauptgruppe schließt ihre Untergruppen ein und
-    hätte also Treffer, fiele aber sonst aus der Liste.
+    Facette wird ohne ihren EIGENEN Filter gerechnet** (`auswahl_facetten()`). Beide Filter
+    auf beide Listen anzuwenden ist der naheliegende Fehler: Dann bliebe nach „Kurzhantel"
+    nur noch „Kurzhantel" im Gerätefeld, und die Einschränkung wäre eine Sackgasse. Zur
+    Gruppen-Facette gehören außerdem die **Elterngruppen** der Treffer.
 
-    **Daneben liegt in derselben Datei die zweite Codeliste `ZUSCHNITT`** (`links` /
-    `mitte` / `rechts`, seit `1.1.7`): welche Seite eines breiten Bildes im quadratischen
-    Rahmen stehen bleibt. Sie folgt demselben Muster — Codeliste statt Tabelle, geprüft in
-    `api/exercises.php`, Vorgabe `mitte` — und hat **eine Voraussetzung, die man leicht
-    kaputtmacht**: Der Wert wirkt allein über `object-position` im Stylesheet, weil
-    `write_resized()` in `lib/upload.php` ausschließlich **skaliert und nicht beschneidet**.
-    Das Vorschaubild trägt deshalb noch das volle Seitenverhältnis, und die Einstellung
-    lässt sich beliebig oft ändern, ohne eine Datei anzufassen. Wer dort je einen Zuschnitt
-    einbaut, nimmt ihr die Grundlage: Ein bereits quadratisch beschnittenes Thumbnail ist
-    nachträglich nicht mehr anders auszurichten.
+    **Codelisten statt Tabellen**, in `lib/geraete.php`: `GERAETE` (das Womit) und
+    `ZUSCHNITT` (`links`/`mitte`/`rechts` — welche Seite eines breiten Bildes im
+    quadratischen Rahmen bleibt). Klein, geschlossen, nicht am Datenbestand hängend; ein
+    achter Gerätetyp soll eine Zeile PHP kosten und keine Migration. Geprüft wird in
+    `api/exercises.php`, **kein `CHECK`-Constraint** — das ließe sich in SQLite nur über
+    einen Tabellen-Neubau ändern.
 
-    Auch hier stehen die Werte **zweimal**: `bild_zuschnitt_klasse()` in PHP für die
-    server-gerenderten Listen, die gleiche Zuordnung in `vorschlagMarkup()`
-    (`assets/app.js`) für den Tauschdialog — dieselbe Konstellation wie bei
-    `geraet_abzeichen()`. `mitte` liefert bewusst **keine** Klasse: Das ist der Vorgabewert
-    von `object-position`, und eine Klasse dafür wäre Rauschen im Markup.
+    Vier Dinge, die daran hängen:
 
-    **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
-    Umbenennung ist deshalb eine Textänderung ohne Migration — so wurde `kabel` in `1.0.16`
-    von „Kabel" zu „Kabelzug". Wer den *Schlüssel* ändert, braucht dagegen ein `UPDATE`.
+    - **`ZUSCHNITT` wirkt allein über `object-position` im Stylesheet**, weil
+      `write_resized()` ausschließlich **skaliert und nicht beschneidet**. Wer dort je einen
+      Zuschnitt einbaut, nimmt der Einstellung die Grundlage: Ein bereits quadratisch
+      beschnittenes Thumbnail ist nachträglich nicht mehr anders auszurichten.
+    - **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
+      Umbenennung ist eine Textänderung ohne Migration; wer den *Schlüssel* ändert, braucht
+      ein `UPDATE`.
+    - **Das Gerät ist auch beim Bearbeiten Pflicht** — der Mechanismus, über den Altbestand
+      seinen Wert bekommt: Die Migration setzt nichts, die Liste mahnt „Gerät fehlt", der
+      Filter `GERAET_LEER` findet genau diese Zeilen.
+    - **Symbol und Beschriftung haben genau eine Quelle:** `lib/view_geraet_symbole.php`,
+      eingebunden aus dem Header. `geraet_abzeichen()` (PHP) und `geraetAbzeichen()` (JS)
+      referenzieren beides nur — nötig, weil Abzeichen server- **und** clientseitig
+      entstehen. **Wer einen Wert in `GERAETE` ergänzt, ergänzt dort das `<symbol>`** —
+      sonst bleibt das Abzeichen leer, ohne Fehlermeldung. Dasselbe Muster bei
+      `bild_zuschnitt_klasse()` / `vorschlagMarkup()`; `mitte` liefert bewusst **keine**
+      Klasse, das ist der Vorgabewert von `object-position`.
 
-    **Eine Codeliste, keine Tabelle, und kein `CHECK`.** Die Menge ist klein, geschlossen
-    und hängt nicht am Datenbestand — eine Tabelle bräuchte Verwaltungsseite, API und
-    Löschschutz. Ein `CHECK`-Constraint wiederum ließe sich in SQLite nur über einen
-    Tabellen-Neuaufbau ändern; ein achter Gerätetyp soll eine Zeile PHP kosten. Geprüft
-    wird in `api/exercises.php` gegen `GERAETE`.
+17. **Im Expertenmodus ist die ganze SATZLISTE die Nutzlast, nicht der einzelne Satz**
+    (§7.4, `api/log.php`). `check` nimmt sie als Feld `sets` und ersetzt die Sätze der
+    Position vollständig — erst `DELETE`, dann `INSERT` von 1 an, in **einer** Transaktion.
+    Damit ist der Aufruf idempotent, und genau darauf verlässt sich die Warteschlange. Ein
+    „Satz anlegen"-Endpunkt hätte bei jedem Wiederversuch einen weiteren Satz erzeugt.
 
-    **Das Feld ist auch beim Bearbeiten Pflicht.** Das ist kein Versehen, sondern der
-    Mechanismus, über den die Übungen aus der Zeit vor `1.0.15` ihren Wert bekommen: Die
-    Migration setzt nichts, die Liste mahnt „Gerät fehlt", der Filter `GERAET_LEER` findet
-    genau diese Zeilen. Ein Vorgabewert wäre bequemer und für die meisten falsch gewesen.
-
-    **Symbol und Beschriftung haben genau eine Quelle:** `lib/view_geraet_symbole.php`,
-    eingebunden aus `lib/view_header.php`. Es legt die `<symbol>`-Definitionen und die
-    Beschriftungen als JSON ins Dokument; `geraet_abzeichen()` (PHP) und `geraetAbzeichen()`
-    (`assets/app.js`) referenzieren beides nur. Das ist nötig, weil die Abzeichen an zwei
-    Stellen entstehen — server-gerendert in den Listen und clientseitig in
-    `vorschlagMarkup()`. **Wer einen Wert in `GERAETE` ergänzt, ergänzt dort das passende
-    `<symbol>`** — sonst bleibt das Abzeichen leer, und zwar ohne Fehlermeldung.
-
-17. **Im Expertenmodus ist die ganze SATZLISTE die Nutzlast, nicht der einzelne Satz** (§7.4,
-    `api/log.php`). `check` nimmt sie als Feld `sets` entgegen und ersetzt die Sätze der
-    Position vollständig — erst `DELETE`, dann `INSERT` von 1 an, alles in **einer**
-    Transaktion. Damit ist der Aufruf idempotent, und genau darauf verlässt sich die
-    Warteschlange: Sie hält einen Eintrag je Planposition, überschreibt ihn bei jeder
-    Änderung und schickt ihn nach einem Funkloch erneut. Ein „Satz anlegen"-Endpunkt hätte
-    bei jedem Wiederversuch einen weiteren Satz erzeugt.
-
-    Daraus folgen drei Dinge, die zusammengehören:
+    Drei Dinge, die zusammengehören:
 
     - **Ein `check` OHNE `sets` löscht vorhandene Sätze.** Die Nutzlast beschreibt die Zeile
-      vollständig; ließe man die alten stehen, zeigte die Position ein Leitgewicht aus einer
-      Satzfolge, die niemand mehr sieht.
-    - **Deshalb ist der Moduswechsel bei laufender Einheit gesperrt** (`api/auth.php →
-      set_expert_mode`, 409). Die Ablage im `localStorage` überlebt einen Wechsel, und ein
-      wartender Eintrag aus dem einfachen Modus trägt keine Satzliste — das wäre stiller
-      Datenverlust mitten im Training.
+      vollständig.
+    - **Deshalb ist der Moduswechsel bei laufender Einheit gesperrt** (409). Ein wartender
+      Eintrag aus dem einfachen Modus trägt keine Satzliste — das wäre stiller Datenverlust
+      mitten im Training.
+    - **`set_satz_vorlage` ist ausdrücklich NICHT gesperrt**, und der Warteschlangen-
+      Schlüssel bleibt **`-v3`**: Beide Verfahren schicken dieselbe Satzliste, die *Form*
+      eines Eintrags ist unverändert. Ein Sprung würde beim Rollout die wartenden Eingaben
+      von jedem verwerfen, der gerade trainiert. Der Reflex „neue Einstellung ⇒ Sperre plus
+      neue Schlüsselnummer" ist hier zweimal falsch.
 
-      **`set_satz_vorlage` ist ausdrücklich NICHT gesperrt** (seit `1.1.14`), und der
-      Unterschied ist genau die Nutzlast: Beide Verfahren aus `SATZ_VORLAGE` schicken
-      dieselbe Satzliste, sie unterscheiden sich allein darin, was beim nächsten „+ Satz"
-      schon in den Feldern steht. Aus demselben Grund bleibt der Warteschlangen-Schlüssel
-      auf **`-v3`** — die Nummer steht für die *Form* eines Eintrags, und die ist
-      unverändert. Ein Sprung würde beim Rollout die wartenden Eingaben von jedem
-      verwerfen, der gerade trainiert. Der Reflex „neue Einstellung ⇒ Sperre plus neue
-      Schlüsselnummer" ist hier also falsch, und zwar zweimal.
-    - **Deshalb heißt der `localStorage`-Schlüssel `…-warteschlange-v2`.** Ein Eintrag aus
-      `1.0.x` liefe sonst als `check` ohne Satzliste durch.
-
-    **Die Vorbelegung eines neuen Satzes ist eine persönliche Einstellung** (seit `1.1.14`,
-    §7.4): `users.satz_vorlage`, Codeliste `SATZ_VORLAGE` in `lib/training.php` —
-    `gleicher_satz` (Satz k vom letzten Mal, Vorgabe) oder `letzter_satz` (der vorige Satz
-    von heute). Der **erste** Satz kommt in beiden Fällen vom letzten Mal.
+    **Die Vorbelegung eines neuen Satzes ist eine persönliche Einstellung**
+    (`users.satz_vorlage`, Codeliste `SATZ_VORLAGE` in `lib/training.php`): `gleicher_satz`
+    (Satz k vom letzten Mal, Vorgabe) oder `letzter_satz` (der vorige Satz von heute). Der
+    **erste** Satz kommt in beiden Fällen vom letzten Mal.
 
     **Angewendet wird sie ausschließlich in `naechsterSatz()` (`index.js`), und es gibt
     bewusst KEIN PHP-Gegenstück.** Der Server erfindet nie einen Satz; er liefert nur
     `letzte_saetze()` und `letztes_gewicht()`. Das ist die Ausnahme von den vielen Paaren
-    in diesem Projekt (`positions_zustaende()`/`aktiveMarkieren()`,
-    `saetze_text()`/`saetzeText()`, `geraet_abzeichen()`/`geraetAbzeichen()`) — wer die
-    zweite Hälfte sucht, sucht vergebens.
+    in diesem Projekt — wer die zweite Hälfte sucht, sucht vergebens. Gelesen wird über
+    `satz_vorlage_normalisieren()` (fällt auf den Standard zurück, damit eine alte
+    Sicherung kein Training abbricht), **geschrieben** nur nach strenger Prüfung gegen die
+    Liste.
 
-    **Die Codeliste steht in `lib/training.php`, nicht in `lib/geraete.php`.** Dort liegt
-    zwar schon `ZUSCHNITT`, das mit Trainingsgeräten ebenso wenig zu tun hat — aber eine
-    dritte fachfremde Liste zementierte den irreführenden Dateinamen. Gelesen wird über
-    `satz_vorlage_normalisieren()`, das auf den Standard zurückfällt; **geschrieben** wird
-    nur nach strenger Prüfung gegen die Liste (`api/auth.php`). Zwei Richtungen, zwei
-    Haltungen: Ein unbekannter Wert aus einer alten Sicherung darf kein Training abbrechen,
-    ein unbekannter Wert aus einem Schreibaufruf ist ein Fehler.
-
-    `workout_log.weight` bleibt gefüllt und trägt den **schwersten** Satz. Das ist keine
+    `workout_log.weight` bleibt gefüllt und trägt den **schwersten** Satz — keine
     Redundanz: `letztes_gewicht()`, `gewichts_verlauf()` und `uebungen_mit_verlauf()` lesen
-    ausschließlich diese Spalte und funktionieren dadurch über beide Modi hinweg unverändert.
-    `workout_sets` hängt an `workout_log.id` mit `ON DELETE CASCADE` — Ab-wählen und
-    Einheit-Löschen räumen die Sätze von selbst mit weg, es gibt **keinen** eigenen
-    Löschpfad.
+    ausschließlich diese Spalte und funktionieren dadurch über beide Modi hinweg.
+    `workout_sets` hängt an `workout_log.id` mit `ON DELETE CASCADE` — es gibt **keinen**
+    eigenen Löschpfad.
 
-    **Eine leere Satzzeile darf nicht mitgeschickt werden.** `+ Satz` legt bei einer Übung
-    ohne Vorlage eine leere Zeile an; `saetze_pruefen()` weist einen Satz ohne Wiederholungen
-    *und* ohne Gewicht zu Recht mit 422 ab. Das Filtern erledigt `saetzeFuerServer()` in
-    `index.js` — `saetzeLesen()` liefert weiterhin **alle** Zeilen, weil die leere im DOM
-    stehen bleiben muss, sie wird ja gerade ausgefüllt. Wer die beiden verwechselt, erzeugt
-    entweder einen roten Fehlerrand ohne Anlass oder eine Zeile, die beim Tippen verschwindet.
+    **Eine leere Satzzeile darf nicht mitgeschickt werden.** `saetze_pruefen()` weist einen
+    Satz ohne Wiederholungen *und* ohne Gewicht mit 422 ab; `saetzeFuerServer()` filtert
+    sie; `saetzeLesen()` liefert weiterhin **alle** Zeilen, weil die leere im DOM stehen
+    bleiben muss — sie wird ja gerade ausgefüllt. Wer die beiden verwechselt, erzeugt einen
+    roten Fehlerrand ohne Anlass oder eine Zeile, die beim Tippen verschwindet.
 
 18. **„Protokolliert" und „erledigt" sind zwei Zustände** (`workout_log.done`, §7.4). Im
-    einfachen Modus fallen sie zusammen; im Expertenmodus entsteht die Zeile mit dem **ersten
-    Satz**, und da ist man mitten in der Übung. Die erste Fassung von `1.1.0` hatte
-    „Erledigt" an die Existenz der Zeile gekoppelt — ab dem zweiten Satz stand die Übung als
-    fertig da, während der Benutzer noch am Gerät stand.
+    einfachen Modus fallen sie zusammen; im Expertenmodus entsteht die Zeile mit dem
+    **ersten Satz**, und da ist man mitten in der Übung.
 
-    Die Trennung zieht sich durch und muss zusammen gedacht werden:
-
-    - **`done = 1` zählt „x/n"** — in `fortschritt()` (`api/log.php`) *und* in
-      `einheiten_verlauf()`. Beide, sonst heißt „erledigt" im Verlauf etwas anderes als im
-      Training.
-    - **Die Tauschsperre hängt an der EXISTENZ der Zeile**, nicht an `done`
-      (`position_abgehakt()` in `api/swap.php`). Wer zwei Sätze Bankdrücken gemacht hat, kann
-      die Position nicht mehr tauschen — die zwei Sätze waren Bankdrücken. `plan_positionen()`
+    - **`done = 1` zählt „x/n"** — in `fortschritt()` *und* in `einheiten_verlauf()`. Beide,
+      sonst heißt „erledigt" im Verlauf etwas anderes als im Training.
+    - **Die Tauschsperre hängt an der EXISTENZ der Zeile**, nicht an `done`: Wer zwei Sätze
+      Bankdrücken gemacht hat, kann die Position nicht mehr tauschen. `plan_positionen()`
       liefert dafür `hat_eintrag` neben `erledigt`.
-    - **`done` fehlt in der Nutzlast ⇒ erledigt.** Das ist die Vorgabe für den einfachen
-      Modus und der Rückfall für eine ältere Nutzlast — und der Grund, warum der
-      Warteschlangen-Schlüssel auf `-v3` ging: Ein Eintrag aus `1.1.0` ohne `done` hakte die
-      Übung sonst beim Nachholen ab.
-    - **Ab-wählen löscht im Expertenmodus keine Sätze.** Es setzt nur `done = 0`; gelöscht
-      wird eine Zeile erst, wenn kein Satz mehr übrig und kein Häkchen gesetzt ist.
-    - **`done = 1` schreibt die Position fest** (`abgeschlossene_position_schuetzen()`).
-      Wiederholungen, Gewicht, Sätze hinzufügen oder löschen — alles abgelehnt, bis das
-      Häkchen weg ist. Das gilt seit `1.1.4` auch für das Gewichtsfeld im einfachen Modus,
-      wo es bis dahin nur eine Regel der Oberfläche war.
+    - **`done` fehlt in der Nutzlast ⇒ erledigt.** Vorgabe für den einfachen Modus und
+      Rückfall für ältere Nutzlasten.
+    - **Ab-wählen löscht im Expertenmodus keine Sätze**; gelöscht wird die Zeile erst, wenn
+      kein Satz mehr übrig und kein Häkchen gesetzt ist.
+    - **`done = 1` schreibt die Position fest** (`abgeschlossene_position_schuetzen()`) —
+      alles abgelehnt, bis das Häkchen weg ist.
 
       **Die eine Ausnahme, die man nicht vergessen darf: Eine unveränderte Nutzlast muss
-      durchgehen.** Die Warteschlange schickt einen Eintrag nach einem Funkloch erneut, und
-      der zweite Aufruf trifft dann auf die bereits abgehakte Position. Ohne diese Ausnahme
-      schlüge er mit 409 fehl — für den Benutzer ein Fehler, obwohl längst alles gespeichert
-      ist. Verglichen wird deshalb inhaltlich (`saetze_gleich()`), und Gewichte nie mit
-      `===`: 40.0 aus der Datenbank und 40.0 aus der Eingabe sind dasselbe Gewicht, aber
-      nicht zwingend dasselbe Bitmuster.
+      durchgehen.** Die Warteschlange schickt nach einem Funkloch erneut und trifft dann auf
+      die bereits abgehakte Position; ohne die Ausnahme schlüge sie mit 409 fehl, obwohl
+      längst alles gespeichert ist. Verglichen wird inhaltlich (`saetze_gleich()`), und
+      Gewichte nie mit `===`: 40.0 aus der Datenbank und 40.0 aus der Eingabe sind dasselbe
+      Gewicht, aber nicht zwingend dasselbe Bitmuster.
 
-19. **Alle `:hover`-Regeln stehen hinter `@media (hover: hover)`.** Auf einem Touchscreen gibt
-    es kein Verlassen mit dem Zeiger, deshalb bleibt `:hover` am zuletzt angetippten Element
-    kleben. Im Studio sah das so aus, dass Satzkopf und „+ Satz" beim Tippen ihre Blautöne
-    tauschten (`--akzent` gegen `--akzent-tief`) — als reagierte die Oberfläche auf etwas
-    anderes als den Tipp.
+19. **Fünf Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Selektor.
 
-    **Dieselbe Klasse von Fehler: Anzeigen, die die Kartenhöhe ändern.** Der wartende
-    Zustand trug bis `1.1.1` einen Hinweissatz in der Karte — sie wurde für die Dauer des
-    Speicherns höher und danach wieder niedriger, und bei jedem Satz sprang die ganze Liste
-    darunter. Was sich im Sekundentakt ändert, darf **nichts verschieben**: `.zeile-wartet`
-    ändert deshalb nur noch `border-left-style` und nicht einmal die Farbe. Wie viele
-    Eingaben ausstehen, sagt die `sticky` Leiste am oberen Rand — eine Anzeige genügt.
+    **(a) Was sich im Sekundentakt ändert, darf nichts verschieben.** Der wartende Zustand trug
+    einmal einen Hinweissatz in der Karte — sie wurde beim Speichern höher und danach wieder
+    niedriger, und bei jedem Satz sprang die ganze Liste. `.zeile-wartet` ändert deshalb nur
+    `border-left-style`, nicht einmal die Farbe. Wie viele Eingaben ausstehen, sagt die
+    Leiste am oberen Rand — eine Anzeige genügt.
 
-    **Und die Farbe des Balkens ist ein Leitsystem, keine Dekoration:** grün = hier bist du
-    (`.zeile-aktiv`), blau = erledigt, **orange = übersprungen** (`.zeile-uebersprungen`,
-    `#ff6600`), grau = kommt noch. Grün für „erledigt" ist der naheliegende Griff und falsch
-    herum — Grün zieht den Blick, und den soll ziehen, was als Nächstes zu tun ist.
-    **`.zeile-aktiv` gibt es nur bei laufender Einheit**, ebenso Orange und den aufgeklappten
-    Satzblock: Alles drei ist eine Aussage über einen Ablauf, und ohne Training läuft keiner.
+    **(b) Alle `:hover`-Regeln stehen hinter `@media (hover: hover)`.** Auf einem Touchscreen
+    gibt es kein Verlassen mit dem Zeiger, `:hover` klebt am zuletzt angetippten Element —
+    im Studio tauschten Satzkopf und „+ Satz" beim Tippen ihre Blautöne.
 
-    **Grün ist NICHT „die erste noch nicht erledigte Position".** Das war es bis `1.1.5` und
-    ist falsch, sobald man eine Übung auslässt, weil das Gerät besetzt ist: Die Markierung
-    blieb auf der ausgelassenen Übung stehen, während man längst zwei Geräte weiter war. Die
-    Regel steht ausgeschrieben in **`positions_zustaende()`** (`lib/training.php`); kurz:
-    grün ist die Position, an der gerade protokolliert wird (Eintrag, aber noch nicht
-    erledigt), sonst die erste offene *nach* der letzten mit Eintrag, sonst die erste offene
-    überhaupt. Orange ist jede offene Position **davor** — das übersprungene Gerät, zu dem
-    man zurückwill.
+    **(c) Die Farbe des Balkens ist ein Leitsystem, keine Dekoration:** grün = hier bist du,
+    blau = erledigt, **orange = übersprungen** (`#ff6600`), grau = kommt noch. Grün für
+    „erledigt" ist der naheliegende Griff und falsch herum — Grün zieht den Blick, und den
+    soll ziehen, was als Nächstes zu tun ist. **`.zeile-aktiv`, Orange und der aufgeklappte
+    Satzblock gibt es nur bei laufender Einheit**: Alles drei ist eine Aussage über einen
+    Ablauf.
+
+    **Grün ist NICHT „die erste noch nicht erledigte Position".** Das ist falsch, sobald man
+    eine Übung auslässt, weil das Gerät besetzt ist. Die Regel steht ausgeschrieben in
+    `positions_zustaende()` (`lib/training.php`); kurz: grün ist die Position, an der gerade
+    protokolliert wird, sonst die erste offene *nach* der letzten mit Eintrag, sonst die
+    erste offene überhaupt. Orange ist jede offene Position **davor**.
 
     **Die Regel steht zwangsläufig zweimal:** `positions_zustaende()` in PHP für den
     Seitenaufbau, `aktiveMarkieren()` in `index.js` für den Betrieb. Beide Hälften gehören
     zusammen geändert, sonst springt die Farbe beim nächsten Neuladen. Dasselbe gilt für
     `zurAktivenSpringen()`: Es muss auf `.zeile-aktiv` zielen und darf nicht selbst „die
-    erste nicht erledigte" suchen — sonst springt die Ansicht nach dem Auslassen zurück auf
-    das besetzte Gerät.
+    erste nicht erledigte" suchen.
 
-    **Und beim Scrollen an eine Position gehört eingerechnet, was oben klebt.**
-    `scrollIntoView({ block: 'start' })` setzt das Ziel exakt an den oberen Viewport-Rand
-    und damit **unter** jede `sticky`-Leiste. Im Training fiel das zuverlässig auf: Genau
-    beim Abhaken wird die Verbindungsleiste sichtbar (die Eingabe geht in die
-    Warteschlange), und die nächste Übungskarte landete verdeckt — der Name war weg.
-    `zurAktivenSpringen()` in `index.js` rechnet die Höhe deshalb **gemessen** heraus
-    (`offsetHeight`) statt mit einer festen Zahl: Der Text kann auf schmalen Geräten
-    zweizeilig werden.
+    **(d) Beim Scrollen gehört eingerechnet, was oben klebt.**
+    `scrollIntoView({ block: 'start' })` setzt das Ziel **unter** jede `sticky`-Leiste —
+    beim Abhaken wird die Verbindungsleiste sichtbar, und die nächste Übungskarte landete
+    verdeckt.
 
-    **Seit `1.1.14` gibt es dafür einen gemeinsamen Behälter, und das ist die eigentliche
-    Lehre.** `#leisten` (`lib/view_header.php`) ist das erste Element im `<body>` und trägt
-    als einziges `position: sticky; top: 0; z-index: 20`. Darin liegen die Leisten normal im
-    Fluss: die **Trainingsleiste** (nur `index.php` bei laufender Einheit) und darunter die
-    **Verbindungsleiste** (aus `assets/app.js`, auf jeder Seite, meist ausgeblendet). Zwei
-    Elemente mit eigenem `top: 0` legten sich sonst übereinander, und ein fester Versatz für
-    die zweite wäre falsch — die eine ist meistens gar nicht da.
+    **`#leisten` (`lib/view_header.php`) ist der gemeinsame Behälter** und trägt als
+    einziges Element `position: sticky; top: 0`. Darin liegen die Leisten normal im Fluss:
+    die Trainingsleiste (nur `index.php` bei laufender Einheit) und darunter die
+    Verbindungsleiste (auf jeder Seite, meist ausgeblendet). Zwei Elemente mit eigenem
+    `top: 0` legten sich übereinander.
 
     **Die Reihenfolge im Stapel ist nach BESTÄNDIGKEIT sortiert, nicht nach Wichtigkeit.**
-    In `1.1.14` stand die Verbindungsleiste oben, mit der plausiblen Begründung „ist das
-    Netz weg, ist das die wichtigste Information". Im Studio fiel sofort auf, warum das
-    falsch ist: Sie erscheint bei **jedem** Abhaken für den Bruchteil einer Sekunde und schob
-    dabei die Trainingsleiste nach unten und gleich wieder hinauf — ausgerechnet die Zeile,
-    die man ständig abliest, zappelte bei jeder Eingabe. Das ist dieselbe Regel wie bei
-    `.zeile-wartet`: **Was von selbst kommt und geht, darf nichts verschieben, was stehen
-    bleiben soll.** Wer eine weitere Leiste ergänzt, sortiert sie danach ein — dauerhaft nach
-    oben, flüchtig nach unten.
+    Die Verbindungsleiste stand einmal oben, mit der plausiblen Begründung „ist das Netz
+    weg, ist das die wichtigste Information" — sie erscheint aber bei **jedem** Abhaken für
+    Sekundenbruchteile und schob dabei die Trainingsleiste hin und her. **Wer eine weitere
+    Leiste ergänzt, sortiert sie danach ein: dauerhaft nach oben, flüchtig nach unten.**
 
-    Der Gewinn steckt aber in der Messung: `zurAktivenSpringen()` misst **den Stapel**, nicht
-    seine Kinder. Eine Liste einzelner Elemente wäre genau die Stelle, an der man die dritte
-    Leiste vergisst; die Höhe des Behälters stimmt von selbst, auch wenn keine, eine oder
-    beide sichtbar sind. **Wer eine weitere Leiste ergänzt, hängt sie dort hinein und muss
-    an der Scroll-Rechnung nichts ändern.**
+    `zurAktivenSpringen()` misst **den Stapel** per `offsetHeight`, nicht seine Kinder — die Höhe des Behälters
+    stimmt von selbst, auch wenn keine, eine oder beide Leisten sichtbar sind. **Wer eine
+    weitere Leiste ergänzt, muss an der Scroll-Rechnung nichts ändern.**
 
-    Dazu die Lehre daneben: **`.saetze-kopf` allein reicht als Selektor nicht.**
-    `.summary-knopf` steht weiter unten in derselben Datei und hat dieselbe Spezifität, also
-    gewinnt die spätere Regel. Deshalb `.saetze-block > .saetze-kopf`. Wer einen
-    `.summary-knopf` irgendwo umfärben will, braucht denselben Griff — sonst passiert
-    schlicht nichts, und zwar ohne Fehlermeldung.
+    **(e) `.saetze-kopf` allein reicht als Selektor nicht.** `.summary-knopf` steht weiter unten
+    in derselben Datei und hat dieselbe Spezifität, also gewinnt die spätere Regel. Deshalb
+    `.saetze-block > .saetze-kopf`. Wer einen `.summary-knopf` umfärben will, braucht
+    denselben Griff — sonst passiert schlicht nichts, ohne Fehlermeldung.
 
 20. **Der verzögerte Satz-Speicher muss vor Beenden und Tauschen ausgelöst werden**
-    (`satzSpeichernJetzt()` in `index.js`). Änderungen an der Satzliste gehen erst 800 ms
-    nach der letzten Eingabe raus — sonst löste jeder Tipp auf `−`/`+` einen eigenen Aufruf
-    aus. Der Preis: In diesem Fenster steht der Eintrag **noch nicht in der Warteschlange**.
-
-    `einheitBeenden()` und `tauschOeffnen()` prüfen aber beide genau die Warteschlange
-    (`schlange.anzahl()` bzw. `schlange.eintrag(peId)`). Ohne den vorgezogenen Aufruf sähen
-    sie über einen wartenden Satz hinweg — die Einheit schlösse über ihn hinweg, oder ein
-    Tausch liefe an ihm vorbei. Das ist dieselbe Falle wie in Fallstrick 13, nur eine Ebene
-    davor.
+    (`satzSpeichernJetzt()` in `index.js`). Änderungen gehen erst 800 ms nach der letzten
+    Eingabe raus; in diesem Fenster steht der Eintrag **noch nicht in der Warteschlange**.
+    `einheitBeenden()` und `tauschOeffnen()` prüfen aber genau die Warteschlange
+    (`schlange.anzahl()` bzw. `schlange.eintrag(peId)`) — ohne den vorgezogenen Aufruf sähen
+    sie über einen wartenden Satz hinweg.
 
     Aus demselben Grund zeichnet `saetzeSetzen()` die Zeilen **nur** neu, wenn sich ihre
-    Anzahl geändert hat. Beim Tippen und beim Stepper stehen die Felder schon richtig; sie
-    über `innerHTML` zu ersetzen risse dem Benutzer den Fokus mitten aus der Eingabe und den
-    Knopf unter dem Finger weg.
+    Anzahl geändert hat: Beim Tippen und beim Stepper stehen die Felder schon richtig; sie
+    über `innerHTML` zu ersetzen risse den Fokus mitten aus der Eingabe.
 
     **Die Satzzeile hat genau einen Erzeuger:** `satzZeileMarkup()` in `index.js`.
-    `index.php` rendert sie *nicht*, sondern liefert die Werte als JSON in `data-saetze` und
-    dazu die Zusammenfassung im `<summary>`. Das ist die Ausnahme von „serverseitig
-    gerendertes HTML", und sie ist begründet: Die Zeile ist ein Bedienelement, das sich im
-    Betrieb ständig ändert (Satz dazu, Satz weg), JS muss sie also ohnehin bauen können —
-    eine zweite Fassung in PHP wäre irgendwann verschieden. Für die Formatierung
-    Für die Formatierung einer Satzfolge gibt es dagegen zwangsläufig **zwei Paare**, jeweils
-    PHP + JS, und beide Hälften gehören zusammen geändert:
+    `index.php` rendert sie *nicht*, sondern liefert die Werte als JSON in `data-saetze`.
+    Das ist die begründete Ausnahme von „serverseitig gerendertes HTML": Die Zeile ist ein
+    Bedienelement, das sich im Betrieb ständig ändert, JS muss sie ohnehin bauen können.
+
+    Für die **Formatierung** einer Satzfolge gibt es dagegen zwei Paare, jeweils PHP + JS,
+    beide Hälften zusammen zu ändern:
 
     | Funktion | Ergebnis | Wofür |
     |---|---|---|
-    | `saetze_text()` / `saetzeText()` | `12×40 · 10×40 · 9×45` | die bloße Liste — für die Spalte „Sätze" im Verlauf, deren Kopf die Anzahl schon nennt |
-    | `saetze_zusammenfassung()` / `saetzeZusammenfassung()` | `3 Sätze (12×40 · 10×40 · 9×45)` | eine Satzfolge für sich — Zeile „zuletzt …" und Kopf des Satzblocks |
+    | `saetze_text()` / `saetzeText()` | `12×40 · 10×40 · 9×45` | die bloße Liste — Spalte „Sätze" im Verlauf |
+    | `saetze_zusammenfassung()` / `saetzeZusammenfassung()` | `3 Sätze (12×40 · 10×40 · 9×45)` | eine Satzfolge für sich |
 
-    **Die Zusammenfassung hat genau eine Schreibweise, und das ist keine Kosmetik.** Die
-    Zeile „zuletzt …" (server-gerendert) und der Kopf des Satzblocks (im Browser gebaut)
-    stehen am Handy direkt übereinander — oben, was letztes Mal war, darunter, was gerade
-    entsteht. Zwei verschiedene Schreibweisen liest man dort unwillkürlich als Unterschied in
-    der Sache. Klammer statt `3 Sätze · 12×40`, weil der Mittelpunkt schon die Sätze
-    untereinander trennt: Als Trenner zwischen Anzahl und Liste gelesen, sieht „3 Sätze" aus
-    wie ein weiterer Listeneintrag.
+    **Die Zusammenfassung hat genau eine Schreibweise**, weil „zuletzt …" (server-gerendert)
+    und der Kopf des Satzblocks (im Browser gebaut) am Handy direkt übereinander stehen.
+    Zwei Schreibweisen liest man dort als Unterschied in der Sache.
 
-21. **Die Plan-Rotation liest ihren Stand aus der Historie, sie merkt ihn sich nicht**
-    (`zuletzt_trainierter_plan()` in `lib/training.php`, §7.6). Bis `1.1.5` stand der
-    Ausgangspunkt in `users.last_plan_id` — geschrieben **nur beim Beenden** einer Einheit,
-    zurückgenommen **nie**. Wer eine Einheit zum Ausprobieren startete, beendete und wieder
-    löschte, bekam von da an dauerhaft den falschen Plan vorgeschlagen: Die Einheit war weg,
-    ihre Wirkung auf die Rotation blieb. Aufgefallen am 2026-08-12, als nach einer
-    Pull-Einheit wieder *Pull* vorgeschlagen wurde.
+21. **Die Plan-Rotation liest ihren Stand aus der HISTORIE, sie merkt ihn sich nicht**
+    (`zuletzt_trainierter_plan()`, §7.6) — seit `1.2.0` **je Split getrennt**. Die
+    allgemeine Form: **Was sich aus der Historie ableiten lässt, gehört nicht zusätzlich in
+    eine Spalte.** Zwei Quellen laufen auseinander, sobald ein Löschpfad die eine anfasst
+    und die andere nicht — und der Löschpfad wird vergessen, weil er anderswo steht.
 
-    Die allgemeine Form des Fehlers: **Was sich aus der Historie ableiten lässt, gehört nicht
-    zusätzlich in eine Spalte.** Zwei Quellen für dieselbe Aussage laufen auseinander, sobald
-    ein Löschpfad die eine anfasst und die andere nicht — und der Löschpfad wird immer
-    vergessen, weil er anderswo steht. Ein `SELECT … ORDER BY started_at DESC LIMIT 1` kostet
-    nichts und kann gar nicht veralten.
-
-    Zwei Feinheiten, die dabei entschieden wurden:
-
-    - **Gezählt wird JEDE Einheit, auch eine ohne einzige Protokollzeile.** Das ist eine
-      ausdrückliche Entscheidung des Benutzers (2026-08-12) gegen den naheliegenden
-      Gegenentwurf: Die Rotation richtet sich **starr** nach der Historie, und eine leere
-      Einheit *steht* in der Historie. Wer sie nicht gezählt haben will, löscht sie — die
-      Historie sauber zu halten ist Sache des Benutzers. Eine zweite, stille Regel („zählt
-      nur mit Protokollzeile") sähe man beim Blick auf den Verlauf nicht, und dann wäre
-      wieder unerklärlich, warum ein Plan vorgeschlagen wird.
-    - **`users.last_plan_id` bleibt als Spalte stehen**, wird aber weder gelesen noch
-      geschrieben. Sie zu entfernen wäre eine löschende Migration ohne Gegenwert; sie ist
-      deshalb in `schema.sql` als tot gekennzeichnet. **Nicht wieder in Betrieb nehmen.**
+    - **Gezählt wird JEDE Einheit, auch eine ohne Protokollzeile** (Entscheidung des
+      Benutzers). Die Rotation richtet sich starr nach der Historie; wer eine leere Einheit
+      nicht gezählt haben will, löscht sie. Eine zweite, stille Regel sähe man am Verlauf
+      nicht.
+    - **`users.last_plan_id` ist tot** — weder gelesen noch geschrieben, in `schema.sql` so
+      gekennzeichnet. **Nicht wieder in Betrieb nehmen.**
 
 22. **`api/exercises.php → update` ersetzt die ganze Übung, es ändert keine Felder.**
-    `aktion_bearbeiten()` schreibt `name_de`, `name_en`, `description`, `focus`, `equipment`
-    **und** über `gruppen_schreiben()` die komplette n:m-Zuordnung neu — aus dem, was in der
-    Nutzlast steht. Wer nur die zwei Felder schickt, die er ändern will, verliert Name, Gerät
-    und **sämtliche Muskelgruppen**; `eingabe_pruefen()` verlangt `name_de`, `equipment` und
-    `primary_group_id` als Pflicht, alles andere fällt still auf `null` oder die leere Liste.
+    `aktion_bearbeiten()` schreibt `name_de`, `name_en`, `description`, `focus`,
+    `equipment` **und** über `gruppen_schreiben()` die komplette n:m-Zuordnung neu. Wer nur
+    die zwei Felder schickt, die er ändern will, verliert Name, Gerät und **sämtliche
+    Muskelgruppen** — **und die Antwort lautet trotzdem `ok:true`.** Die Übung steht danach
+    ohne Zuordnung da und taucht im Tausch nie wieder auf.
 
-    Und das ist der eigentliche Fallstrick: **Die Antwort lautet trotzdem `ok:true`.** Es
-    gibt keine Fehlermeldung, keine 422 — die Übung steht danach ohne Zuordnung da und
-    taucht im Tausch nie wieder auf. Jeder Aufruf muss die unveränderten Felder aus einem
-    **vorher gezogenen Abzug** wörtlich mittragen.
-
-    **Das Muster ist nicht einheitlich, deshalb hilft Analogieschluss nicht.**
+    `eingabe_pruefen()` verlangt nur `name_de`, `equipment` und `primary_group_id` als
+    Pflicht — alles andere fällt still auf `null` oder die leere Liste. Jeder Aufruf muss die
+    unveränderten Felder aus einem **vorher gezogenen Abzug** wörtlich mittragen; jedes neue Feld an `exercises` erbt dieses Verhalten (so kam `image_crop`
+    dazu). **Das Muster ist nicht einheitlich, Analogieschluss hilft nicht:**
     `api/plans.php → rename_plan` und `api/users.php → set_admin` fassen genau eine Spalte
-    an (`UPDATE plans SET name = ?`); `api/exercises.php → update` und
-    `api/muscle_groups.php → update` ersetzen die ganze Zeile. Vor dem ersten Schreibzugriff
-    auf einen unbekannten Endpunkt gehört das `UPDATE`-Statement gelesen.
+    an. **Vor dem ersten Schreibzugriff auf einen unbekannten Endpunkt gehört das
+    `UPDATE`-Statement gelesen.**
 
-    **Jedes neue Feld an `exercises` erbt dieses Verhalten.** So kam `image_crop` in
-    `1.1.7` dazu: Ein `update` ohne das Feld setzt es auf `mitte` zurück, nicht etwa auf
-    den bisherigen Wert. Das ist beabsichtigt und konsistent — die Nutzlast beschreibt die
-    Übung vollständig —, aber es heißt, dass ein selbstgebautes Skript mit jedem neuen Feld
-    stiller veraltet. Wer eines schreibt, zieht den Abzug **unmittelbar vorher** und schickt
-    alles zurück, was darin steht.
-
-    **Das Bild bleibt dagegen von selbst stehen** — aber nur, solange nichts mitkommt:
-    `$bildSpalte = $neuesBild ?? ($entfernen ? null : $altesBild)`. Ohne `$_FILES` und ohne
-    `image_remove` fällt es auf den bestehenden Pfad zurück. Bei einer **JSON**-Nutzlast ist
-    `$_FILES` zwangsläufig leer, das Bild also sicher; wer `multipart` schickt, muss
-    aufpassen. `read_input()` nimmt `$_POST`, wenn es nicht leer ist, sonst den JSON-Body —
-    beide Wege stehen offen, obwohl das Formular `multipart` benutzt.
+    **Das Bild bleibt von selbst stehen**, solange nichts mitkommt:
+    `$bildSpalte = $neuesBild ?? ($entfernen ? null : $altesBild)`. Bei einer **JSON**-
+    Nutzlast ist `$_FILES` zwangsläufig leer, das Bild also sicher; wer `multipart` schickt,
+    muss aufpassen. `read_input()` nimmt `$_POST`, wenn es nicht leer ist, sonst den
+    JSON-Body — beide Wege stehen offen, obwohl das Formular `multipart` benutzt.
 
 23. **Eine offene Seite überlebt ihre Sitzung nicht — und merkt es zu spät.** Stirbt die
-    serverseitige PHP-Sitzung, während die Seite im Browser stehen bleibt, dann meldet
-    „Angemeldet bleiben" den Benutzer beim nächsten Aufruf stillschweigend wieder an. Die
-    frische Sitzung hat aber **kein** CSRF-Token, `csrf_check()` findet `$stored === ''` —
-    und ab da scheitert **jeder** Schreibaufruf mit 403, bis jemand von Hand neu lädt.
+    PHP-Sitzung, während die Seite im Browser steht, meldet „Angemeldet bleiben" den
+    Benutzer beim nächsten Aufruf stillschweigend wieder an. Die frische Sitzung hat aber
+    **kein** CSRF-Token, und ab da scheitert **jeder** Schreibaufruf mit 403.
 
-    Das Tückische ist die Verkleidung: Ohne Remember-Me käme ein 401, und `apiFetch` schickte
-    den Benutzer sichtbar auf die Anmeldeseite. Das Remember-Me rettet die Anmeldung und macht
-    den Fehler damit erst unerklärlich — man ist angemeldet, sieht seine Daten, und nichts
-    lässt sich speichern. In der Trainingsansicht sieht das aus wie ein toter Knopf: Das
-    Häkchen springt zurück (`zustandSetzen(karte, eintrag.vorher)`), die rote Zeile darunter
-    liest im Studio niemand.
+    Das Tückische ist die Verkleidung: Ohne Remember-Me käme ein 401 und `apiFetch` schickte
+    den Benutzer sichtbar zur Anmeldung. Das Remember-Me rettet die Anmeldung und macht den
+    Fehler unerklärlich — man ist angemeldet, sieht seine Daten, und nichts lässt sich
+    speichern. In der Trainingsansicht sieht das aus wie ein toter Knopf.
 
-    **Am 2026-08-16 ist das passiert, und die Ursache steckte in den PHP-Vorgabewerten.**
-    Das Basis-Image bringt keine `php.ini` mit, es galt also:
-
-    - `session.gc_maxlifetime = 1440` — **24 Minuten** ab dem letzten Aufruf. Die App hat
-      keinen Heartbeat; zwischen zwei „Erledigt" liegt im Studio leicht mehr. Gemessen an
-      zwei parallelen Einheiten: eine Pause von **24:13** hat die Sitzung gekostet, die
-      größte des anderen Benutzers von **19:37** nicht.
-    - `session.gc_divisor = 100` — **1 % pro Request**, nicht 0,1 %. Eine zu lange ruhende
-      Sitzung ist damit nicht gefährdet, sondern verloren; es ist nur eine Frage, wie viele
-      Aufrufe noch kommen — von wem auch immer, auch von einem anderen Benutzer.
-    - `session.lazy_write = On` — und das erklärt den letzten Rest. PHP zieht das Aufräum-Los
-      in `session_start()`, **bevor** die Datei angefasst wird; sie trägt da noch den alten
-      Zeitstempel. Der laufende Request merkt nichts, seine Daten stehen längst im Speicher.
-      Am Ende schreibt PHP die Datei aber nicht neu, sondern setzt bei unveränderten
-      Sitzungsdaten nur per `utime()` den Zeitstempel — **auf einer gerade gelöschten Datei
-      scheitert das lautlos**. Genau so verschwand die Sitzung **acht Sekunden nach einem
-      erfolgreichen Schreibzugriff**.
-
-    Die Gegenmaßnahmen stehen auf zwei Ebenen, und beide werden gebraucht:
+    Die Gegenmaßnahmen stehen auf zwei Ebenen, **beide werden gebraucht**:
 
     - **`app.ini` im `Dockerfile`:** `gc_maxlifetime = 28800`, `lazy_write = Off`,
-      `use_strict_mode = 1`. Das nimmt der Ursache die Grundlage.
-    - **Selbstheilung in `apiFetch`** über `CSRF_FEHLER_CODE` und `api/token.php`. Die ist
-      **nicht** verzichtbar: Die ini-Zeile verschiebt die Klippe, sie räumt sie nicht weg.
-      Ein Rollout mitten im Training (Sitzungen liegen in `/tmp` **im Container**, ohne
-      Volume), ein wirklich langer Halt, ein vom Handy verworfenes Sitzungscookie — jedes
-      davon macht die offene Seite sonst wieder unbedienbar.
+      `use_strict_mode = 1`. Das Basis-Image bringt **keine** `php.ini` mit; ohne diese
+      Zeilen räumt PHP eine Sitzung nach 24 Minuten Ruhe weg — im Studio liegt zwischen
+      zwei „Erledigt" leicht mehr. **`lazy_write = Off` gehört dazu:** Sonst schreibt PHP
+      die Sitzungsdatei bei unveränderten Daten nicht neu, sondern setzt nur per `utime()`
+      den Zeitstempel — und **auf einer gerade gelöschten Datei scheitert das lautlos**. **Wer die Zeilen beim Umbauen verliert, holt sich den
+      Fehler zurück, und zwar erst im Studio.**
+    - **Selbstheilung in `apiFetch`** über `CSRF_FEHLER_CODE` und `api/token.php`. Die
+      ini-Zeile verschiebt die Klippe, sie räumt sie nicht weg: Ein Rollout mitten im
+      Training (Sitzungen liegen in `/tmp` **im Container**, ohne Volume), ein langer Halt,
+      ein vom Handy verworfenes Cookie — jedes davon macht die Seite sonst unbedienbar.
 
-    Die allgemeine Form: **Wer einen Zustand im Browser hält, der serverseitig ablaufen kann,
-    braucht einen Weg zurück, der nicht „neu laden" heißt.** Und dieselbe Lehre wie bei
-    Fallstrick 12 gilt auch hier — der Reparaturweg darf nicht durch die kaputte Ebene
-    laufen: `api/token.php` ist deshalb **GET ohne `csrf_check()`**, sonst wiese er die
-    Reparatur genau dort ab, wo sie gebraucht wird. Das ist keine Lücke, weil das
-    Sitzungscookie `SameSite=Lax` trägt und bei einem fremden `fetch` gar nicht mitgeht.
+    **`api/token.php` ist deshalb GET ohne `csrf_check()`** — sonst wiese er die Reparatur
+    genau dort ab, wo sie gebraucht wird. Keine Lücke, weil das Sitzungscookie `SameSite=Lax`
+    trägt und bei einem fremden `fetch` gar nicht mitgeht. **Die allgemeine Form: Wer einen
+    Zustand im Browser hält, der serverseitig ablaufen kann, braucht einen Weg zurück, der
+    nicht „neu laden" heißt** — und der darf nicht durch die kaputte Ebene laufen.
+
+24. **Ein Split ist entweder Vorlage oder persönlich — und Vorlagen werden KOPIERT, nicht
+    benutzt** (§4, §6.4). `splits.user_id IS NULL` heißt Vorlage: für alle sichtbar, nur vom
+    Admin bearbeitbar, **von niemandem trainierbar**. Alles andere gehört genau einem
+    Benutzer, und nur darauf läuft ein Training.
+
+    **Warum das keine Frage der Oberfläche ist:** Der dauerhafte Tausch schreibt in
+    `plan_exercises`. Träfe er eine Vorlage, änderte ein einzelner Benutzer den Bestand
+    aller — genau der Fall, der den Umbau ausgelöst hat. Durchgesetzt an **drei** Stellen,
+    alle drei nötig: `plan_gehoert()` in `api/session.php` (kein Start), der `JOIN splits`
+    in `position_laden()` von `api/log.php` **und** `api/swap.php` (kein Protokoll, kein
+    Tausch).
+
+    **Auch ein Admin trainiert nicht auf einer Vorlage.** `api/splits.php → activate` prüft
+    deshalb ausdrücklich **nicht** über `split_zugriff_api()`: Bearbeiten darf er sie,
+    auswählen nicht.
+
+    **Es gibt keinen Rückkanal zwischen Vorlage und Kopie** — keine Vererbung, kein
+    Abgleich. Wer den neuen Stand will, kopiert erneut; `split_name_frei()` hängt ` (2)` an.
+    Wer hier je einen Verweis einbaut, nimmt der Kopie ihren einzigen Zweck.
+
+    **`split_kopieren()` bedient vier Knöpfe** (Vorlage→Benutzer, Benutzer→Vorlage,
+    Benutzer→derselbe, Vorlage→Vorlage), läuft in **einer Transaktion** und übernimmt
+    `sort_order` **wörtlich** — bei den Plänen ist sie die Rotationsreihenfolge, bei den
+    Positionen die Reihenfolge im Studio. Eine Kopie, die anders herum läuft, ist keine.
+
+    **Was inhaltlich schon im Katalog steht, bietet die Oberfläche nicht zum Veröffentlichen
+    an** (`benutzer_splits_ohne_vorlage()`). `split_signaturen()` bildet dafür einen
+    Fingerabdruck aus der Reihenfolge der Pläne und darin der Übungen — **ohne jeden Name**.
+    Wer eine Vorlage kopiert und umbenennt, hat dasselbe Training mit eigener Beschriftung;
+    eine zweite Vorlage davon wäre eine Dublette. Ein ausdrückliches „Duplizieren" ist
+    dagegen nie ein Versehen und deshalb erlaubt.
+
+25. **`api/plans.php` hat kein `require_admin_api()` mehr, und das ist die folgenreichste
+    Zeile der Datei.** Weil der Endpunkt admin-only war, prüften seine Ladefunktionen
+    **überhaupt keinen** Besitzer — sie mussten nicht. Seit `1.2.0` bearbeitet jeder seine
+    eigenen Splits, also muss es jede der elf Aktionen tun.
+
+    Deshalb **genau eine** Stelle: `plan_zugriff()` bzw. `position_zugriff()` laden und
+    prüfen in einem Zug, beide über `split_zugriff_api()` in `lib/splits.php`. Elf einzeln
+    geschriebene Prüfungen wären zehn Gelegenheiten, eine zu vergessen — und eine vergessene
+    öffnet fremde Pläne zum **Schreiben**. Die Regel darin: *Der Eigentümer darf, ein Admin
+    darf alles, eine Vorlage darf nur ein Admin anfassen.*
+
+    **`struktur_sperre_pruefen()` nimmt `?int`**, und `null` (= Vorlage) heißt „keine
+    Sperre" — kein Schlupfloch: Auf einer Vorlage trainiert niemand, ihr `n` kann sich in
+    keiner laufenden Anzeige verschieben.
+
+26. **`plans.user_id` ist tot — aber sie bleibt stehen, weil die MIGRATION sie braucht.**
+    Wem ein Plan gehört, sagt allein `splits.user_id`. Wird eine Sicherung von vor `1.2.0`
+    eingespielt, stehen dort wieder Pläne ohne `split_id`, und nur `user_id` sagt dann noch,
+    wem sie gehören. Ohne sie wären solche Pläne unrettbar unsichtbar.
+
+    **Genau deshalb steht die Datenmigration in `apply_migrations()`** (`splits_nachziehen()`
+    in `lib/db.php`) und nicht in einem Einmalskript: `backup_wiederherstellen()` ruft nach
+    dem Einspielen `db()` auf und damit `init_schema()`. Eine Altsicherung wird auf diesem
+    Weg mitgezogen und ist unmittelbar danach benutzbar — nachgemessen, nicht gefolgert. Ein
+    Einmalskript ließe dort Pläne zurück, die in keiner Oberfläche auftauchen, **ohne jede
+    Meldung**.
+
+    Die Gegenprobe nach jeder Änderung an diesem Bereich — erwartet wird **genau eine**
+    Fundstelle, das `UPDATE` in `splits_nachziehen()`:
+
+    ```bash
+    grep -rnE "(^|[^s])p\.user_id|plans[^;]*WHERE[^;]*user_id" --include=*.php .
+    ```
+
+    **`users.active_split_id` ist der Gegenfall und deshalb erlaubt:** Sie hält eine
+    **Auswahl** fest und keine ableitbare Tatsache — anders als `last_plan_id`
+    (Fallstrick 21). Die Rotation *innerhalb* des Splits wird weiterhin aus der Historie
+    gelesen. Damit sie nicht veraltet, setzt `api/session.php → start` sie mit, und
+    `aktiver_split()` hat einen Rückfallweg, den es gleich festschreibt.
+
+    **`$noetig` in `db_datei_pruefen()` bleibt unverändert** — `splits` gehört dort **nicht**
+    hinein, sonst würde ausgerechnet die Sicherung von vor dem Umbau abgelehnt.
 
 ## Deployment
 

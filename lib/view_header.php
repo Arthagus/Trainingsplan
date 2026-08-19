@@ -128,23 +128,39 @@ function nav_item(
     <nav class="haupt-nav">
         <?= nav_item('index.php', 'Training', $aktiv, $base) ?>
         <?= nav_item('history.php', 'Verlauf', $aktiv, $base) ?>
+        <?php // Splits und Plaene sind seit 1.2.0 KEINE Adminsache mehr: Jeder
+              // verwaltet seine eigenen (§6.4). Was ein Admin zusaetzlich darf
+              // -- Vorlagen pflegen --, entscheidet die Seite selbst. ?>
+        <?= nav_item('splits.php', 'Splits', $aktiv, $base) ?>
+        <?= nav_item('plans.php', 'Pläne', $aktiv, $base) ?>
+        <?php // Seit 1.2.2 EIN Punkt statt vier. Am Handy standen dort sonst acht
+              // Eintraege nebeneinander, und die vier hinteren braucht im Studio
+              // niemand. Was dahinterliegt, steht auf admin.php.
+              //
+              // $aktiv ist der Dateiname der laufenden Seite -- deshalb bekommt
+              // "Admin" die Hervorhebung auch dann, wenn man sich gerade auf
+              // einer der vier Unterseiten befindet. Ohne das wirkte die
+              // Kopfzeile dort, als stuende man nirgends. ?>
         <?php if ($user !== null && (int)$user['is_admin'] === 1): ?>
-            <?= nav_item('admin_plans.php', 'Pläne', $aktiv, $base) ?>
-            <?= nav_item('admin_exercises.php', 'Übungen', $aktiv, $base) ?>
-            <?= nav_item('admin_muscle_groups.php', 'Muskelgruppen', $aktiv, $base) ?>
-            <?= nav_item('admin_users.php', 'Benutzer', $aktiv, $base) ?>
-            <?= nav_item('maintenance.php', 'Wartung', $aktiv, $base) ?>
+            <?php $imAdmin = in_array($aktiv, [
+                'admin.php', 'admin_exercises.php', 'admin_muscle_groups.php',
+                'admin_users.php', 'maintenance.php',
+            ], true); ?>
+            <?= nav_item('admin.php', 'Admin', $imAdmin ? 'admin.php' : $aktiv, $base) ?>
         <?php endif; ?>
+        <?php // "Konto" statt "Passwort": Die Seite traegt seit dem
+              // Benutzernamen-Wechsel mehrere Aufgaben (§7.7) -- seit 1.2.3
+              // auch die Geraeteliste und das Abmelden.
+              //
+              // Beide standen bis dahin als eigene Punkte rechts in einem
+              // .konto-Block. Der ist ersatzlos weg, und das loest zwei Dinge
+              // auf einmal: Die Kopfzeile hatte zwischen ihm und der Navigation
+              // die Luecke aus .kopf (column-gap 1rem) statt der 0.15rem
+              // ZWISCHEN den Punkten -- nach "Admin" klaffte es sichtbar. Und
+              // "Abmelden" stand dauerhaft praesent da, obwohl es die
+              // seltenste Handlung der ganzen App ist. ?>
+        <?= nav_item('password.php', 'Konto', $aktiv, $base) ?>
     </nav>
-    <div class="konto">
-        <?php if ($user !== null): ?>
-            <?= nav_item('devices.php', 'Geräte', $aktiv, $base) ?>
-            <?php // "Konto" statt "Passwort": Die Seite trägt seit dem
-                  // Benutzernamen-Wechsel zwei Aufgaben (§7.7). ?>
-            <?= nav_item('password.php', 'Konto', $aktiv, $base) ?>
-            <a href="<?= h($base) ?>/logout.php">Abmelden</a>
-        <?php endif; ?>
-    </div>
 </header>
 <?php endif; ?>
 

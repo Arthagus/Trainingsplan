@@ -167,14 +167,14 @@ SQLite-Einschränkungen.
 
 **Wunsch:** Unter *Pläne* sollen bei den Übungen auch die Bilder erscheinen.
 
-Zurzeit zeigt `admin_plans.php` je Position nur Name, Primärgruppe und ein
+Zurzeit zeigt `plans.php` (bis 1.1.15 `admin_plans.php`) je Position nur Name, Primärgruppe und ein
 „archiviert"-Abzeichen. Das Thumbnail wäre dort dieselbe Ausgabe wie in
 `admin_exercises.php` — Endpunkt und Path-Jail existieren bereits (`image.php`).
 
 Sinnvoll wäre es auch im **Auswahlfeld** beim Hinzufügen; dort geht es aber nicht ohne
 Umbau, weil ein `<select>` keine Bilder darstellen kann. Zunächst nur die Liste.
 
-*Aufwand: klein. `admin_plans.php` plus etwas CSS.*
+*Aufwand: klein. `plans.php` plus etwas CSS.*
 
 ---
 

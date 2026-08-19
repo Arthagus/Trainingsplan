@@ -91,6 +91,14 @@ nur, was kein Muskel ist — Bewegungsrichtung, Körperhaltung.
 Die Reihenfolge der Übungen im Plan und die Reihenfolge der Pläne untereinander sind beide
 bedeutsam — letztere bestimmt die Rotation.
 
+**Seit `1.2.0` steht über den Plänen der Split** (`LASTENHEFT.md` §4, §6.4). Die Migration
+legt je Benutzer einen Split „Meine Pläne" an und hängt seine bisherigen Pläne unverändert
+hinein: Oliver bekommt Push und Pull in einem Split, Nele die beiden Ganzkörper-Pläne in
+einem zweiten. An der Zusammensetzung und an der Reihenfolge ändert sich dabei nichts —
+die Rotationen unten gelten weiter, nur eben *innerhalb* ihres Splits. Umbenannt und als
+Vorlage veröffentlicht wird nach dem Rollout von Hand (`doku/stand.md`, Abschnitt „Was
+`1.2.0` auf der Live-Datenbank tut").
+
 **Push** (Oliver): Schrägbank-Hebelpresse · Kabel-Brustpresse (flach) · Schulterpresse (Maschine) ·
 Seitheben-Maschine · Dip-Maschine · Liegendes Kabeldrücken · Beinpresse · Crunch-Maschine
 

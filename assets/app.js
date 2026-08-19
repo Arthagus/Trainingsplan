@@ -2,7 +2,7 @@
 
 /**
  * Geteilte Bausteine fuer alle Seiten. Seiten-Skripte (index.js,
- * admin_plans.js, ...) setzen darauf auf und rufen NIE fetch() direkt.
+ * plans.js, ...) setzen darauf auf und rufen NIE fetch() direkt.
  */
 
 /**
