@@ -356,10 +356,7 @@ require __DIR__ . '/lib/view_header.php';
                                           // Rueckfrage in plans.js lesen ihn darueber,
                                           // und ohne eigenes Element laesen sie die
                                           // Abzeichen als Teil des Uebungsnamens mit. ?>
-                                    <strong class="position-titel"><?= h((string)$z['name_de']) ?></strong>
-                                    <?php if (!empty($z['name_en'])): ?>
-                                        <span class="matt"><?= h((string)$z['name_en']) ?></span>
-                                    <?php endif; ?>
+                                    <?= uebung_name((string)$z['name_de'], $z['name_en'], 'position-titel') ?>
                                     <?php if ((int)$z['archived'] === 1): ?>
                                         <span class="abzeichen abzeichen-archiv">archiviert</span>
                                     <?php endif; ?>

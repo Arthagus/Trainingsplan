@@ -739,6 +739,27 @@ function geraetAbzeichen(code) {
 }
 
 /**
+ * Der Übungsname, zweisprachig — das Gegenstück zu uebung_name() in
+ * lib/helpers.php (§4).
+ *
+ * Nötig, weil das Tauschfenster und die Übungsauswahl im Browser entstehen,
+ * die Übungszeile daneben aber server-gerendert ist. Beide Hälften gehören
+ * zusammen geändert: Zwei Schreibweisen desselben Namens liest man am Handy
+ * als Unterschied in der Sache — dasselbe Argument wie bei
+ * saetzeZusammenfassung().
+ *
+ * Der Umbruch zwischen beiden Namen kommt aus der Klasse .name-en und nicht
+ * aus einem eigenen Element.
+ */
+function uebungName(de, en) {
+    const markup = '<strong>' + escapeHtml(de) + '</strong>';
+
+    return (en && String(en).trim())
+        ? markup + '<span class="matt name-en">' + escapeHtml(en) + '</span>'
+        : markup;
+}
+
+/**
  * Rüstet ein <select> als Gerätefilter über einer Vorschlagsliste aus.
  *
  * Geteilt zwischen Training und Planverwaltung — beide Tauschdialoge sollen sich
@@ -806,12 +827,19 @@ function vorschlagMarkup(v, knoepfe) {
         + '">' + escapeHtml(g.name_de) + '</span>').join(' ');
 
     // Gleiche Anordnung wie in der Uebungszeile: erst die Muskelgruppen
-    // (primaer vorn), darunter Trainingsgeraet und Ausfuehrung. Das Geraet steht
-    // auch hier immer -- beim Tausch ist es sogar die entscheidende Angabe, weil
-    // man meist ausweicht, WEIL ein Geraet besetzt ist.
+    // (primaer vorn), darunter das Trainingsgeraet. Das Geraet steht auch hier
+    // immer -- beim Tausch ist es sogar die entscheidende Angabe, weil man
+    // meist ausweicht, WEIL ein Geraet besetzt ist.
+    //
+    // Die AUSFUEHRUNG (exercises.focus) steht hier seit 1.2.5 NICHT mehr, und
+    // das ist eine Entscheidung des Benutzers: In der Uebungszeile beschreibt
+    // sie eine Uebung, die man ohnehin macht; im Tauschfenster stehen fuenf
+    // Karten untereinander, die man beim Ausweichen im Studio in Sekunden
+    // ueberfliegt. Dort zaehlen Name, Muskelgruppe und Geraet -- alles
+    // weitere macht die Liste laenger, ohne die Wahl zu erleichtern.
+    // Die Server-Antwort traegt das Feld deshalb gar nicht mehr mit.
     const schwerpunkt = '<p class="schwerpunkt-zeile">'
         + geraetAbzeichen(v.equipment)
-        + (v.focus ? '<span class="schwerpunkt">' + escapeHtml(v.focus) + '</span>' : '')
         + '</p>';
 
     // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als
@@ -836,7 +864,7 @@ function vorschlagMarkup(v, knoepfe) {
         + '<div class="vorschlag-kopf">'
         + bild
         + '<div class="vorschlag-text">'
-        + '<strong>' + escapeHtml(v.name_de) + '</strong>'
+        + uebungName(v.name_de, v.name_en)
         + '<p class="gruppen-anzeige">' + gruppen + '</p>'
         + schwerpunkt
         + '</div></div>'

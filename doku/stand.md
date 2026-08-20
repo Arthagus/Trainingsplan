@@ -17,26 +17,27 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.3` — gemessen am 2026-08-19: `app.js?v=1.2.3` |
-| **Arbeitsstand** | `1.2.4`, Paket `deploy/trainingsplan-build-1.2.4.tar.gz` **gebaut**, noch nicht ausgerollt |
-| **Rollback-Ziel** | `trainingsplan:1.2.3` — dieses Image in Portainer stehen lassen |
+| **Live** | `trainingsplan:1.2.6` — gemessen am 2026-08-20: `app.js?v=1.2.6`; `style.css` und `app.js` byteweise deckungsgleich mit dem Arbeitsstand |
+| **Arbeitsstand** | `1.2.6`, deckungsgleich mit live |
+| **Rollback-Ziel** | `trainingsplan:1.2.5` — dieses Image in Portainer stehen lassen |
 
-`1.2.4` bringt zwei Punkte aus der Planverwaltung: Ein umbenannter Plan zieht die
-Rotationsvorschau sofort nach, und ⇈ / ⇊ verschieben eine Übung in den Plan darüber oder
-darunter. Weder Schema- noch Datenänderung.
+**Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
+lässt, unmittelbar danach ein — am 2026-08-19 ausdrücklich so festgelegt. Daraus folgt für
+die Zählweise: **Sobald `paket_bauen.sh` unter einer Nummer gelaufen ist, ist sie
+vergeben**, und die nächste Änderung an etwas, das im Paket steckt, hebt auf die nächste.
+Die frühere Rückfrage „ist die Nummer schon draußen?" entfällt, und es entstehen keine
+Lücken.
 
-**Die Version wird gemessen, nicht erinnert.** Diese Datei ist die Notiz, nicht die
-Quelle — sie stand schon zweimal falsch da, und beim zweiten Mal hätte das beinahe einen
-Rückbau ausgelöst (`doku/historie.md`, *Rollouts und Versionsnummern*). Wer eine
-Versionsnummer **benutzt** — als Rollback-Ziel, für einen Vergleich, für eine Aussage
-darüber, was live steht —, misst sie vorher:
+**Die Version wird trotzdem gemessen, nicht erinnert.** Diese Datei ist die Notiz, nicht
+die Quelle — sie stand schon dreimal falsch da, zuletzt am 2026-08-19 mit `1.2.3`, während
+`1.2.4` lief. Wer eine Versionsnummer **benutzt** — als Rollback-Ziel, für einen Vergleich,
+für eine Aussage darüber, was live steht —, misst sie vorher:
 
 ```bash
 curl -s https://training.jadefalke.net/login.php | grep -o 'app\.js?v=[0-9.]*'
 ```
 
-Maßgeblich dafür, ob eine Nummer vergeben ist, ist **nicht**, ob `paket_bauen.sh` gelaufen
-ist, sondern ob der Tarball in Portainer gelandet ist. Im Zweifel den Benutzer fragen.
+---
 
 ## Datenstand
 
@@ -72,6 +73,7 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    | Kopfzeile | Sechs Punkte ohne die frühere Lücke; *Admin* bleibt auf den Unterseiten hervorgehoben |
    | Plan umbenennen | Die Rotationsvorschau oben zieht **sofort** nach, ohne Neuladen |
    | ⇈ / ⇊ an einer Übung | Vier Pfeile in einer Zeile noch treffsicher |
+   | **Vorlagenkarte OHNE Adminrecht** (`1.2.6`) | Eine Zeile: „Zu mir kopieren" links, „Als Text" rechts. **Als Einziges aus `1.2.5`/`1.2.6` noch ungesehen** — der Benutzer ist Admin und bekommt an derselben Karte die volle Verwaltungsreihe. Es braucht ein Konto ohne Adminrecht |
 
 2. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden, jetzt auf der Kontoseite)
    und die Gerätehälfte von 19 (Expertenmodus). Die Gegenprobe der *Darstellung* deckt sie

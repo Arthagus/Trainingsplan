@@ -330,12 +330,14 @@ require __DIR__ . '/lib/view_header.php';
                         <?php endif; ?>
 
                         <div class="uebung-text">
-                            <strong><?= h($z['name_de']) ?></strong>
-                            <?php if (!empty($z['name_en'])): ?>
-                                <span class="matt"><?= h((string)$z['name_en']) ?></span>
-                            <?php endif; ?>
+                            <?= uebung_name((string)$z['name_de'], $z['name_en']) ?>
                             <?php if ($z['getauscht']): ?>
-                                <span class="abzeichen">statt <?= h($z['plan_uebung_name']) ?></span>
+                                <?php // Einzeilig (uebung_name_kurz), weil das Abzeichen in
+                                      // der laufenden Zeile steht -- der Umbruch aus
+                                      // .name-en zerlegte es. ?>
+                                <span class="abzeichen">statt <?= uebung_name_kurz(
+                                    (string)$z['plan_uebung_name'], $z['plan_uebung_name_en']
+                                ) ?></span>
                             <?php endif; ?>
 
                             <?php // Erst die Muskelgruppen (primaer vorn, danach die

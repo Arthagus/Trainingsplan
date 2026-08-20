@@ -250,9 +250,10 @@ haben je eine `.htaccess` mit `Require all denied`.
 |---|---|
 | `lib/db.php` | PDO-Singleton, Schema, Migrationen, Erst-Admin |
 | `lib/auth.php` | Sitzung, Rollen, Remember-Me, Brute-Force-Bremse, Kontosperre |
-| `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Auffangnetz |
+| `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Zeitformate, zweisprachiger Übungsname |
+| `lib/csrf.php` | Token, `csrf_check()` für JSON und Formulare, `CSRF_FEHLER_CODE` — steckt in der Boilerplate **jeder** geschützten Seite |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
-| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Inhaltssignatur, **die zentrale Rechteprüfung** `split_zugriff_api()` |
+| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Inhaltssignatur, Textausgabe `split_texte()`, **die zentrale Rechteprüfung** `split_zugriff_api()` |
 | `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
@@ -381,7 +382,7 @@ $pdo->exec('PRAGMA busy_timeout = 5000');
   des Schemas vergessen könnte. Nachgemessen für `workout_sets`: angelegt, gesichert,
   zerstört, eingespielt — Sätze, Leitgewicht und `done` kamen unverändert zurück.
 
-  **Die Liste `$noetig` in `backup_pruefen()` (`lib/backup.php`) ist bewusst unvollständig**
+  **Die Liste `$noetig` in `db_datei_pruefen()` (`lib/backup.php`) ist bewusst unvollständig**
   — `users, exercises, plans, sessions, workout_log`. Sie beantwortet die Frage „ist das
   überhaupt eine Trainingsplan-Datenbank", nicht „ist sie aktuell". **Neue Tabellen gehören
   dort NICHT hinein**: Eine ältere Sicherung kennt sie nicht und würde sonst abgelehnt —
@@ -524,7 +525,7 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   mit **`stale-while-revalidate`**. **Niemals HTML oder API-Antworten** (`network-only`),
   sonst wird eingeloggter Zustand nach dem Logout ausgeliefert und veraltete CSRF-Tokens
   erzeugen 403er. Zur Cache-Falle siehe Fallstrick 12.
-- **Asset-Adressen tragen die Version** (`style.css?v=1.1.8`), gesetzt in
+- **Asset-Adressen tragen die Version** (`style.css?v=…`), gesetzt in
   `lib/view_header.php` und `lib/view_footer.php` aus `app_version()`. Wer eine neue CSS-
   oder JS-Datei einbindet, hängt sie dort mit an — ohne den Parameter friert die Datei im
   Browser-Cache ein, und zwar unbemerkt. Eine Nummer in `sw.js` gibt es dafür **nicht mehr**;
@@ -550,7 +551,8 @@ schon einmal zugeschlagen hat** — die Ausnahmen sind 22 und 24–26, die beim 
 auffielen. Die Nummern sind nach Entstehung vergeben, nicht nach Wichtigkeit.
 
 **Wo anfangen:** an Splits und Plänen arbeitet man mit **24–26**, am Training mit
-**1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**.
+**1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**, an allem, was einen
+Übungsnamen anzeigt, mit **27**.
 
 **Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
 Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
@@ -666,7 +668,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     Was daraus folgt und zusammengehört:
 
-    - **Die Version hängt an der Adresse** (`assets/style.css?v=1.2.4`, gesetzt in
+    - **Die Version hängt an der Adresse** (`assets/style.css?v=…`, gesetzt in
       `lib/view_header.php` / `view_footer.php` aus `app_version()`). Eine geänderte
       Adresse kann in **keinem** der beiden Caches einen alten Eintrag treffen. **Wer eine
       neue CSS- oder JS-Datei einbindet, hängt sie dort mit an.**
@@ -1053,6 +1055,42 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     **`$noetig` in `db_datei_pruefen()` bleibt unverändert** — `splits` gehört dort **nicht**
     hinein, sonst würde ausgerechnet die Sicherung von vor dem Umbau abgelehnt.
 
+27. **Der Übungsname wird NICHT von Hand ausgeschrieben** (seit `1.2.5`, §4). Er steht
+    zweisprachig, und zwar an **allen** Stellen — bis `1.2.4` waren es drei von sieben, und
+    ausgerechnet das Tauschfenster, wo man eine unbekannte Übung sucht, gehörte nicht dazu.
+
+    Es gibt zwei Formen, jede mit genau einer Quelle — dasselbe Verhältnis wie zwischen
+    `saetze_text()` und `saetze_zusammenfassung()` (Fallstrick 20):
+
+    | Funktion | Ergebnis | Wofür |
+    |---|---|---|
+    | `uebung_name()` / `uebungName()` | `<strong>DE</strong>` + `.name-en` darunter | der Regelfall: Karten, Listen, Tabellenzellen |
+    | `uebung_name_kurz()` | `Bankdrücken · Bench Press`, fertig escapt | wo der Name in eine **laufende** Zeile muss: Abzeichen „statt …", Kopf einer Verlaufskarte |
+
+    Vier Dinge, die daran hängen:
+
+    - **Der Umbruch kommt aus `.name-en` am Namen selbst**, nicht aus dem Elternteil. Bis
+      `1.2.4` hing er an `.uebung-text > .matt` — im Tauschfenster (`.vorschlag-text`) und
+      im Verlauf gibt es diesen Behälter nicht, dort stünden beide Namen wieder in einer
+      Zeile und verschmölzen zu einem langen Namen.
+    - **Im `<strong>` steht ausschließlich der deutsche Name.** `plans.js` und `index.js`
+      lesen ihn über `.position-titel` bzw. `.uebung-text strong` per `textContent` aus
+      (Dialogtitel, Rückfrage vor dem Entfernen). Wer beide Namen ins `<strong>` legt,
+      bekommt „Ersatz für Bankdrücken Bench Press" — ohne Fehlermeldung. Dafür nimmt
+      `uebung_name()` einen Klassenparameter, statt die Aufrufstelle eigenes Markup
+      schreiben zu lassen.
+    - **`uebung_name_kurz()` liefert fertig escapten Text.** Ein `h()` darüber schriebe
+      `&amp;` in die Anzeige.
+    - **Eine neue Anzeigestelle braucht `name_en` in der Abfrage.** Drei liefern es seit
+      jeher, drei mussten in `1.2.5` nachgezogen werden (`plan_positionen()`,
+      `einheit_eintraege()`, `uebungen_mit_verlauf()` in `lib/training.php`) — bei
+      `uebungen_mit_verlauf()` samt `GROUP BY`. Fehlt die Spalte, bleibt der englische Name
+      **lautlos** weg; es sieht aus, als hätte die Übung keinen.
+
+    **Nicht zweisprachig sind Sätze über Übungen** — Dialogtitel („Ersatz für …"),
+    Rückfragen und Fehlermeldungen aus `api/*`. Dort ist der Name Teil eines Satzes, und
+    ein zweiter Name mitten darin liest sich als zweite Übung.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -1095,12 +1133,15 @@ Daraus die Zählweise:
   nächste Änderung an etwas, das **im Paket steckt**, hebt sofort auf die nächste Nummer —
   sonst weicht der Arbeitsstand von einem Paket ab, das denselben Namen trägt. Genau so
   ging am 2026-08-10 verloren, welche von zwei Fassungen als `1.0.16` ausgerollt worden war.
+- **Ein auf Ansage gebautes Paket geht sofort live.** Der Benutzer spielt jede Version,
+  die er bauen lässt, unmittelbar danach in Portainer ein (festgelegt am 2026-08-19). Es
+  gibt deshalb **keine Rückfrage** „ist die Nummer schon draußen?" und keine Lücken in der
+  Zählung: gebaut heißt ausgerollt.
 - **Umgekehrt: Ein Paket, das den Rechner nie verlassen hat, gibt seine Nummer wieder
-  frei.** Wurde versehentlich gebaut, obwohl niemand darum gebeten hat, wird das Paket
+  frei.** Das betrifft nur den Fall, dass **ungefragt** gebaut wurde — dann wird das Paket
   gelöscht und der Arbeitsstand behält die Nummer. **Nummern werden nicht übersprungen,
-  wenn dazwischen nichts ausgeliefert wurde** — eine Lücke in der Zählung suggeriert eine
-  Fassung, die es nie gab. Maßgeblich ist nicht, ob `paket_bauen.sh` gelaufen ist, sondern
-  ob der Tarball in Portainer gelandet ist; im Zweifel den Benutzer fragen.
+  wenn dazwischen nichts ausgeliefert wurde**: Eine Lücke suggeriert eine Fassung, die es
+  nie gab.
 - **Änderungen außerhalb des Pakets zählen nicht mit.** `doku/`, `CLAUDE.md` und
   `LASTENHEFT.md` stehen nicht in der Positivliste von `paket_bauen.sh`; wer nur dort
   schreibt, lässt die Nummer stehen. Eine neue Version ohne jeden Codeunterschied wäre ein

@@ -290,6 +290,14 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - `id`, `name_de`, `name_en`, `description`, `focus` (text, nullable), `equipment`
   (text, nullable), `image_path`, `archived` (bool, Default 0), `archived_at` (datetime,
   nullable), `created_at`
+- **`name_en` steht überall dort, wo `name_de` steht** — Trainingsansicht, Planpositionen,
+  Übungsverwaltung, Verlauf, Tauschfenster und Übungsauswahl. Die Geräte im Studio sind
+  englisch beschriftet, und wer eine Übung nachschlägt, findet unter dem englischen Namen
+  mehr; ein Name, der nur auf manchen Seiten zweisprachig ist, zwingt zum Nachsehen auf
+  einer anderen. Der englische Name steht **unter** dem deutschen, gedämpft — nebeneinander
+  gelesen verschmelzen beide zu einem langen Namen. Wo der Name in eine laufende Zeile muss
+  (Abzeichen „statt …" nach einem Tausch, Kopf einer Verlaufskarte), steht er einzeilig als
+  `Deutsch · English`. Ist `name_en` leer, entfällt er ersatzlos.
 - **`focus`** ist der Schwerpunkt *innerhalb* der Primärgruppe — „oben" bei Brust, „stehend"
   bei Waden. Reine Anzeige-Information: Die Tauschlogik (§7.5) zieht ausschließlich die
   Primärgruppe heran und ignoriert dieses Feld. Genau deshalb ist es ein Textfeld und keine
@@ -694,6 +702,40 @@ getrennt** weiter (§7.6).
   umbenennbar.
 - **Auf einer Vorlage trainiert niemand**, auch kein Admin. Sie ist Katalog, kein
   Bestand — sonst schriebe der erste dauerhafte Tausch in den Bestand aller.
+- **Jede Karte hat einen Knopf *Als Text*.** Er zeigt den Split als reinen Text in einem
+  Dialog, aus dem er sich in die Zwischenablage kopieren lässt — gedacht zum Einfügen
+  anderswo, etwa in einen KI-Chat, eine Notiz oder eine Nachricht. Der Aufbau:
+
+  ```
+  Push/Pull
+
+  Push
+  1. Bankdrücken (Bench Press)
+  2. Butterfly
+
+  Pull
+  1. Klimmzüge (Pull-ups)
+  ```
+
+  - **Splitname oben, Pläne durch Leerzeilen getrennt**, innerhalb eines Plans keine —
+    so bleibt die Trennung eindeutig. Die Nummern tragen die Reihenfolge im Studio.
+  - **Nur die Übungsnamen**, deutsch und englisch (§4), der englische in Klammern. Kein
+    Bild, keine Ausführung, keine Beschreibung, kein Gerät, keine Muskelgruppe: Der Text
+    soll den *Aufbau* zeigen. In einer reinen Namensliste liest sich `Name · English`
+    wie zwei Übungen — deshalb hier die Klammer und nicht das Trennzeichen der
+    Oberfläche.
+  - **Ein leerer Plan und ein Split ohne Plan bekommen eine Zeile in Klammern**
+    (`(noch keine Übung)`, `(noch kein Plan)`). Zwei Plannamen direkt untereinander
+    sähen nach einem Fehler in der Ausgabe aus.
+  - Der Text **steht fertig in der Seite** und wird nicht beim Antippen nachgeladen: Das
+    Schreiben in die Zwischenablage muss in derselben Benutzeraktion geschehen wie der
+    Klick, sonst verweigern strengere Browser den Zugriff. Nebenbei arbeitet der Knopf
+    damit auch ohne Netz.
+  - Lässt der Browser das Kopieren nicht zu, wird der Text **markiert** und ein Hinweis
+    nennt `Strg+C`. Er steht sichtbar im Dialog — ein Fehlschlag darf nicht in einer
+    Sackgasse enden.
+  - Der Knopf steht an **beiden** Listen, auch an einer Vorlage: Man will einen Split
+    auch besprechen können, bevor man ihn zu sich kopiert.
 - **Wer darf was:** Jeder Benutzer legt eigene Splits an, benennt sie um, dupliziert und
   löscht sie und bearbeitet ihre Pläne. **Vorlagen** legt und bearbeitet nur ein Admin.
   Ein Admin darf zusätzlich die Splits anderer Benutzer bearbeiten (Nachfolger des
@@ -1079,6 +1121,13 @@ getrennt** weiter (§7.6).
 - Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
   erkennbar ist, was man sich zusätzlich einhandelt — dazu das **Trainingsgerät**, das an
   dieser Stelle die entscheidende Angabe ist: Man tauscht meist, *weil* ein Gerät besetzt ist.
+  Der Name steht zweisprachig (§4), das Bild bleibt: An der Hantelbank erkennt man die Übung
+  schneller am Motiv als am Namen.
+- **Die Ausführung (`focus`) steht hier ausdrücklich NICHT.** In der Übungszeile beschreibt
+  sie eine Übung, die man ohnehin macht; im Tauschfenster stehen mehrere Karten
+  untereinander, die man vor einem belegten Gerät in Sekunden überfliegt. Dort zählen Name,
+  Muskelgruppen und Gerät — alles Weitere macht die Liste länger, ohne die Wahl zu
+  erleichtern. Die Server-Antwort trägt das Feld deshalb gar nicht erst mit.
 - **Die Vorschläge lassen sich nach Gerät filtern** — im Training wie in der Planverwaltung,
   beide Tauschdialoge verhalten sich gleich. Der Filter wirkt ausschließlich **innerhalb**
   der bereits abgerufenen Liste und läuft rein im Browser; die Frage, *was* überhaupt als

@@ -101,6 +101,132 @@ function split_plan_namen(array $splitIds): array {
 }
 
 /**
+ * Mehrere Splits als reinen Text, geschluesselt nach split_id.
+ *
+ * Zweck ist das Einfuegen anderswo -- in einen Chat, eine Notiz, eine Mail.
+ * Deshalb WIRKLICH nur Text: keine Aufzaehlungszeichen, keine Auszeichnung,
+ * keine Bilder, keine Adressen. Was hier steht, soll in jedem Eingabefeld der
+ * Welt gleich aussehen.
+ *
+ * Der Aufbau, und jede Zeile davon ist eine Entscheidung:
+ *
+ *     Push/Pull
+ *
+ *     Push
+ *     1. Bankdruecken (Bench Press)
+ *     2. Butterfly
+ *
+ *     Pull
+ *     1. Klimmzuege (Pull-ups)
+ *
+ *   - Der SPLITNAME steht oben. Ohne ihn beginnt der Text mit einem Plannamen,
+ *     und der Empfaenger sieht nicht, dass die Plaene zusammengehoeren.
+ *   - LEERZEILEN trennen die Plaene, nichts sonst. Innerhalb eines Plans gibt
+ *     es keine, damit die Trennung eindeutig bleibt.
+ *   - Die NUMMERN tragen die Reihenfolge im Studio. Sie steht sonst nur in der
+ *     Zeilenfolge, und die ueberlebt einen Umbruch beim Einfuegen nicht
+ *     zuverlaessig.
+ *   - Der englische Name steht in KLAMMERN und nicht hinter einem "·" wie in
+ *     der Oberflaeche (uebung_name_kurz()). Das ist kein Widerspruch, sondern
+ *     ein anderes Medium: In einer Liste aus Namen liest sich "Bankdruecken ·
+ *     Bench Press" wie zwei Uebungen; die Klammer sagt "dasselbe, anders
+ *     benannt". Fehlt der englische Name, entfaellt die Klammer ganz.
+ *   - KEINE Ausfuehrung, keine Beschreibung, kein Geraet, keine Muskelgruppe.
+ *     Der Text soll den AUFBAU zeigen; alles Weitere macht ihn laenger, ohne
+ *     die Frage zu beantworten, die man damit stellt.
+ *
+ * Ein Plan ohne Uebungen und ein Split ohne Plan bekommen eine Zeile in
+ * Klammern statt gar nichts: Zwei Plannamen direkt untereinander saehen sonst
+ * nach einem Fehler in der Ausgabe aus.
+ *
+ * Drei Abfragen fuer beliebig viele Splits, aus demselben Grund wie bei
+ * split_plan_namen() nebenan: Die Seite ruft das fuer JEDE Karte auf.
+ *
+ * @param int[] $splitIds
+ * @return array<int, string> split_id => Text
+ */
+function split_texte(array $splitIds): array {
+    $ids = array_values(array_unique(array_map('intval', $splitIds)));
+    if ($ids === []) {
+        return [];
+    }
+
+    $platzhalter = implode(',', array_fill(0, count($ids), '?'));
+
+    $stmt = db()->prepare("SELECT id, name FROM splits WHERE id IN ($platzhalter)");
+    $stmt->execute($ids);
+    $namen = [];
+    foreach ($stmt->fetchAll() as $z) {
+        $namen[(int)$z['id']] = (string)$z['name'];
+    }
+
+    $stmt = db()->prepare(
+        "SELECT id, split_id, name FROM plans
+          WHERE split_id IN ($platzhalter)
+          ORDER BY split_id, sort_order, id"
+    );
+    $stmt->execute($ids);
+    $plaene = $stmt->fetchAll();
+
+    // Die Uebungen ALLER Plaene in einem Zug. Ueber die plan_id sortiert, damit
+    // die Zuordnung unten ohne zweite Schleife auskommt.
+    $uebungen = [];
+    if ($plaene !== []) {
+        $planIds = array_map(static fn(array $p): int => (int)$p['id'], $plaene);
+        $pl      = implode(',', array_fill(0, count($planIds), '?'));
+        $stmt = db()->prepare(
+            "SELECT pe.plan_id, e.name_de, e.name_en
+               FROM plan_exercises pe
+               JOIN exercises e ON e.id = pe.exercise_id
+              WHERE pe.plan_id IN ($pl)
+              ORDER BY pe.plan_id, pe.sort_order, pe.id"
+        );
+        $stmt->execute($planIds);
+        foreach ($stmt->fetchAll() as $z) {
+            $uebungen[(int)$z['plan_id']][] = $z;
+        }
+    }
+
+    $nachSplit = [];
+    foreach ($plaene as $plan) {
+        $nachSplit[(int)$plan['split_id']][] = $plan;
+    }
+
+    $ergebnis = [];
+    foreach ($ids as $sid) {
+        $abschnitte = [$namen[$sid] ?? ''];
+
+        foreach ($nachSplit[$sid] ?? [] as $plan) {
+            $zeilen = [(string)$plan['name']];
+            $liste  = $uebungen[(int)$plan['id']] ?? [];
+
+            if ($liste === []) {
+                $zeilen[] = '(noch keine Übung)';
+            } else {
+                foreach ($liste as $i => $u) {
+                    $name = (string)$u['name_de'];
+                    $en   = (string)($u['name_en'] ?? '');
+                    if (trim($en) !== '') {
+                        $name .= ' (' . trim($en) . ')';
+                    }
+                    $zeilen[] = ($i + 1) . '. ' . $name;
+                }
+            }
+
+            $abschnitte[] = implode("\n", $zeilen);
+        }
+
+        if (count($abschnitte) === 1) {
+            $abschnitte[] = '(noch kein Plan)';
+        }
+
+        $ergebnis[$sid] = implode("\n\n", $abschnitte);
+    }
+
+    return $ergebnis;
+}
+
+/**
  * Die inhaltliche Signatur mehrerer Splits -- OHNE jeden Namen.
  *
  * Sie beantwortet genau eine Frage: Beschreiben zwei Splits dasselbe Training?

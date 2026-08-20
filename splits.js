@@ -130,6 +130,12 @@
             ?? qs('strong', zeile)?.textContent.trim()
             ?? '';
 
+        const alsText = e.target.closest('.split-text');
+        if (alsText) {
+            textZeigen(zeile, name);
+            return;
+        }
+
         const aktivieren = e.target.closest('.split-aktivieren');
         if (aktivieren) {
             senden(zeile, { action: 'activate', id }, aktivieren);
@@ -180,4 +186,49 @@
             senden(zeile, { action: 'delete', id }, loeschen);
         }
     });
+
+    // --- Split als Text -----------------------------------------------------
+
+    /**
+     * Zeigt den Text der Karte im Dialog.
+     *
+     * Der Text kommt aus der Karte selbst (<pre class="split-text-inhalt">),
+     * nicht aus einem Netzaufruf: Das Schreiben in die Zwischenablage muss in
+     * derselben Benutzeraktion stattfinden wie der Klick, und ein await auf
+     * einen fetch bricht diesen Zusammenhang in strengeren Browsern.
+     */
+    function textZeigen(zeile, name) {
+        const dialog = qs('#text-dialog');
+        const quelle = qs('.split-text-inhalt', zeile);
+        if (!dialog || !quelle) return;
+
+        qs('#text-titel').textContent = name ? 'Split „' + name + '“ als Text' : 'Split als Text';
+        qs('#text-inhalt').value = quelle.textContent;
+        qs('#text-hinweis').textContent = '';
+        dialog.showModal();
+    }
+
+    const textDialog = qs('#text-dialog');
+    if (textDialog) {
+        const feld    = qs('#text-inhalt');
+        const hinweis = qs('#text-hinweis');
+
+        qs('#text-schliessen').addEventListener('click', () => textDialog.close());
+
+        qs('#text-kopieren').addEventListener('click', async () => {
+            // Zwei Wege, und der zweite wird wirklich gebraucht:
+            // navigator.clipboard gibt es nur im sicheren Kontext, und selbst
+            // dort kann die Berechtigung fehlen. Dann bleibt das Markieren --
+            // der Text steht ja sichtbar da, es fehlt nur noch Strg+C.
+            try {
+                await navigator.clipboard.writeText(feld.value);
+                hinweis.textContent = 'Kopiert.';
+            } catch (fehler) {
+                feld.focus();
+                feld.select();
+                hinweis.textContent = 'Der Browser lässt das Kopieren nicht zu — '
+                    + 'der Text ist markiert, bitte mit Strg+C bzw. ⌘+C kopieren.';
+            }
+        });
+    }
 })();

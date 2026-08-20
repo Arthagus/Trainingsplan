@@ -25,6 +25,8 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 | Version | Was |
 |---|---|
+| `1.2.6` | **Ausrichtung, zwei Stellen.** Die Knopfzeile der Vorschlagskarten (`.vorschlag-knoepfe`) steht **rechtsbündig** — sie gehört zu `vorschlagMarkup()` und gilt damit für beide Tauschdialoge und die Übungsauswahl; am Handy liegt der Daumen rechts, und unter linksbündigem Text verschwimmt eine linksbündige Knopfzeile mit ihm zu einem Block. Auf der **Splitkarte** bekommen die folgenreichen Knöpfe eine **eigene Abschlusszeile** unter der Verwaltungsreihe: links das Aneignen („Zu mir kopieren"), rechts das Abschließende („Löschen"), dazwischen die ganze Kartenbreite als Sicherung gegen den Fehlgriff. Ein eigener Behälter und nicht das Ende der Reihe darüber — nur so bleibt die Lage gleich, egal wie die anderen Knöpfe umbrechen. Ausgerichtet über `.split-abschluss > :last-child { margin-left: auto }` statt `space-between`: Steht nur „Löschen" da, muss es trotzdem rechts stehen. **Hat ein Benutzer an einer Karte nichts zu verwalten** — der Normalfall an einer fremden Vorlage —, entfällt die obere Reihe ganz, und „Zu mir kopieren" und „Als Text" teilen sich eine Zeile *(live seit 2026-08-20)* |
+| `1.2.5` | **Der Übungsname steht überall zweisprachig** (§4). Bis `1.2.4` waren es drei von sieben Anzeigestellen — ausgerechnet das Tauschfenster, wo man eine unbekannte Übung sucht, gehörte nicht dazu. Neu ist ein Paar `uebung_name()` / `uebungName()` samt einzeiliger Form `uebung_name_kurz()` für Abzeichen und Verlaufsköpfe; der Umbruch hängt jetzt an der Klasse `.name-en` am Namen selbst statt an `.uebung-text > .matt` — im Tauschfenster und im Verlauf gibt es diesen Behälter nicht. Drei Abfragen in `lib/training.php` mussten `name_en` nachliefern. Im Tauschfenster **entfällt dafür die Ausführung** (`exercises.focus`), auf Wunsch des Benutzers: Dort zählen Name, Muskelgruppe und Gerät, alles Weitere macht die Liste länger, ohne die Wahl zu erleichtern — das Feld reist auch nicht mehr in der Antwort mit. Dazu **„Als Text“** auf `splits.php`: der Split als reiner Text zum Kopieren in einen Chat oder eine Notiz (`split_texte()`), Pläne durch Leerzeilen getrennt, nur die Übungsnamen, der englische in Klammern. Der Text steht **fertig in der Seite** statt nachgeladen zu werden — das Schreiben in die Zwischenablage muss in derselben Benutzeraktion geschehen wie der Klick, sonst verweigern strengere Browser den Zugriff. Nebenbei: „2 Plane“ → „2 Pläne“ in der Planvorschau, und „Löschen“ steht auf der Splitkarte wieder am Ende der Reihe *(live seit 2026-08-20)* |
 | `1.2.0` | **Workout-Splits als Ebene über den Plänen** (§4, §6.4). Neue Tabelle `splits`; `splits.user_id IS NULL` = **Vorlage** (Katalog, für alle sichtbar, nur Admin bearbeitet, **niemand trainiert darauf**), sonst persönlicher Split. Zwischen beiden gibt es genau **eine** Verbindung, und die ist eine **Kopie**: „Zu mir kopieren" legt Split, Pläne und Positionen neu an, danach ist jede Seite unabhängig — eine spätere Änderung an der Vorlage wandert ausdrücklich **nicht** nach, und der dauerhafte Tausch eines Benutzers berührt niemanden sonst. Dieselbe Operation dient in beide Richtungen („Als Vorlage veröffentlichen", nur Admin) und für die zweite Fassung („Duplizieren", Name bekommt ` (2)`). **Die Rotation läuft je Split getrennt** und wird weiterhin aus der Historie gelesen: Wer von Push/Pull auf Ganzkörper wechselt und zurückkommt, bekommt wieder *Pull* und nicht *Push*. Neue Seiten `splits.php`/`splits.js` und `api/splits.php`; `admin_plans.php` heißt jetzt **`plans.php`** und ist nicht mehr admin-only — `api/plans.php` verliert sein `require_admin_api()` und prüft stattdessen zentral über `split_zugriff_api()` (`lib/splits.php`). `users.active_split_id` hält die Auswahl. **Datenmigration** in `apply_migrations()`: Jeder Plan ohne `split_id` kommt in einen Split „Meine Pläne" seines Besitzers — idempotent und im Restore-Pfad, damit auch eine eingespielte Altsicherung mitgezogen wird. Setzt auf `1.1.15` auf *(live seit 2026-08-18)* |
 | `1.1.6` | Drei Punkte aus der Rückmeldung vom 2026-08-12. **Die Plan-Rotation liest ihren Ausgangspunkt aus der Historie** statt aus `users.last_plan_id` — die Spalte wurde nur beim *Beenden* geschrieben und beim *Löschen* nie zurückgenommen, eine gelöschte Testeinheit verstellte den Vorschlag also dauerhaft. Gezählt wird **jede** Einheit, auch eine leere: Die Rotation richtet sich starr nach der Historie, sauber halten ist Sache des Benutzers. **Ein Training beginnt ausschließlich mit „Training starten"** — `einheit_sicherstellen()` hat genau einen Aufrufer, `api/log.php` und `api/swap.php` antworten mit 409, und vor dem Start sind „Erledigt", „+ Satz" und das Gewichtsfeld gesperrt; dauerhaft tauschen bleibt möglich, „nur diese Einheit" nicht. **Übersprungene Übungen sind orange** (`#ff6600`), und „aktiv" heißt jetzt „wo gerade protokolliert wird" statt „die erste offene" — `positions_zustaende()` in PHP, `aktiveMarkieren()` in JS. Cache `v19` *(live seit 2026-08-12)* |
 | `1.1.5` | Die Wartungsseite zählt zusätzlich die **Sätze** (`workout_sets`) — seit `1.1.0` liegt dort im Expertenmodus das eigentliche Volumen, eine Protokollzeile kann einen Satz tragen oder sechs. Dabei nachgemessen, dass Sätze vollständig gesichert und wiederhergestellt werden: `VACUUM INTO` kopiert die ganze Datei, und ein Restore stellt fehlende Strukturen über `init_schema()` selbst wieder her *(live seit 2026-08-11)* |
@@ -61,6 +63,34 @@ Nur als Gedächtnisstütze; die *Begründungen* stehen dort, wo sie hingehören 
 
 ## Rollouts und Versionsnummern bis `1.2.3`
 
+**`1.2.5` und `1.2.6` sind am 2026-08-20 am Gerät gegengeprüft** — der Benutzer meldete
+„scheint alles zu passen". Damit sind die Darstellungsfragen erledigt, die `curl` nicht
+beantworten konnte: der Umbruch des englischen Namens, der Textdialog samt Zwischenablage
+und die neue Ausrichtung der Knopfzeilen. **Offen bleibt genau ein Fall**, und zwar nicht
+aus Nachlässigkeit: Die zusammengelegte Zeile an einer Vorlagenkarte erscheint nur **ohne**
+Adminrecht, und der Benutzer ist Admin — an derselben Karte bekommt er die volle
+Verwaltungsreihe zu sehen. Dafür braucht es ein Konto ohne Adminrecht.
+
+**`1.2.6` ist am 2026-08-20 gebaut und unmittelbar danach ausgerollt worden** — zwei
+Ausrichtungswünsche aus demselben Durchgang, beide rein am Stylesheet und am Markup der
+Splitkarte. Kein Datenmodell, keine API, keine Migration.
+
+Die zweite Runde entstand aus der ersten: Nachdem „Zu mir kopieren" in die Abschlusszeile
+gewandert war, blieb an einer Vorlagenkarte für einen normalen Benutzer eine obere Reihe
+mit einem einzigen leisen Knopf darin stehen. Der Benutzer hat das gesehen und die beiden
+zusammengelegt — ein Fall, den man am Quelltext nicht bemerkt, weil er nur bei fehlenden
+Adminrechten auftritt.
+
+**`1.2.5` ist am 2026-08-20 gebaut und unmittelbar danach ausgerollt worden.** Es sammelte
+drei Wünsche aus einem Durchgang durch die Splitseite: den zweisprachigen Übungsnamen an
+allen Anzeigestellen, den Textexport eines Splits, und die Pluralkorrektur in der
+Planvorschau. Die Korrektur allein hätte **kein** Paket bekommen — der Benutzer hat sie
+ausdrücklich für die nächste größere Änderung zurückgestellt, und genau die wurde es dann.
+
+Was `curl` daran nicht prüfen konnte und deshalb in `doku/stand.md` unter *Offen* steht:
+wie der zweizeilige Name im Tauschfenster neben dem 72px-Bild umbricht, und ob
+`navigator.clipboard` auf dem Gerät des Benutzers greift.
+
 **`1.2.2` ist am 2026-08-18 ausgerollt**, gemessen: `app.js?v=1.2.2`, und am Live-System
 durchgeprüft (siehe *Prüfungen am Live-System*).
 
@@ -87,12 +117,12 @@ wartet auf das Ausrollen. Es räumt die Kopfzeile auf: Die vier Adminpunkte
 und der Seite `admin.php`, die nur Kacheln zeigt. Training, Verlauf, Splits und Pläne
 bleiben oben.
 
-**Zur Nummer `1.2.1`:** Sie ist gebaut worden, das Paket ist beim Bauen von `1.2.2`
-planmäßig weggeräumt worden, und ob der Tarball je in Portainer gelandet ist, ist hier
-nicht festgehalten. **Ihr Inhalt steckt vollständig in `1.2.2`** — wer `1.2.2` ausrollt,
-hat beides. Sollte `1.2.1` nie ausgerollt worden sein, bleibt sie eine Nummer ohne
-Gegenstück; das ist der Preis dafür, dass der Arbeitsstand nie von einem gleichnamigen
-Paket abweichen durfte.
+**Zur Nummer `1.2.1`:** Sie ist gebaut **und ausgerollt** worden wie jede andere. Hier
+stand zeitweise die Vermutung, sie könnte eine Lücke ohne Gegenstück sein — die stammte aus
+der damals noch offenen Frage, ob ein gebautes Paket auch eingespielt wird. Der Benutzer hat
+das am 2026-08-19 geklärt: **Ein Paket, das er bauen lässt, spielt er unmittelbar danach
+ein.** Damit ist die Reihe `1.2.0` bis `1.2.4` lückenlos, und die Rückfrage entfällt
+künftig.
 
 **`1.2.0` ist am 2026-08-18 ausgerollt**, gemessen: `app.js?v=1.2.0`. Die Migration ist
 auf dem Live-System durchgeprüft (siehe unten, *Prüfung von 1.2.0 am Live-System*).

@@ -574,11 +574,21 @@ button.gefahr { background: var(--fehler); }
 
 /* Der englische Name gehört UNTER den deutschen, nicht daneben: Beide sind
    inline, und nebeneinander gelesen verschmelzen sie zu einem langen Namen.
-   `display: block` trennt sie, ohne ein zusätzliches Element zu brauchen. */
-.uebung-text > .matt {
+   `display: block` trennt sie, ohne ein zusätzliches Element zu brauchen.
+
+   Die Klasse sitzt seit 1.2.5 am Namen SELBST (uebung_name() in
+   lib/helpers.php, uebungName() in app.js) und nicht mehr am Elternteil.
+   Vorher hing der Umbruch an `.uebung-text > .matt` — im Tauschfenster
+   (.vorschlag-text) und im Verlauf gibt es diesen Behälter nicht, dort wären
+   beide Namen wieder in einer Zeile gelandet. */
+.name-en {
     display: block;
     margin: 0.15rem 0;
 }
+
+/* Die übrigen matten Zusätze in der Textspalte — der Archiv-Hinweis in der
+   Übungsverwaltung — behalten denselben engen Abstand. */
+.uebung-text > .matt { margin: 0.15rem 0; }
 
 .gruppen-anzeige {
     display: flex;
@@ -1428,9 +1438,19 @@ dialog h2 { margin-top: 0; }
     color: var(--schrift-matt);
 }
 
+/* Die Knopfzeile steht RECHTS, der Text darüber links. Zwei Gründe: Am Handy
+   liegt der Daumen am rechten Rand, und eine linksbündige Knopfzeile unter
+   linksbündigem Text verschwimmt mit ihm zu einem Block — rechts gesetzt ist
+   sofort erkennbar, wo die Karte aufhört und die Handlung anfängt.
+
+   Gilt für ALLE drei Listen, die vorschlagMarkup() erzeugt: beide
+   Tauschdialoge und die Übungsauswahl. Sie teilen sich das Markup bewusst
+   (siehe assets/app.js); eine Liste, die anders ausgerichtet ist als die
+   andere, sähe nach zwei verschiedenen Bausteinen aus. */
 .vorschlag-knoepfe {
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
     margin: 0.4rem 0 0;
 }
@@ -1842,6 +1862,56 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 /* Welcher Split gerade gilt, steht klein unter der Planauswahl — es ist eine
    Einordnung und keine Aktion, deshalb kein Knopf. */
 .split-zeile { margin-top: 0.5rem; }
+
+/* Die Abschlusszeile der Splitkarte: links das Aneignen, rechts das
+   Abschließende, dazwischen die ganze Kartenbreite. Sie ist ein EIGENER
+   Behälter und nicht das Ende der Reihe darüber — nur so bleibt die Lage der
+   Knöpfe gleich, egal wie die anderen umbrechen.
+
+   Was drinsteht, hängt von den Rechten ab (siehe splits.php):
+
+     eigener Split           [Löschen]
+     Vorlage als Admin       [Zu mir kopieren]            [Löschen]
+     Vorlage als Benutzer    [Zu mir kopieren]           [Als Text]
+
+   Deshalb `:last-child` und nicht ein Knopf beim Namen: Rechts steht immer
+   der LETZTE der Zeile, und das ist in allen drei Fällen der richtige. Steht
+   nur einer da, schiebt ihn dasselbe `auto` an den rechten Rand — genau so
+   soll „Löschen" allein stehen.
+
+   `justify-content: space-between` täte das nicht: Es zöge einen einzelnen
+   Knopf nach links. Wer hier einen vierten Knopf ergänzt, muss wissen, dass
+   er damit den rechten Platz übernimmt. */
+.split-abschluss { margin-top: 0.4rem; }
+.split-abschluss > :last-child { margin-left: auto; }
+
+/* --- Split als Text (§6.4) ------------------------------------------------ */
+
+/* Das [open] ist Pflicht und keine Zierde — dieselbe Falle wie bei
+   #waehlen-dialog weiter oben: Ein geschlossener <dialog> ist nur über das
+   Standard-Stylesheet unsichtbar, jede Autorenregel schlägt das, und der
+   Dialog stünde dauerhaft offen in der Seite. */
+#text-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Feste Laufweite: Der Text ist eine Liste untereinander, und in einer
+   Proportionalschrift franst sie aus. Sie ist außerdem die Vorschau auf das,
+   was nachher im Chatfenster steht — dort steht es ebenfalls monospaced.
+
+   Kein `white-space: nowrap`: Ein langer Übungsname soll umbrechen statt die
+   Textarea waagrecht scrollen zu lassen. Die Zeilenumbrüche im Wert bleiben
+   davon unberührt — sie stehen als echte \n darin. */
+#text-inhalt {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.45;
+    resize: vertical;
+    /* Über die Höhe des Dialogs hinaus scrollt das Feld in sich, statt den
+       Kopieren-Knopf aus dem Bild zu schieben. */
+    overflow-y: auto;
+    min-height: 8rem;
+}
 
 /* --- Admin-Einstieg (admin.php) ------------------------------------------
    Kacheln statt einer Linkliste: Am Handy ist die ganze Fläche das Tippziel,

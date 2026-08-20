@@ -533,10 +533,7 @@ require __DIR__ . '/lib/view_header.php';
                     <?php endif; ?>
 
                     <div class="uebung-text">
-                        <strong><?= h((string)$u['name_de']) ?></strong>
-                        <?php if (!empty($u['name_en'])): ?>
-                            <span class="matt"><?= h((string)$u['name_en']) ?></span>
-                        <?php endif; ?>
+                        <?= uebung_name((string)$u['name_de'], $u['name_en']) ?>
                         <?php if ($archiviert): ?>
                             <span class="abzeichen abzeichen-archiv">archiviert</span>
                         <?php endif; ?>

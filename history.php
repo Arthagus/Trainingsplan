@@ -239,12 +239,14 @@ require __DIR__ . '/lib/view_header.php';
                                     <?php $zeilenSaetze = $saetze[(int)$z['log_id']] ?? []; ?>
                                     <tr>
                                         <td>
-                                            <?= h((string)$z['name_de']) ?>
+                                            <?= uebung_name((string)$z['name_de'], $z['name_en']) ?>
                                             <?php // Nach einem Tausch steht im Log die Ersatzübung;
                                                   // ohne diesen Hinweis wirkt der Plan verändert. ?>
                                             <?php if ($z['plan_uebung_name'] !== null
                                                    && (int)$z['plan_uebung_id'] !== (int)$z['exercise_id']): ?>
-                                                <span class="abzeichen">statt <?= h((string)$z['plan_uebung_name']) ?></span>
+                                                <span class="abzeichen">statt <?= uebung_name_kurz(
+                                                    (string)$z['plan_uebung_name'], $z['plan_uebung_name_en']
+                                                ) ?></span>
                                             <?php endif; ?>
                                         </td>
                                         <?php if ($mitSaetzen): ?>
@@ -336,7 +338,12 @@ require __DIR__ . '/lib/view_header.php';
                 <li class="karte">
                     <details>
                         <summary class="einheit-kopf">
-                            <span class="einheit-plan"><?= h((string)$u['name_de']) ?></span>
+                            <?php // Einzeilig: Der Kopf ist eine Flex-Zeile mit Kurve und
+                                  // Eckdaten daneben -- ein Umbruch im Namen schoebe sie
+                                  // auseinander. ?>
+                            <span class="einheit-plan"><?= uebung_name_kurz(
+                                (string)$u['name_de'], $u['name_en']
+                            ) ?></span>
                             <span class="verlauf-kurve-halter"><?php verlauf_kurve($verlauf); ?></span>
                             <span class="matt einheit-eckdaten">
                                 <?= h(format_decimal($letzter)) ?> kg

@@ -51,13 +51,44 @@ $planNamen = split_plan_namen(array_merge(
     array_column($kandidaten, 'id')
 ));
 
+// Der Text zum Kopieren (§6.4). Er entsteht SERVERSEITIG und steht fertig in
+// der Seite, statt ihn beim Antippen nachzuladen: Das Schreiben in die
+// Zwischenablage muss in derselben Benutzeraktion passieren wie der Klick --
+// nach einem await auf einen Netzaufruf verweigern strengere Browser (iOS
+// Safari) den Zugriff. Nebenbei funktioniert der Knopf damit auch offline.
+// Die Kandidatenliste bleibt aussen vor: Das sind die Splits ANDERER Leute,
+// dort steht kein Knopf.
+$splitTexte = split_texte(array_merge(
+    array_column($meine, 'id'),
+    array_column($dieVorlagen, 'id')
+));
+
 $pageTitle = 'Splits';
 require __DIR__ . '/lib/view_header.php';
 
 /** Eine Splitkarte -- gleich aufgebaut fuer eigene Splits und Vorlagen. */
-function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, bool $gesperrt): void {
+function split_karte(
+    array $sp,
+    array $planNamen,
+    array $splitTexte,
+    bool $eigener,
+    int $aktivId,
+    bool $gesperrt
+): void {
     $id     = (int)$sp['id'];
     $plaene = $planNamen[$id] ?? [];
+
+    // Hat diese Karte ueberhaupt Verwaltungsknoepfe? Genau dann, wenn der Split
+    // dem Benutzer gehoert (bearbeiten, umbenennen, duplizieren) oder er Admin
+    // ist (dasselbe an einer Vorlage). Ein normaler Benutzer sieht an einer
+    // fremden Vorlage sonst NICHTS davon -- und dann waere die obere Reihe eine
+    // Zeile mit einem einzigen leisen Knopf darin.
+    $verwaltung = $eigener || is_admin();
+
+    // "Als Text" steht mal oben, mal unten -- aber nur EINMAL geschrieben.
+    // Zweimal im Markup hiesse: beim naechsten Umbenennen des Knopfes eine der
+    // beiden vergessen.
+    $alsTextKnopf = '<button type="button" class="leise split-text">Als Text</button>';
     ?>
     <li class="karte split <?= $eigener && $id === $aktivId ? 'ist-aktiv' : '' ?>" data-id="<?= $id ?>">
         <div class="gruppe-zeile split-kopf">
@@ -82,12 +113,25 @@ function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, b
             <?php if ($plaene === []): ?>
                 Noch kein Plan darin.
             <?php else: ?>
-                <?= count($plaene) ?> Plan<?= count($plaene) === 1 ? '' : 'e' ?>:
+                <?= count($plaene) ?> <?= count($plaene) === 1 ? 'Plan' : 'Pläne' ?>:
                 <?= h(implode(' → ', $plaene)) ?> ↺
             <?php endif; ?>
         </p>
         <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
 
+        <?php // Der Text liegt fertig in der Karte, unsichtbar. splits.js holt
+              // ihn beim Antippen ueber .textContent -- damit steht in der
+              // Zwischenablage genau das, was hier steht, ohne Umweg ueber
+              // einen Netzaufruf oder eine zweite Zusammenbau-Vorschrift im JS.
+              //
+              // <pre> und nicht <div>: Der Text lebt von seinen Zeilenumbruechen,
+              // und textContent eines <div> mit umgebrochener Quelltextzeile
+              // brachte sie durcheinander. ?>
+        <pre class="split-text-inhalt" hidden><?= h($splitTexte[$id] ?? '') ?></pre>
+
+        <?php // Die obere Reihe entfaellt ganz, wenn nichts zu verwalten ist.
+              // Eine leere Reihe waere unsichtbar, aber ihr margin-top nicht. ?>
+        <?php if ($verwaltung): ?>
         <div class="gruppe-knoepfe">
             <?php if ($eigener): ?>
                 <?php if ($id !== $aktivId): ?>
@@ -103,9 +147,9 @@ function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, b
                 <?php // "Als Vorlage" stand bis 1.2.0 hier. Es liegt jetzt im
                       // Abschnitt "User Splits" darunter -- an EINER Stelle,
                       // und dort erreicht es auch die Splits der anderen. ?>
-                <button type="button" class="gefahr split-loeschen">Löschen</button>
             <?php else: ?>
-                <button type="button" class="split-kopieren">Zu mir kopieren</button>
+                <?php // "Zu mir kopieren" steht NICHT hier, sondern in der
+                      // Abschlusszeile unten -- siehe dort. ?>
                 <?php if (is_admin()): ?>
                     <button type="button" class="leise split-speichern">Umbenennen</button>
                     <a class="knopf zweit" href="<?= h(base_path()) ?>/plans.php?split=<?= $id ?>">
@@ -116,8 +160,52 @@ function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, b
                           // daneben. Der Weg fuer eine Variante im Katalog:
                           // duplizieren, umbenennen, bearbeiten. ?>
                     <button type="button" class="leise vorlage-duplizieren">Duplizieren</button>
-                    <button type="button" class="gefahr split-loeschen">Löschen</button>
                 <?php endif; ?>
+            <?php endif; ?>
+
+            <?php // "Leise" und hinter den Aktionen: Das Kopieren als Text ist
+                  // ein Werkzeug daneben, kein Schritt im Ablauf. ?>
+            <?= $alsTextKnopf ?>
+        </div>
+        <?php endif; ?>
+
+        <?php // EINE EIGENE ZEILE fuer die beiden folgenreichen Knoepfe, und
+              // zwar unabhaengig davon, wie die Reihe darueber umbricht. Genau
+              // das ist der Zweck des zweiten Behaelters: Stuenden sie in
+              // derselben Zeile, haenge ihre Lage davon ab, wie breit das
+              // Geraet gerade ist und wie viele Knoepfe die Karte hat -- mal
+              // saesse "Loeschen" am rechten Rand, mal mitten zwischen
+              // "Umbenennen" und "Als Text".
+              //
+              // Links das Aneignen, rechts das Zerstoeren, und dazwischen die
+              // ganze Breite der Karte: Die beiden sind die einzigen Knoepfe,
+              // die man nicht versehentlich treffen soll, und der Abstand ist
+              // hier die Sicherung. Die Ausrichtung macht margin-left:auto am
+              // roten Knopf und nicht space-between -- so steht er auch dann
+              // rechts, wenn er allein in der Zeile ist (eigener Split, wo es
+              // kein "Zu mir kopieren" gibt).
+              //
+              // Die Zeile ist nie leer: Wem der Split gehoert, der darf ihn
+              // loeschen; wem er nicht gehoert, der darf ihn kopieren. ?>
+        <div class="gruppe-knoepfe split-abschluss">
+            <?php if (!$eigener): ?>
+                <button type="button" class="split-kopieren">Zu mir kopieren</button>
+            <?php endif; ?>
+            <?php // Ohne Verwaltungsknoepfe hat die obere Reihe nicht
+                  // stattgefunden -- dann steht "Als Text" hier, rechts neben
+                  // "Zu mir kopieren". Das ist der Fall eines normalen
+                  // Benutzers an einer Vorlage, und da sind es genau diese
+                  // zwei Knoepfe. ?>
+            <?php if (!$verwaltung): ?>
+                <?= $alsTextKnopf ?>
+            <?php endif; ?>
+            <?php // Seinen eigenen Split darf jeder loeschen, eine Vorlage nur
+                  // ein Admin -- dieselbe Bedingung wie $verwaltung, hier aber
+                  // ausgeschrieben, weil sie etwas anderes bedeutet: dort
+                  // "darf verwalten", hier "darf loeschen". Faellt das je
+                  // auseinander, faellt es an der richtigen Stelle auf. ?>
+            <?php if ($eigener || is_admin()): ?>
+                <button type="button" class="gefahr split-loeschen">Löschen</button>
             <?php endif; ?>
         </div>
     </li>
@@ -149,7 +237,7 @@ function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, b
 <?php else: ?>
     <ul id="meine-splits" class="liste-schlicht" data-aktiv="<?= $aktivId ?>">
         <?php foreach ($meine as $sp): ?>
-            <?php split_karte($sp, $planNamen, true, $aktivId, $offen !== null); ?>
+            <?php split_karte($sp, $planNamen, $splitTexte, true, $aktivId, $offen !== null); ?>
         <?php endforeach; ?>
     </ul>
 <?php endif; ?>
@@ -243,9 +331,29 @@ function split_karte(array $sp, array $planNamen, bool $eigener, int $aktivId, b
     </p>
     <ul id="vorlagen" class="liste-schlicht">
         <?php foreach ($dieVorlagen as $sp): ?>
-            <?php split_karte($sp, $planNamen, false, $aktivId, $offen !== null); ?>
+            <?php split_karte($sp, $planNamen, $splitTexte, false, $aktivId, $offen !== null); ?>
         <?php endforeach; ?>
     </ul>
 <?php endif; ?>
+
+<?php // Ein Dialog fuer ALLE Karten, gefuellt beim Oeffnen -- nicht einer je
+      // Split. Bei einem Dutzend Karten waeren das ein Dutzend <dialog> mit
+      // demselben Inhalt in der Seite. ?>
+<dialog id="text-dialog">
+    <h2 id="text-titel">Split als Text</h2>
+    <p class="matt">
+        Zum Einfügen anderswo — Plan für Plan, nur die Übungsnamen. Bilder,
+        Muskelgruppen und Zusätze bleiben bewusst draußen.
+    </p>
+    <?php // readonly und nicht disabled: Ein disabled-Feld laesst sich weder
+          // markieren noch kopieren -- genau das, wofuer es da ist. ?>
+    <label for="text-inhalt" class="nur-lesbar">Der Split als Text</label>
+    <textarea id="text-inhalt" readonly rows="14" spellcheck="false"></textarea>
+    <p class="gruppe-knoepfe">
+        <button type="button" id="text-kopieren">In die Zwischenablage</button>
+        <button type="button" id="text-schliessen" class="leise">Schließen</button>
+    </p>
+    <p id="text-hinweis" class="matt" role="status"></p>
+</dialog>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>

@@ -440,6 +440,7 @@ function plan_positionen(
                 e.name_de, e.name_en, e.description, e.focus, e.equipment,
                 e.image_path, e.image_crop, e.archived,
                 orig.name_de     AS plan_uebung_name,
+                orig.name_en     AS plan_uebung_name_en,
                 wl.id            AS log_id,
                 wl.weight, wl.done, wl.performed_at
            FROM plan_exercises pe
@@ -500,6 +501,7 @@ function plan_positionen(
             'archived'         => (int)$z['archived'] === 1,
             'getauscht'        => (int)$z['getauscht'] === 1,
             'plan_uebung_name' => (string)$z['plan_uebung_name'],
+            'plan_uebung_name_en' => $z['plan_uebung_name_en'],
             'muskelgruppen'    => $gruppen->fetchAll(),
             'erledigt'         => $erledigt,
             'hat_eintrag'      => $hatEintrag,
@@ -784,7 +786,7 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     // besetzte Maschine; ein Filter auf dasselbe Geraet verhinderte genau den
     // Ausweg, den man in dem Moment sucht.
     $stmt = db()->prepare(
-        "SELECT e.id, e.name_de, e.name_en, e.focus, e.equipment, e.image_path,
+        "SELECT e.id, e.name_de, e.name_en, e.equipment, e.image_path,
                 e.image_crop, mg.name_de AS gruppe
            FROM exercises e
            JOIN exercise_muscle_groups emg
@@ -882,10 +884,11 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
 function einheit_eintraege(int $sessionId, int $userId): array {
     $stmt = db()->prepare(
         'SELECT wl.id AS log_id, wl.exercise_id, wl.weight, wl.performed_at,
-                e.name_de,
+                e.name_de, e.name_en,
                 pe.sort_order,
                 pe.exercise_id AS plan_uebung_id,
-                orig.name_de   AS plan_uebung_name
+                orig.name_de   AS plan_uebung_name,
+                orig.name_en   AS plan_uebung_name_en
            FROM workout_log wl
            JOIN exercises e ON e.id = wl.exercise_id
            LEFT JOIN plan_exercises pe   ON pe.id = wl.plan_exercise_id
@@ -906,14 +909,14 @@ function einheit_eintraege(int $sessionId, int $userId): array {
  */
 function uebungen_mit_verlauf(int $userId): array {
     $stmt = db()->prepare(
-        'SELECT wl.exercise_id, e.name_de, e.image_path,
+        'SELECT wl.exercise_id, e.name_de, e.name_en, e.image_path,
                 COUNT(*)      AS anzahl,
                 MAX(wl.weight) AS bestwert,
                 MAX(wl.performed_at) AS zuletzt
            FROM workout_log wl
            JOIN exercises e ON e.id = wl.exercise_id
           WHERE wl.user_id = ? AND wl.weight IS NOT NULL
-          GROUP BY wl.exercise_id, e.name_de, e.image_path
+          GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path
           ORDER BY zuletzt DESC, e.name_de'
     );
     $stmt->execute([$userId]);

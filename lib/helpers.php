@@ -372,6 +372,66 @@ function format_zeit(?string $ts): string {
 }
 
 /**
+ * Der Uebungsname, zweisprachig -- die EINE Schreibweise fuer die ganze App.
+ *
+ * Steht ein englischer Name in der Uebung, gehoert er ueberall dorthin, wo der
+ * deutsche steht: Die Geraete im Studio sind englisch beschriftet, und wer eine
+ * Uebung nachschlaegt, findet unter dem englischen Namen mehr. Bis 1.2.4 stand
+ * er nur an drei von sieben Stellen, und das Tauschfenster -- ausgerechnet die
+ * Stelle, an der man eine unbekannte Uebung sucht -- gehoerte nicht dazu.
+ *
+ * Der englische Name steht UNTER dem deutschen und nicht daneben. Nebeneinander
+ * gelesen verschmelzen beide zu einem langen Namen; den Umbruch macht die
+ * Klasse .name-en im Stylesheet, nicht ein zusaetzliches Element.
+ *
+ * Die Klasse sitzt am Namen selbst und nicht am Elternteil. Bis 1.2.4 hing der
+ * Umbruch an `.uebung-text > .matt` -- in einem Behaelter ohne diese Klasse,
+ * also im Tauschfenster und im Verlauf, staenden die Namen sonst wieder in
+ * einer Zeile.
+ *
+ * Das JS-Gegenstueck ist uebungName() in assets/app.js; noetig, weil das
+ * Tauschfenster im Browser entsteht. Beide Haelften gehoeren zusammen geaendert.
+ *
+ * $klasse landet am <strong> mit dem DEUTSCHEN Namen -- nicht am Ganzen. Die
+ * Planseite haengt dort .position-titel an, und plans.js liest den Namen ueber
+ * genau dieses Element aus (Dialogtitel, Rueckfrage vor dem Entfernen). Saesse
+ * die Klasse aussen, laese es den englischen Namen und jedes Abzeichen als Teil
+ * des Uebungsnamens mit.
+ */
+function uebung_name(string $de, ?string $en, string $klasse = ''): string {
+    $markup = '<strong' . ($klasse === '' ? '' : ' class="' . h($klasse) . '"')
+        . '>' . h($de) . '</strong>';
+    if ($en !== null && trim($en) !== '') {
+        $markup .= '<span class="matt name-en">' . h($en) . '</span>';
+    }
+
+    return $markup;
+}
+
+/**
+ * Derselbe Name einzeilig, als fertiger Text: "Bankdruecken · Bench Press".
+ *
+ * Fuer die Stellen, an denen der Name in eine LAUFENDE Zeile muss und ein
+ * Umbruch das Layout zerlegen wuerde -- das Abzeichen "statt ..." nach einem
+ * Tausch und der Kopf einer Verlaufskarte.
+ *
+ * Zwei Formen, wie bei saetze_text() und saetze_zusammenfassung(): nicht zwei
+ * Schreibweisen derselben Sache, sondern zwei Einsatzorte mit je einer Quelle.
+ * Das Trennzeichen ist dasselbe "·" wie in der Satzfolge.
+ *
+ * Liefert FERTIG ESCAPTEN Text -- die Aufrufstelle darf kein h() mehr
+ * darueberlegen, sonst stuende "&amp;" in der Anzeige.
+ */
+function uebung_name_kurz(string $de, ?string $en): string {
+    $text = h($de);
+    if ($en !== null && trim($en) !== '') {
+        $text .= ' · ' . h($en);
+    }
+
+    return $text;
+}
+
+/**
  * Macht aus einem User-Agent eine lesbare Geraetebezeichnung fuer die
  * Geraeteliste (§7.7), etwa "iPhone · Safari".
  *
