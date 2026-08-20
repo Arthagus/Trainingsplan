@@ -550,6 +550,13 @@ Die Stellen, an denen eine naive Umsetzung falsch wird. **Fast jede steht hier, 
 schon einmal zugeschlagen hat** — die Ausnahmen sind 22 und 24–26, die beim Entwurf
 auffielen. Die Nummern sind nach Entstehung vergeben, nicht nach Wichtigkeit.
 
+**Die Nummern sind eine Zusage und werden nicht nachgezogen.** Sie werden aus dem Code
+heraus zitiert — `schema.sql`, `assets/app.js`, `api/token.php`, `lib/training.php` und ein
+Dutzend weitere Stellen nennen sie. Ein Umnummerieren bräche jeden dieser Verweise, **ohne
+dass irgendwo ein Fehler entstünde**: Der Verweis zeigt dann einfach auf den falschen
+Eintrag. Wird ein Fallstrick gegenstandslos, bleibt seine Nummer deshalb als Platzhalter
+stehen (siehe **11**), statt die folgenden aufrücken zu lassen.
+
 **Wo anfangen:** an Splits und Plänen arbeitet man mit **24–26**, am Training mit
 **1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**, an allem, was einen
 Übungsnamen anzeigt, mit **27**.
@@ -562,7 +569,9 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    einen zweiten ergänzt, hebt die Zusicherung auf. `api/log.php` und `api/swap.php`
    („nur diese Einheit") antworten deshalb mit **409**, statt anzulegen — ein Fehlgriff
    beim bloßen Durchsehen begann sonst ein Training, das niemand wollte, und `started_at`
-   hielt den Fehlgriff fest statt des Trainingsbeginns.
+   hielt den Fehlgriff fest statt des Trainingsbeginns. Vor dem Knopf hielt es sogar das
+   *Ende* der ersten Übung fest: Jede Auswertung der Trainingsdauer war damit systematisch
+   zu kurz, und zwar ohne dass irgendetwas danach ausgesehen hätte.
 
    Daraus die Sperre in der Oberfläche: **Vor dem Start sind „Erledigt", „+ Satz" und das
    Gewichtsfeld deaktiviert** (`index.php` über `$laeuft`, `index.js` über `sessionId > 0`)
@@ -643,9 +652,12 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     man die Übung macht. Beim Umsetzen erst alle auf 0, dann die neue auf 1 — **in einer
     Transaktion**, sonst schlägt der Index zwischendurch zu.
 
-11. **Eine Einheit wird ausdrücklich gestartet** (§7.6) — siehe Fallstrick 1. Ohne den
-    Knopf hielt `started_at` das *Ende* der ersten Übung fest, und jede Auswertung der
-    Trainingsdauer war systematisch zu kurz.
+11. *Entfallen.* Sagte dasselbe wie **1** und verwies selbst darauf; die eine eigene
+    Aussage — dass `started_at` vor dem Knopf das Ende der ersten Übung festhielt — steht
+    jetzt dort. **Der Platzhalter bleibt stehen:** Markdown nummeriert eine geordnete Liste
+    beim Rendern selbst und verwirft die geschriebenen Zahlen. Eine echte Lücke schöbe
+    darum alles dahinter um eins — und damit zeigte jeder Verweis aus dem Code auf den
+    falschen Eintrag.
 
 12. **Es gibt ZWEI Caches hintereinander, und der Service Worker erreicht nur den ersten.**
     Der eingefrorene Asset-Cache hat zweimal zugeschlagen und war beide Male über mehrere
