@@ -42,13 +42,35 @@
         p.hidden = false;
     }
 
+    /**
+     * Neu laden -- und bis dahin nichts Veraltetes mehr anbieten.
+     *
+     * Zwischen der gespeicherten Änderung und der neuen Seite liegt am Handy
+     * leicht eine Sekunde. In diesem Fenster steht die alte Seite noch
+     * vollständig bedienbar da: Man kann eine Übungsauswahl öffnen, deren
+     * Hinweis „Schon in …" dann den frischen Stand nennt, während die Pläne
+     * darunter noch den alten zeigen -- zwei Generationen auf einem
+     * Bildschirm, und es sieht aus, als stimme der Hinweis nicht.
+     *
+     * Deshalb werden alle Knöpfe gesperrt, sobald das Neuladen angestoßen ist.
+     * Der Klick-Verteiler unten steigt bei einem deaktivierten Knopf ohnehin
+     * aus, also greift die Sperre auch für die Dialoge.
+     */
+    let neuLadenLaeuft = false;
+    function neuLaden() {
+        if (neuLadenLaeuft) return;
+        neuLadenLaeuft = true;
+        qsa('button').forEach((k) => { k.disabled = true; });
+        window.location.reload();
+    }
+
     /** Führt eine Aktion aus; bei Erfolg neu laden, bei Fehler an der Zeile melden. */
-    async function senden(zeile, koerper, erfolgstext, neuLaden = true) {
+    async function senden(zeile, koerper, erfolgstext, neuLadenNach = true) {
         qs('.zeilen-fehler', zeile).hidden = true;
         try {
             await apiFetch(ENDPUNKT, { body: koerper });
-            if (neuLaden) {
-                window.location.reload();
+            if (neuLadenNach) {
+                neuLaden();
             } else {
                 meldung(erfolgstext, 'gut');
             }
@@ -74,6 +96,18 @@
     const waehlenGeraet = qs('#waehlen-geraet');
     let waehlenPlan = null;
 
+    // Jeder Ladevorgang bekommt eine Nummer, und nur der jeweils JÜNGSTE darf
+    // die Liste zeichnen.
+    //
+    // Ohne das gewinnt die zuletzt eingetroffene Antwort, nicht die zuletzt
+    // gestellte Frage: Zwei Abrufe können sich überholen — Dialog für Plan A
+    // öffnen, schließen, gleich darauf Plan B öffnen; oder zwei Filter kurz
+    // hintereinander umstellen. Trifft die ältere Antwort später ein,
+    // überschreibt sie die neuere, und die Liste beschreibt dann einen Zustand,
+    // den niemand mehr angefragt hat — samt Hinweis „Schon in …" und samt
+    // „Bereits im Plan" zum falschen Plan. Erst ein Neuladen räumt das auf.
+    let waehlenLauf = 0;
+
     // Die vollständigen Optionslisten einmal beim Laden sichern. Die Felder
     // werden gleich beschnitten — ohne diese Kopie wäre das ein Weg ohne
     // Rückweg, und die weggefilterten Einträge kämen nie wieder.
@@ -83,6 +117,12 @@
     const geraeteOptionen = alleOptionen(waehlenGeraet);
 
     qs('#waehlen-schliessen').addEventListener('click', () => waehlenDialog.close());
+
+    // Ein geschlossener Dialog nimmt keine Antwort mehr an -- am 'close' und
+    // nicht am Schließen-Knopf, weil die Escape-Taste denselben Weg nimmt.
+    // Sonst zeichnete ein Abruf, der beim Schließen noch unterwegs war, beim
+    // nächsten Öffnen kurz die Liste des VORIGEN Plans.
+    waehlenDialog.addEventListener('close', () => { waehlenLauf++; });
 
     /**
      * Beschränkt ein Auswahlfeld auf die Werte, die noch zu Treffern führen.
@@ -117,6 +157,8 @@
     async function waehlenLaden(zweiterVersuch = false) {
         if (!waehlenPlan) return;
 
+        const lauf = ++waehlenLauf;
+
         waehlenFehler.hidden = true;
         waehlenListe.innerHTML = '<p class="matt">Wird geladen …</p>';
 
@@ -129,6 +171,11 @@
                     equipment: waehlenGeraet.value,
                 },
             });
+
+            // Überholt: Inzwischen ist ein neuerer Abruf unterwegs (anderer
+            // Plan, anderer Filter) oder der Dialog wurde geschlossen. Diese
+            // Antwort ist damit die Auskunft auf eine Frage von gestern.
+            if (lauf !== waehlenLauf) return;
 
             // Die Felder schränken sich gegenseitig ein: Nach der Wahl einer
             // Muskelgruppe stehen unter Trainingsgerät nur noch die Geräte, für
@@ -161,6 +208,8 @@
             // Was schon im Plan steht, bleibt sichtbar und wird nur gesperrt:
             // Herausgefiltert wüsste man nicht, ob die gesuchte Übung fehlt oder
             // längst dabei ist. Dieselbe Überlegung wie in der API.
+            // Der Hinweis „Schon in …" kommt aus vorschlagMarkup() selbst — er
+            // gehört zur Übung und gilt in allen drei Listen gleich.
             waehlenListe.innerHTML = daten.exercises.map((v) => vorschlagMarkup(v,
                 v.im_plan
                     ? '<button type="button" disabled>Bereits im Plan</button>'
@@ -178,6 +227,10 @@
                 waehlenFehler.hidden = false;
             }
         } catch (fehler) {
+            // Auch die Fehlermeldung gehört zu ihrem Abruf: Die eines
+            // überholten Versuchs stünde sonst über einer Liste, die längst
+            // geladen ist.
+            if (lauf !== waehlenLauf) return;
             waehlenListe.innerHTML = '';
             waehlenFehler.textContent = fehler.message;
             waehlenFehler.hidden = false;
@@ -220,8 +273,12 @@
                 },
             });
             // Die neue Position kommt server-gerendert — wie bei jeder anderen
-            // Planänderung auch.
-            window.location.reload();
+            // Planänderung auch. Bis die Seite da ist, sagt der Dialog, was
+            // gerade passiert; seine Liste beschreibt ab jetzt den Stand von
+            // vorhin und darf nicht mehr wie eine Auskunft aussehen.
+            waehlenListe.innerHTML =
+                '<p class="matt">Hinzugefügt — die Seite wird neu geladen …</p>';
+            neuLaden();
         } catch (fehler) {
             waehlenFehler.textContent = fehler.message;
             waehlenFehler.hidden = false;
@@ -308,7 +365,7 @@
             });
             // Name, Muskelgruppe und Bild der Zeile stimmen jetzt nicht mehr —
             // die Seite kommt frisch vom Server.
-            window.location.reload();
+            neuLaden();
         } catch (fehler) {
             tauschFehler.textContent = fehler.message;
             tauschFehler.hidden = false;

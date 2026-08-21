@@ -9,7 +9,7 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 **Diese Datei nach jedem Rollout nachziehen.**
 
-*Letzte Aktualisierung: 2026-08-19*
+*Letzte Aktualisierung: 2026-08-21*
 
 ---
 
@@ -17,9 +17,9 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.6` — gemessen am 2026-08-20: `app.js?v=1.2.6`; `style.css` und `app.js` byteweise deckungsgleich mit dem Arbeitsstand |
-| **Arbeitsstand** | `1.2.6`, deckungsgleich mit live |
-| **Rollback-Ziel** | `trainingsplan:1.2.5` — dieses Image in Portainer stehen lassen |
+| **Live** | `trainingsplan:1.2.9` — gemessen am 2026-08-21: `app.js?v=1.2.9`, vom Benutzer am Gerät gegengeprüft |
+| **Arbeitsstand** | `1.2.9`, deckungsgleich mit live |
+| **Rollback-Ziel** | `trainingsplan:1.2.8` — dieses Image in Portainer stehen lassen |
 
 **Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
 lässt, unmittelbar danach ein — am 2026-08-19 ausdrücklich so festgelegt. Daraus folgt für

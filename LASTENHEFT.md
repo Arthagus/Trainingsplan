@@ -826,6 +826,20 @@ getrennt** weiter (§7.6).
     Trainingsgerät, Schwerpunkt) — es ist dieselbe Information, nur mit einem anderen Knopf.
   - Übungen, die **bereits im Plan stehen**, bleiben sichtbar und sind lediglich gesperrt.
     Herausgefiltert wüsste man nicht, ob die gesuchte Übung fehlt oder längst dabei ist.
+  - **Steht die Übung in einem anderen Plan DESSELBEN Splits**, sagt es ein zurückgenommener
+    Hinweis **direkt links neben dem Knopf**: *Schon in Ganzkörper A* (seit `1.2.7`). Er **verbietet
+    nichts** — dieselbe Übung darf bewusst in mehreren Plänen stehen —, sondern beantwortet
+    die Frage, die man sich beim Füllen des zweiten Plans stellt: Wer *Ganzkörper A* und
+    *Ganzkörper B* abwechselt und nicht zweimal dasselbe trainieren will, sieht ohne
+    Umschalten, welche Übung im Split noch nicht vorkommt. Steht sie in mehreren, werden
+    alle genannt.
+    - Der gesperrte Knopf deckt das **nicht** mit ab: Er spricht nur über den Plan, in den
+      gerade eingefügt wird.
+    - **Der Hinweis steht in ALLEN drei Vorschlagslisten** (seit `1.2.9`): Übungsauswahl,
+      Tauschfenster der Planverwaltung und Tauschfenster im Training. Er gehört zur Übung
+      und nicht zum Knopf darunter; in nur einer Liste wäre er dort, wo man ihn braucht,
+      gerade nicht da — beim Tauschen sucht man einen Ersatz und will am wenigsten die
+      Übung erwischen, die im nächsten Plan ohnehin ansteht.
   - Archivierte Übungen erscheinen nicht (§6.3).
 - **Sperre bei offener Einheit:** Hat der betroffene Benutzer eine offene Einheit, ist die
   Planbearbeitung blockiert (Hinweis anzeigen). Sonst würde sich `n` in der laufenden

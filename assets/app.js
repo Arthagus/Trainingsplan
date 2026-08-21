@@ -805,6 +805,34 @@ function geraetGefiltert(vorschlaege, code) {
 }
 
 /**
+ * Der zurueckgenommene Hinweis in der Knopfzeile: Wo im Split steht die Uebung
+ * schon? (§6.4)
+ *
+ * Kein Verbot, sondern eine Auskunft -- dieselbe Uebung darf bewusst in
+ * mehreren Plaenen stehen. Wer aber "Ganzkoerper B" fuellt und nicht zweimal
+ * dasselbe trainieren will, sieht hier, was schon in "Ganzkoerper A" steht.
+ *
+ * Steht in vorschlagMarkup() und nicht an den Aufrufstellen: Die Auskunft
+ * gehoert zur UEBUNG und nicht zu den Knoepfen darunter, und sie gilt in allen
+ * drei Listen gleichermassen -- Uebungsauswahl, Tauschfenster der
+ * Planverwaltung, Tauschfenster im Training. An den Aufrufstellen gebaut waere
+ * sie beim naechsten Dialog wieder vergessen (Fallstrick 27).
+ *
+ * Fehlt das Feld -- etwa in einer Antwort, die es nicht mitliefert --, entfaellt
+ * der Hinweis stillschweigend. Das ist richtig so: Ein "steht nirgends sonst"
+ * waere eine Aussage, die niemand geprueft hat.
+ */
+function imSplitHinweis(v) {
+    const plaene = (v && v.andere_plaene) || [];
+    if (!plaene.length) {
+        return '';
+    }
+
+    return '<span class="im-split-hinweis">Schon in '
+        + plaene.map(escapeHtml).join(', ') + '</span>';
+}
+
+/**
  * Ein Tauschvorschlag als Markup.
  *
  * Geteilt zwischen Trainings- und Planseite (§7.5): Beide zeigen dieselbe
@@ -868,7 +896,7 @@ function vorschlagMarkup(v, knoepfe) {
         + '<p class="gruppen-anzeige">' + gruppen + '</p>'
         + schwerpunkt
         + '</div></div>'
-        + '<p class="vorschlag-knoepfe">' + knoepfe + '</p>'
+        + '<p class="vorschlag-knoepfe">' + imSplitHinweis(v) + knoepfe + '</p>'
         + '</div>';
 }
 

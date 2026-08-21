@@ -34,7 +34,7 @@ match (to_str($eingabe['action'] ?? '')) {
  */
 function position_laden(int $peId): array {
     $stmt = db()->prepare(
-        'SELECT pe.id, pe.plan_id, pe.exercise_id, sp.user_id
+        'SELECT pe.id, pe.plan_id, pe.exercise_id, p.split_id, sp.user_id
            FROM plan_exercises pe
            JOIN plans  p  ON p.id  = pe.plan_id
            JOIN splits sp ON sp.id = p.split_id
@@ -134,7 +134,18 @@ function aktion_vorschlaege(array $eingabe): never {
     $uebungId = aktuelle_uebung($position);
 
     $ausschluss  = ausschluss_liste($position);
-    $vorschlaege = tausch_vorschlaege($uebungId, $ausschluss);
+
+    // Wo steht der Vorschlag im Split sonst noch? Dieselbe Auskunft wie in der
+    // Uebungsauswahl und im Tauschfenster der Planverwaltung -- hier zaehlt sie
+    // besonders: Wer ausweicht, weil eine Maschine besetzt ist, will nicht
+    // ausgerechnet die Uebung nehmen, die uebermorgen im naechsten Plan ohnehin
+    // ansteht. Der eigene Plan ist ausgenommen; was dort steht, hat
+    // ausschluss_liste() schon aussortiert.
+    $vorschlaege = andere_plaene_eintragen(
+        tausch_vorschlaege($uebungId, $ausschluss),
+        (int)$position['split_id'],
+        (int)$position['plan_id']
+    );
 
     // Wie viele Alternativen fielen weg, weil sie schon im Plan stehen? Ohne
     // diese Zahl wirkt eine kurze Liste wie ein Fehler.

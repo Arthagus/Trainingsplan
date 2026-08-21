@@ -637,3 +637,60 @@ function split_zugriff_ueber_plan_api(int $planId): array {
 
     return split_zugriff_api((int)$split['split_id']);
 }
+
+/**
+ * Traegt in jede Zeile ein, in welchen ANDEREN Plaenen desselben Splits die
+ * Uebung schon steht (§6.4).
+ *
+ * Es ist eine Auskunft und kein Verbot: Dieselbe Uebung darf bewusst in
+ * mehreren Plaenen stehen. Wer aber "Ganzkoerper B" fuellt und nicht zweimal
+ * dasselbe trainieren will, sieht damit ohne Umschalten, was schon in
+ * "Ganzkoerper A" steht.
+ *
+ * HIER und nicht in den Endpunkten, weil drei Listen dieselbe Frage stellen:
+ * die Uebungsauswahl beim Hinzufuegen und BEIDE Tauschfenster -- das der
+ * Planverwaltung (api/plans.php) und das im Training (api/swap.php). Dreimal
+ * geschrieben waere es dreimal zu pflegen, und die dritte Stelle wuerde
+ * vergessen; genau das ist mit dem zweisprachigen Uebungsnamen passiert
+ * (Fallstrick 27).
+ *
+ * Abgefragt wird der ganze Split und nicht die uebergebenen Zeilen: Ein Split
+ * hat eine Handvoll Plaene mit ein paar Dutzend Positionen, die Trefferliste
+ * der Uebungsauswahl dagegen kann der gesamte Uebungsbestand sein.
+ *
+ * @param array<int,array> $zeilen     Zeilen mit 'id' = exercise_id
+ * @param int              $ohnePlanId Der Plan, um den es gerade geht -- ueber
+ *                                     ihn sagt schon der Knopf alles
+ * @return array<int,array> dieselben Zeilen mit zusaetzlichem 'andere_plaene'
+ */
+function andere_plaene_eintragen(array $zeilen, int $splitId, int $ohnePlanId): array {
+    if ($zeilen === []) {
+        return $zeilen;
+    }
+
+    // GROUP BY statt DISTINCT: Steht eine Uebung zweimal im selben Plan, soll
+    // der Planname trotzdem nur einmal erscheinen -- und DISTINCT vertruege
+    // sich nicht mit dem ORDER BY ueber Spalten, die nicht in der
+    // Ergebnismenge stehen.
+    $stmt = db()->prepare(
+        'SELECT pe.exercise_id, p.name
+           FROM plan_exercises pe
+           JOIN plans p ON p.id = pe.plan_id
+          WHERE p.split_id = ? AND p.id != ?
+          GROUP BY pe.exercise_id, p.id
+          ORDER BY p.sort_order, p.id'
+    );
+    $stmt->execute([$splitId, $ohnePlanId]);
+
+    $namen = [];
+    foreach ($stmt as $z) {
+        $namen[(int)$z['exercise_id']][] = $z['name'];
+    }
+
+    foreach ($zeilen as &$zeile) {
+        $zeile['andere_plaene'] = $namen[(int)$zeile['id']] ?? [];
+    }
+    unset($zeile);
+
+    return $zeilen;
+}

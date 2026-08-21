@@ -1455,6 +1455,19 @@ dialog h2 { margin-top: 0; }
     margin: 0.4rem 0 0;
 }
 
+/* Übungsauswahl: „Schon in Ganzkörper A" DIREKT links neben dem Knopf (§6.4).
+   Bewusst kein margin-right: auto — an den linken Rand geschoben las sich der
+   Hinweis wie eine Zeile für sich und nicht wie die Auskunft zu genau diesem
+   Knopf. Er läuft also in derselben rechtsbündigen Zeile mit; wird es am Handy
+   zu eng, bricht sie um, und der Hinweis steht direkt über dem Knopf.
+   Zurückgenommen wie jeder Nebentext — er soll die Wahl erleichtern, nicht den
+   Knopf überschreien. */
+.im-split-hinweis {
+    align-self: center;
+    color: var(--schrift-matt);
+    font-size: 0.85rem;
+}
+
 /* --- Platzhalter-Seiten --------------------------------------------------- */
 
 /* Geplante, noch nicht gebaute Menüpunkte: sichtbar, aber erkennbar

@@ -369,6 +369,10 @@ function aktion_uebungs_auswahl(array $eingabe): never {
             $t['muskelgruppen'] = $gruppen[$t['id']] ?? [];
         }
         unset($t);
+
+        // Wo steht die Uebung im Split sonst noch? Dieselbe Auskunft wie in
+        // beiden Tauschfenstern -- siehe andere_plaene_eintragen().
+        $treffer = andere_plaene_eintragen($treffer, (int)$plan['split_id'], $planId);
     }
 
     json_ok([
@@ -645,7 +649,11 @@ function aktion_tausch_vorschlaege(array $eingabe): never {
     $position = position_zugriff($peId);
     $uebungId = (int)$position['exercise_id'];
 
-    $vorschlaege = tausch_vorschlaege($uebungId, plan_ausschluss($position));
+    $vorschlaege = andere_plaene_eintragen(
+        tausch_vorschlaege($uebungId, plan_ausschluss($position)),
+        (int)$position['split_id'],
+        (int)$position['plan_id']
+    );
     $alle        = tausch_vorschlaege($uebungId);
 
     json_ok([

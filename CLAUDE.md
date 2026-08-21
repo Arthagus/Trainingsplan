@@ -610,12 +610,19 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    Bestätigung — die Einheit schließt sich nie von selbst, sonst wird das Ab-wählen eines
    versehentlichen Häkchens undefiniert.
 
-6. **Eine abgehakte Position lässt sich nicht tauschen** (§7.5) — weder für die Einheit
-   noch dauerhaft. Der Weg: Häkchen entfernen, tauschen, neu abhaken. Grund: Ein
-   Protokolleintrag dokumentiert eine *tatsächlich ausgeführte* Übung; ihn umzuschreiben
-   schlüge das erreichte Gewicht einer Übung zu, die nicht gemacht wurde. Gesperrt wird
-   **serverseitig** (`position_abgehakt()` in `api/swap.php`), der deaktivierte Knopf ist
-   nur die Bequemlichkeit.
+6. **Eine Position mit EINTRAG lässt sich nicht tauschen** (§7.5) — weder für die Einheit
+   noch dauerhaft, und zwar **ab dem ersten Satz, nicht erst ab dem Häkchen**. Wer zwei
+   Sätze Bankdrücken gemacht hat, kann die Position nicht mehr tauschen; die zwei Sätze
+   *waren* Bankdrücken. Der Weg: Werte entfernen — Häkchen weg **bzw. Sätze löschen** —,
+   tauschen, neu eintragen. Grund: Ein Protokolleintrag dokumentiert eine *tatsächlich
+   ausgeführte* Übung; ihn umzuschreiben schlüge das erreichte Gewicht einer Übung zu, die
+   nicht gemacht wurde.
+
+   Gesperrt wird **serverseitig**, der deaktivierte Knopf ist nur die Bequemlichkeit.
+   **Der Name der Prüffunktion führt in die Irre:** `position_abgehakt()` in `api/swap.php`
+   zählt die `workout_log`-Zeilen der Position und sieht `done` überhaupt nicht an. Im
+   einfachen Modus fällt beides zusammen, im Expertenmodus nicht — Einzelheiten in
+   Fallstrick 18. Wer sich auf den Namen verlässt, sucht die Sperre am falschen Zustand.
 
    **Dasselbe gilt für Werte:** Geändert wird durch Ab-wählen, nicht durch Bearbeiten
    (§7.4). Das Gewichtsfeld ist nach dem Abhaken `readonly`, und `api/log.php` hat bewusst
@@ -634,8 +641,10 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    Sekundenauflösung, zwei Einträge derselben Sekunde hätten sonst keine definierte
    Reihenfolge — die Vorbelegung wäre zufällig.
 
-   **Wiederholungen gibt es nicht** (§4): Ein Feld je Einheit kann 12/10/9 über drei Sätze
-   nicht abbilden. Nicht wieder einführen, ohne satzgenau zu protokollieren.
+   **In `workout_log` gibt es keine Wiederholungen** (§4): Ein Feld je Einheit kann 12/10/9
+   über drei Sätze nicht abbilden. Satzgenau **gibt** es sie seit `1.1.0` — in
+   `workout_sets.reps`, siehe Fallstrick 17. Eine Spalte an `workout_log` bleibt trotzdem
+   falsch: Sie wäre die zweite, gröbere Quelle neben der genauen.
 
 9. **Muskelgruppen sind zweistufig, und der Tausch vergleicht die HAUPTGRUPPE** (§4, §7.5).
    Hauptgruppen haben `parent_id IS NULL`, mehr als zwei Ebenen gibt es nicht. Dadurch darf
@@ -1099,9 +1108,41 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       `uebungen_mit_verlauf()` samt `GROUP BY`. Fehlt die Spalte, bleibt der englische Name
       **lautlos** weg; es sieht aus, als hätte die Übung keinen.
 
+    **Nach demselben Muster gebaut ist der Hinweis „Schon in …"** (§6.4, seit `1.2.7`, an
+    allen drei Stellen seit `1.2.9`): Er sagt, in welchen **anderen** Plänen desselben
+    Splits die Übung schon steht. Serverseitig trägt ihn `andere_plaene_eintragen()`
+    (`lib/splits.php`) in die Zeilen ein — **eine** Funktion für die Übungsauswahl und
+    **beide** Tauschfenster (`api/plans.php`, `api/swap.php`); clientseitig rendert ihn
+    `vorschlagMarkup()` selbst und nicht die Aufrufstelle. Wer die Auskunft an den Knöpfen
+    zusammensetzt, hat sie beim nächsten Dialog wieder vergessen — genau so fehlte sie in
+    `1.2.7`/`1.2.8` in beiden Tauschfenstern.
+
     **Nicht zweisprachig sind Sätze über Übungen** — Dialogtitel („Ersatz für …"),
     Rückfragen und Fehlermeldungen aus `api/*`. Dort ist der Name Teil eines Satzes, und
     ein zweiter Name mitten darin liest sich als zweite Übung.
+
+28. **Zwei Abrufe desselben Dialogs können sich überholen — dann gewinnt die zuletzt
+    eingetroffene Antwort und nicht die zuletzt gestellte Frage.** Die Übungsauswahl in
+    `plans.js` lädt bei jedem Öffnen und bei jeder Filteränderung neu; Dialog für Plan A
+    öffnen, schließen, gleich darauf Plan B öffnen genügt. Trifft die ältere Antwort später
+    ein, überschreibt sie die neuere: Die Liste beschreibt dann einen Zustand, den niemand
+    mehr angefragt hat — samt „Bereits im Plan" und „Schon in …" zum **falschen** Plan.
+    Nachgewiesen am ausgeführten Code, nicht gefolgert.
+
+    Deshalb bekommt jeder Ladevorgang eine Nummer (`waehlenLauf`), und **vor dem Zeichnen
+    UND vor dem Melden eines Fehlers** wird geprüft, ob sie noch die jüngste ist. Das
+    Schließen des Dialogs zählt weiter (`'close'`-Ereignis, nicht der Schließen-Knopf — die
+    Escape-Taste nimmt denselben Weg). Wer einen weiteren Dialog baut, der seine Liste aus
+    einem Abruf zeichnet, braucht dasselbe.
+
+    **Die zweite Hälfte desselben Problems: Zwischen einer gespeicherten Änderung und dem
+    Neuladen ist die alte Seite voll bedienbar.** Am Handy ist das leicht eine Sekunde. Wer
+    in diesem Fenster eine Auswahl öffnet, sieht deren frischen Stand über einer Seite, die
+    noch den alten zeigt — zwei Generationen auf einem Bildschirm, und es sieht aus, als
+    stimme die Anzeige nicht. `neuLaden()` in `plans.js` sperrt deshalb **alle** Knöpfe,
+    sobald das Neuladen angestoßen ist; der Klick-Verteiler steigt bei deaktivierten Knöpfen
+    ohnehin aus, damit greift es auch für die Dialoge. **`window.location.reload()` gehört
+    dort nicht mehr direkt in eine Aktion.**
 
 ## Deployment
 
