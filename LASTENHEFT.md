@@ -894,6 +894,18 @@ getrennt** weiter (§7.6).
   Satz, was ein Split ist, und dem Knopf „Split auswählen". Nicht „bitte beim
   Administrator nachfragen": Seit `1.2.0` kann sich jeder selbst einen aus dem Katalog
   ziehen.
+- **Die Seitenüberschrift nennt den SPLIT**, in jedem Zustand der Seite und nicht den Plan
+  (seit `1.2.10`; ohne gewählten Split heißt sie „Training"). **Welcher Plan gilt, sagt
+  allein die Knopfreihe** darunter: alle Pläne des Splits, der vorgeschlagene blau
+  markiert. Vorher stand der Planname an drei Stellen übereinander — als Überschrift, als
+  Zeile „Vorgeschlagen: …" und als markierter Knopf; die mittlere ist ersatzlos entfallen.
+  Die Knopfreihe steht auch dann, wenn der Split nur **einen** Plan hat: Sie ist nicht bloß
+  Auswahl, sie nennt den Plan.
+- **Der Startkasten in dieser Reihenfolge:** Planwahl → was der Start bedeutet →
+  „Training starten" → „Aktuellen Split wechseln". Das Wechseln bleibt ein **Link** und wird
+  kein Knopf: Es führt von der Seite weg und steht deshalb unter allem, was hier zu tun ist.
+- **Läuft eine Einheit**, nennt deren Kasten den Plan („Pull A" läuft seit …). Dort gibt es
+  keine Planwahl; ohne diese Angabe stünde nirgends mehr, welcher Plan gerade läuft.
 
 **7.3 Plan-/Übungsansicht**
 - Übungen des Plans in Reihenfolge. Pro Übung:
@@ -1252,7 +1264,9 @@ getrennt** weiter (§7.6).
   ohne diesen Hinweis blockiert eine einmal vergessene Einheit dauerhaft die Plan-Alternation.
 - **Plan-Rotation:** Liegt keine offene Einheit vor, schlägt die App den Plan vor, der in
   der Sortierreihenfolge (§6.4) **auf den Plan der letzten Einheit in der Historie folgt** —
-  zyklisch, nach dem letzten kommt wieder der erste.
+  zyklisch, nach dem letzten kommt wieder der erste. **Sichtbar ist der Vorschlag als der
+  blau markierte Knopf der Planreihe** (§7.2) — eine eigene Zeile „Vorgeschlagen: …" gibt es
+  seit `1.2.10` nicht mehr. An der Rotation selbst ändert das nichts.
   - **Gezählt wird ausschließlich, was IN DIESEM SPLIT trainiert wurde** (seit `1.2.0`).
     Genau daran hängt, dass ein Splitwechsel nichts vergisst: Wer von Push/Pull auf
     Ganzkörper wechselt und später zurück, bekommt wieder *Pull* vorgeschlagen und nicht

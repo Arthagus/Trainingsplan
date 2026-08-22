@@ -138,7 +138,15 @@ if ($laeuft && $plan !== null && $positionen !== []) {
       . '</div>';
 }
 
-$pageTitle = $plan === null ? 'Training' : (string)$plan['name'];
+// Die Ueberschrift nennt den SPLIT, nicht den Plan -- fest, in jedem Zustand
+// der Seite. Bis 1.2.10 stand dort der Plan, und im Auswahlzustand stand damit
+// derselbe Name dreimal untereinander: als Ueberschrift, als "Vorgeschlagen:
+// ..." und als blau markierter Knopf der Planwahl.
+//
+// Welcher PLAN gilt, sagt jetzt allein die Knopfreihe; welcher SPLIT gilt, die
+// Ueberschrift. Das ist zugleich die ruhigere Aufteilung: Beim Umschalten
+// zwischen Plaenen aendert sich die Ueberschrift nicht mehr.
+$pageTitle = $split === null ? 'Training' : (string)$split['name'];
 require __DIR__ . '/lib/view_header.php';
 ?>
 
@@ -162,7 +170,9 @@ require __DIR__ . '/lib/view_header.php';
 <?php elseif ($plaene === []): ?>
 
     <div class="karte">
-        <p><strong>In „<?= h((string)$split['name']) ?>“ steht noch kein Plan.</strong></p>
+        <?php // Ohne den Splitnamen: Der steht seit 1.2.10 als Ueberschrift
+              // direkt darueber. ?>
+        <p><strong>In diesem Split steht noch kein Plan.</strong></p>
         <p class="matt">
             Ein Split braucht mindestens einen Plan — bei zweien wechseln sie
             sich ab, bei dreien läuft die Reihenfolge durch.
@@ -181,14 +191,18 @@ require __DIR__ . '/lib/view_header.php';
           // sonst staenden hier zwei Beenden-Knoepfe und ein sinnloses "0/0". ?>
     <?php if ($offen !== null && $plan !== null): ?>
         <div class="karte einheit-laeuft <?= $alt ? 'hinweis-warnung' : '' ?>">
+            <?php // Der Planname steht seit 1.2.10 HIER, weil die Ueberschrift den
+                  // Split nennt. Waehrend eines Trainings gibt es keine Planwahl --
+                  // ohne diese Zeile stuende nirgends mehr, welcher Plan laeuft,
+                  // und die Uebungsliste allein beantwortet das nicht. ?>
             <?php if ($alt): ?>
-                <strong>Deine Einheit läuft seit <?= h(format_datetime($offen['started_at'])) ?>.</strong>
+                <strong>„<?= h((string)$plan['name']) ?>“ läuft seit <?= h(format_datetime($offen['started_at'])) ?>.</strong>
                 <p class="matt">
                     Das ist länger als 12 Stunden her — fortsetzen oder beenden?
                     Nichts wird automatisch geschlossen.
                 </p>
             <?php else: ?>
-                <strong>Einheit läuft</strong>
+                <strong>„<?= h((string)$plan['name']) ?>“ läuft</strong>
                 <span class="matt">seit <?= h(format_datetime($offen['started_at'])) ?></span>
             <?php endif; ?>
 
@@ -202,7 +216,35 @@ require __DIR__ . '/lib/view_header.php';
         </div>
     <?php elseif ($plan !== null): ?>
         <div class="karte">
-            <strong>Vorgeschlagen: <?= h((string)$plan['name']) ?></strong>
+            <?php // Reihenfolge seit 1.2.10, auf Ansage des Benutzers: erst die
+                  // Wahl (welcher Plan?), dann was der Start bedeutet, dann der
+                  // Start selbst, zuletzt der Weg hinaus. Vorher stand der Knopf
+                  // vor seiner eigenen Erklaerung und die Wahl darunter.
+                  //
+                  // "Vorgeschlagen: ..." ist ERSATZLOS entfallen. Der Vorschlag
+                  // selbst ist unveraendert -- naechster_plan() entscheidet
+                  // weiter, welcher Knopf beim Aufruf blau ist (Fallstrick 21);
+                  // er hat nur keine eigene Zeile mehr, weil der blaue Knopf
+                  // dieselbe Aussage trifft. ?>
+
+            <?php // Immer, auch bei nur EINEM Plan: Die Reihe ist nicht bloss
+                  // Auswahl, sie nennt den Plan. Seit die Ueberschrift den Split
+                  // traegt, stuende sein Name sonst nirgends. ?>
+            <div class="plan-wahl">
+                <?php foreach ($plaene as $p): ?>
+                    <a href="?plan=<?= (int)$p['id'] ?>"
+                       class="<?= (int)$p['id'] === $planId ? 'aktiv' : '' ?>">
+                        <?= h((string)$p['name']) ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+
+            <p class="matt">
+                Startet die Einheit mit der aktuellen Uhrzeit. Erst danach lassen
+                sich Übungen abhaken und für heute tauschen — bloßes Durchsehen
+                beginnt kein Training.
+            </p>
+
             <?php // Punkt 7 der Rückmeldungen: Ohne diesen Knopf entstand die Einheit
                   // erst beim Abhaken der ersten Übung -- der Zeitstempel war damit ihr
                   // ENDE, nicht der Trainingsbeginn. Für die Auswertung wären alle
@@ -211,29 +253,13 @@ require __DIR__ . '/lib/view_header.php';
                 <button type="button" id="einheit-starten"
                         data-plan="<?= (int)$planId ?>">Training starten</button>
             </p>
-            <p class="matt">
-                Startet die Einheit mit der aktuellen Uhrzeit. Erst danach lassen
-                sich Übungen abhaken und für heute tauschen — bloßes Durchsehen
-                beginnt kein Training.
-            </p>
 
-            <?php if (count($plaene) > 1): ?>
-                <div class="plan-wahl">
-                    <?php foreach ($plaene as $p): ?>
-                        <a href="?plan=<?= (int)$p['id'] ?>"
-                           class="<?= (int)$p['id'] === $planId ? 'aktiv' : '' ?>">
-                            <?= h((string)$p['name']) ?>
-                        </a>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-
-            <?php // Welcher Split gilt gerade -- und der Weg zu einem anderen.
-                  // Ohne diese Zeile waere der Plan-Vorschlag nicht einzuordnen,
-                  // sobald jemand mehr als einen Split fuehrt. ?>
+            <?php // Der Weg zu einem anderen Split. WELCHER Split gilt, steht seit
+                  // 1.2.10 in der Ueberschrift -- hier bleibt nur noch die Aktion,
+                  // und die ist ein Link und kein Knopf: Sie fuehrt weg von der
+                  // Seite und steht damit unter allem, was hier zu tun ist. ?>
             <p class="matt split-zeile">
-                Split: <strong><?= h((string)$split['name']) ?></strong>
-                · <a href="<?= h(base_path()) ?>/splits.php">wechseln</a>
+                Aktuellen Split <a href="<?= h(base_path()) ?>/splits.php">wechseln</a>
             </p>
         </div>
     <?php endif; ?>

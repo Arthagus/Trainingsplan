@@ -13,7 +13,7 @@ services:
     # Muss mit der Datei VERSION im Projektverzeichnis uebereinstimmen -- die
     # Wartungsseite zeigt deren Inhalt als laufende Version an.
     # deploy/paket_bauen.sh prueft das und packt sonst nicht.
-    image: trainingsplan:1.2.9
+    image: trainingsplan:1.2.10
     container_name: trainingsplan
     restart: unless-stopped
 

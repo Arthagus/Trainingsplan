@@ -852,7 +852,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       Gewichte nie mit `===`: 40.0 aus der Datenbank und 40.0 aus der Eingabe sind dasselbe
       Gewicht, aber nicht zwingend dasselbe Bitmuster.
 
-19. **Fünf Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Selektor.
+19. **Sechs Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Schleier der erledigten Karte.
 
     **(a) Was sich im Sekundentakt ändert, darf nichts verschieben.** Der wartende Zustand trug
     einmal einen Hinweissatz in der Karte — sie wurde beim Speichern höher und danach wieder
@@ -889,10 +889,9 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     verdeckt.
 
     **`#leisten` (`lib/view_header.php`) ist der gemeinsame Behälter** und trägt als
-    einziges Element `position: sticky; top: 0`. Darin liegen die Leisten normal im Fluss:
-    die Trainingsleiste (nur `index.php` bei laufender Einheit) und darunter die
-    Verbindungsleiste (auf jeder Seite, meist ausgeblendet). Zwei Elemente mit eigenem
-    `top: 0` legten sich übereinander.
+    einziges Element `position: sticky; top: 0`. Darin liegen die Trainingsleiste (nur
+    `index.php` bei laufender Einheit) und darunter die Verbindungsleiste (auf jeder Seite,
+    meist ausgeblendet). Zwei Elemente mit eigenem `top: 0` legten sich übereinander.
 
     **Die Reihenfolge im Stapel ist nach BESTÄNDIGKEIT sortiert, nicht nach Wichtigkeit.**
     Die Verbindungsleiste stand einmal oben, mit der plausiblen Begründung „ist das Netz
@@ -900,14 +899,61 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     Sekundenbruchteile und schob dabei die Trainingsleiste hin und her. **Wer eine weitere
     Leiste ergänzt, sortiert sie danach ein: dauerhaft nach oben, flüchtig nach unten.**
 
-    `zurAktivenSpringen()` misst **den Stapel** per `offsetHeight`, nicht seine Kinder — die Höhe des Behälters
-    stimmt von selbst, auch wenn keine, eine oder beide Leisten sichtbar sind. **Wer eine
+    **Die Sortierung allein genügt nicht — eine flüchtige Leiste darf im Stapel gar keinen
+    Platz belegen.** Sie hielt zwar die Trainingsleiste ruhig, aber nicht die Seite
+    darunter: Der ganze Inhalt wanderte bei jedem Abhaken eine Zeilenhöhe hinunter und
+    gleich wieder hinauf.
+
+    **Gemeldet wurde das nur vom iPhone, und daraus folgt eine allgemeine Regel: „Auf
+    meinem Gerät ruhig" belegt nicht, dass keine Layoutänderung stattfindet.** Chromium und
+    Firefox haben **Scroll Anchoring** (`overflow-anchor`) — wächst oberhalb des
+    Sichtbereichs Layout nach, ziehen sie die Scrollposition mit, und das Sichtbare steht
+    still; es sieht aus wie ein sauberes Überblenden. WebKit setzt das nicht um. Am Pixel
+    war der Fehler also unsichtbar, am iPhone offensichtlich, und die Ursache dieselbe.
+    Der Ausgleich hat zudem eine Lücke: Bei Scrollposition 0 kann er nicht nach oben
+    korrigieren — oben in der Seite schob es auch in Chrome.
+
+    Seit `1.2.10` trägt die Verbindungsleiste im flüchtigen Zustand
+    („… wird gespeichert") deshalb `.leiste-schwebt` — `position: absolute; top: 100%`,
+    also unter der Unterkante des Stapels, ohne dessen Höhe zu ändern. **Im dauerhaften
+    Zustand („Keine Verbindung") läuft sie weiter im Fluss mit**, und das ist kein
+    Schönheitsfehler: Schwebend verdeckte sie eine Zeile, die niemand mehr zu Gesicht
+    bekäme. Der Tausch lautet *einmal verschieben bei einem echten Zustandswechsel* gegen
+    *nie zappeln*; gesetzt wird die Klasse in `verbindung._zeichnen()` und nur, wenn die
+    Leiste wirklich im Stapel hängt (`_imStapel`) — im Rückfall `.leiste-allein` fehlt der
+    Bezugsrahmen.
+
+    `zurAktivenSpringen()` misst deshalb die **unterste Kante** des Stapels und seiner
+    Kinder (`getBoundingClientRect().bottom`), nicht `offsetHeight`: Eine schwebende Leiste
+    zählt zur Höhe des Behälters nicht mehr mit, verdeckt aber weiterhin, was darunter
+    liegt — und sie ist genau beim Abhaken sichtbar, also genau dann, wenn gesprungen wird.
+    Über die Kanten gerechnet stimmt der Versatz in beiden Fällen von selbst. **Wer eine
     weitere Leiste ergänzt, muss an der Scroll-Rechnung nichts ändern.**
 
     **(e) `.saetze-kopf` allein reicht als Selektor nicht.** `.summary-knopf` steht weiter unten
     in derselben Datei und hat dieselbe Spezifität, also gewinnt die spätere Regel. Deshalb
     `.saetze-block > .saetze-kopf`. Wer einen `.summary-knopf` umfärben will, braucht
     denselben Griff — sonst passiert schlicht nichts, ohne Fehlermeldung.
+
+    **(f) Zurücktreten heißt DUNKLER, nicht blasser.** Die erledigte Karte liegt seit
+    `1.2.10` unter einem Schleier (`.position-karte::after`, `--schrift` bei 12 %). Der
+    naheliegende Griff — `opacity` auf die Karte oder ein heller Schleier — bewirkt das
+    Gegenteil des Gewollten: Gegen den weißen Grund verblasst dabei der **Text**
+    (14,8:1 → 3,5:1), während die Fläche fast weiß bleibt. Ein dunkler Schleier dunkelt die
+    Fläche ab und lässt den Text in Ruhe (11,7:1), weil beide fast dieselbe Farbe haben.
+    Nach oben begrenzt der **matte** Text: Bei 14 % steht er auf 4,50:1, also exakt auf der
+    AA-Grenze. Die ganze Rechnung steht bei der Regel im Stylesheet.
+
+    Drei Dinge hängen daran: Der Schleier liegt auf **jeder** Positionskarte und ist nur
+    unsichtbar — sonst gäbe es beim Abhaken nichts zu überblenden. `inset: 0` deckt die
+    Padding-Box ab, der farbige Balken aus (c) bleibt also in voller Kraft. Und
+    `.zeile-fehler` **schlägt** ihn: Beides zugleich gibt es wirklich, und ein fehlgeschlagenes
+    Speichern sichtbar zu halten ist wichtiger. Über dem Schleier liegt allein `.erledigt-wahl`
+    — der Weg zurück muss sichtbar bleiben; „Tauschen" ist dort ohnehin gesperrt (§7.5).
+
+    **Getönt wird `done = 1`, nicht die bloße Existenz einer Protokollzeile** (Fallstrick 18):
+    Im Expertenmodus tritt die Karte erst mit dem Häkchen zurück, nicht schon mit dem ersten
+    Satz — am gerenderten HTML nachgesehen, nicht gefolgert.
 
 20. **Der verzögerte Satz-Speicher muss vor Beenden und Tauschen ausgelöst werden**
     (`satzSpeichernJetzt()` in `index.js`). Änderungen gehen erst 800 ms nach der letzten

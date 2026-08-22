@@ -302,6 +302,10 @@ function verbindungsFehler(abgelaufen) {
 const verbindung = {
     _erreichbar: true,
     _wartend: 0,
+    // Haengt die Leiste im Leisten-Stapel? Nur dann darf sie schweben -- im
+    // Rueckfall (siehe _element()) fehlt der Bezugsrahmen, und `absolute`
+    // bezoege sich auf das Dokument statt auf den Stapel.
+    _imStapel: false,
 
     /** Von apiFetch gesetzt: Hat der letzte Aufruf den Server erreicht? */
     erreichbar(ja) {
@@ -352,6 +356,7 @@ const verbindung = {
             const stapel = qs('#leisten');
             if (stapel) {
                 stapel.appendChild(el);
+                this._imStapel = true;
             } else {
                 el.classList.add('leiste-allein');
                 document.body.insertBefore(el, document.body.firstChild);
@@ -377,6 +382,26 @@ const verbindung = {
         const el = this._element();
         el.textContent = text;
         el.classList.toggle('verbindung-weg', weg);
+
+        // Der fluechtige Fall schwebt, der dauerhafte nicht.
+        //
+        // "... wird gespeichert" erscheint bei JEDEM Abhaken fuer einen
+        // Sekundenbruchteil. Belegte sie dabei Platz im Stapel, schoebe sie die
+        // ganze Seite nach unten und gleich wieder hinauf -- genau das war am
+        // 2026-08-23 vom iPhone gemeldet. Auf einem Pixel fiel es nie auf: Dort
+        // gleicht Scroll Anchoring die Layoutaenderung durch Mitziehen der
+        // Scrollposition aus, WebKit kennt das nicht (siehe Stylesheet).
+        // Schwebend aendert sie die Hoehe des Stapels
+        // nicht und verschiebt deshalb nichts; sie verdeckt fuer diesen Moment
+        // die oberste Zeile darunter, und das ist der guenstigere Tausch.
+        //
+        // "Keine Verbindung zum Server" bleibt dagegen stehen, bis das Netz
+        // zurueck ist. Schwebend verdeckte sie dauerhaft eine Zeile, die
+        // niemand mehr zu Gesicht bekaeme -- also laeuft sie im Fluss mit und
+        // schiebt einmal. Ein einmaliges Verschieben bei einem echten
+        // Zustandswechsel ist kein Zappeln.
+        el.classList.toggle('leiste-schwebt', this._imStapel && !weg);
+
         el.hidden = text === '';
     },
 };

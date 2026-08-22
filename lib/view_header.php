@@ -101,6 +101,14 @@ function nav_item(
       // fuer die zweite waere falsch: Die Verbindungsleiste ist meistens gar
       // nicht da und kann auf schmalen Geraeten zweizeilig werden.
       //
+      // Seit 1.2.10 belegt die Verbindungsleiste in ihrem FLUECHTIGEN Zustand
+      // ("... wird gespeichert") gar keinen Platz mehr im Stapel, sondern
+      // schwebt unter dessen Unterkante (`.leiste-schwebt`). Die Sortierung
+      // nach Bestaendigkeit hielt zwar die Trainingsleiste ruhig, aber nicht
+      // die Seite darunter: Die wanderte bei jedem Abhaken eine Zeilenhoehe
+      // hinunter und gleich wieder hinauf. Bei "Keine Verbindung" laeuft die
+      // Leiste weiterhin im Fluss mit -- Einzelheiten im Stylesheet.
+      //
       // Der eigentliche Gewinn steckt aber woanders: zurAktivenSpringen() in
       // index.js muss beim Weiterspringen die Hoehe dessen abziehen, was oben
       // klebt (Fallstrick 19). Mit dem Stapel ist das EINE Messung, die von

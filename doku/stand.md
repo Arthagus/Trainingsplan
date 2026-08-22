@@ -9,7 +9,7 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 **Diese Datei nach jedem Rollout nachziehen.**
 
-*Letzte Aktualisierung: 2026-08-21*
+*Letzte Aktualisierung: 2026-08-23*
 
 ---
 
@@ -17,9 +17,9 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.9` — gemessen am 2026-08-21: `app.js?v=1.2.9`, vom Benutzer am Gerät gegengeprüft |
-| **Arbeitsstand** | `1.2.9`, deckungsgleich mit live |
-| **Rollback-Ziel** | `trainingsplan:1.2.8` — dieses Image in Portainer stehen lassen |
+| **Live** | `trainingsplan:1.2.10` — gemessen am 2026-08-23: `style.css?v=1.2.10` und `app.js?v=1.2.10`. Die Gegenprobe am Gerät steht aus: *Offen*, Punkt 1 |
+| **Arbeitsstand** | `1.2.10`, deckungsgleich mit live |
+| **Rollback-Ziel** | `trainingsplan:1.2.9` — dieses Image in Portainer stehen lassen |
 
 **Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
 lässt, unmittelbar danach ein — am 2026-08-19 ausdrücklich so festgelegt. Daraus folgt für
@@ -62,7 +62,47 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
 
 ## Offen
 
-1. **Studio-Erprobung der Splits** (`1.2.0` bis `1.2.4`) — **angekündigt für den
+1. **Gegenprobe am Gerät zu `1.2.10`** — die Version ist ausgerollt, aber alle drei Punkte
+   sind rein optisch und deshalb **ungeprüft**, bis der Benutzer sie gesehen hat.
+   Gemeldet am 2026-08-23 vom iPhone: Der Balken
+   „… wird gespeichert" erschien an der richtigen Stelle, schob dabei aber die ganze Seite
+   eine Zeilenhöhe nach unten und beim Verschwinden wieder hinauf, also bei **jedem**
+   Abhaken. Er schwebt jetzt unter dem Leisten-Stapel, statt darin Platz zu belegen
+   (`.leiste-schwebt`, Fallstrick 19d).
+
+   **Auf dem Pixel war das nie zu sehen** — dort gleicht Scroll Anchoring die
+   Layoutänderung aus, WebKit kennt das nicht. **Die Gegenprobe gehört deshalb aufs
+   iPhone**; ein ruhiges Bild am Pixel sagt hier nichts, es sagte auch vorher nichts:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Übung abhaken | Der Balken blitzt auf, **nichts darunter bewegt sich** — Trainingsleiste, Kopfzeile und Kartenliste stehen still |
+   | Weiterspringen danach | Die nächste Karte landet **unter** dem Balken, nicht dahinter — der Übungsname bleibt lesbar |
+   | Flugmodus einschalten, abhaken | „Keine Verbindung …" **darf** einmal schieben und muss stehen bleiben, ohne den Inhalt darunter zu verdecken |
+
+   **Dazu der Schleier auf erledigten Karten** (12 %, blendet in 150 ms ein). Zu beurteilen
+   ist beides am Gerät, im Studiolicht:
+
+   | Was | Worauf zu achten ist |
+   |---|---|
+   | Übung abhaken | Die Karte tritt sichtbar zurück, **Name, Gruppen und „zuletzt …" bleiben gut lesbar** — sonst geht der Schleier eine Stufe herunter |
+   | Erledigte Karte | „Erledigt" mit blauem Häkchen bleibt klar erkennbar. Reicht das nicht, wird daraus eine weiße Insel (zwei Zeilen CSS, am 2026-08-23 bewusst verworfen) |
+   | Häkchen wieder entfernen | Der Schleier verschwindet vollständig, die Karte ist wieder weiß |
+   | Expertenmodus, erster Satz ohne Häkchen | **Kein** Schleier — protokolliert ist nicht erledigt (Fallstrick 18) |
+
+   **Und der entdoppelte Kopf der Trainingsseite** (§7.2): Der Planname stand dreimal
+   übereinander — als Überschrift, als „Vorgeschlagen: …" und als blauer Knopf. Die
+   Überschrift nennt jetzt fest den **Split**, die mittlere Zeile ist weg, und die Zeile
+   unter den Knöpfen heißt nur noch „Aktuellen Split wechseln". Am Gerät zu beurteilen:
+
+   | Was | Worauf zu achten ist |
+   |---|---|
+   | Auswahlzustand | Überschrift = Splitname; darunter Knopfreihe, Erklärsatz, „Training starten", „Aktuellen Split wechseln" — in dieser Reihenfolge |
+   | Plan umschalten | Die Überschrift bleibt stehen, nur der blaue Knopf wandert |
+   | Laufende Einheit | Der Kasten nennt den Plan („Pull A" läuft seit …) — sonst stünde er nirgends |
+   | Split mit nur einem Plan | Die Knopfreihe steht trotzdem, sonst fehlt der Planname |
+
+2. **Studio-Erprobung der Splits** (`1.2.0` bis `1.2.4`) — **angekündigt für den
    2026-08-19**. Die `1.1.x`-Reihe ist im Studio erprobt; alles seit `1.2.0` noch nicht.
    Was `curl` nicht sehen kann:
 
@@ -75,14 +115,14 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    | ⇈ / ⇊ an einer Übung | Vier Pfeile in einer Zeile noch treffsicher |
    | **Vorlagenkarte OHNE Adminrecht** (`1.2.6`) | Eine Zeile: „Zu mir kopieren" links, „Als Text" rechts. **Als Einziges aus `1.2.5`/`1.2.6` noch ungesehen** — der Benutzer ist Admin und bekommt an derselben Karte die volle Verwaltungsreihe. Es braucht ein Konto ohne Adminrecht |
 
-2. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden, jetzt auf der Kontoseite)
+3. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden, jetzt auf der Kontoseite)
    und die Gerätehälfte von 19 (Expertenmodus). Die Gegenprobe der *Darstellung* deckt sie
    nicht ab; es sind einzelne, benannte Abläufe.
-3. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
+4. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
    frische Sicherung *mit* Bildern vor, und damit erstmals eine, deren Einspielen den
    aktuellen Datenstand wiederherstellen würde statt ihn zurückzudrehen. Bisher fehlte genau
    dieses Stück. Wer es durchspielt, sollte danach ab- und neu anmelden (Fallstrick 14).
-4. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
+5. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
    Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
    Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
    kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
@@ -90,7 +130,7 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    ist zusätzlich die Spalte *Ausführung* dort überholt** — sie trägt den Wortlaut der
    Aufbauphase, und der ist inzwischen bei jeder Übung ein anderer. Ein Grund mehr, die
    Tabelle zu streichen statt sie nachzuziehen.
-5. **Sechs Fragen an die Übungsdaten** (2026-08-16, beim Überarbeiten der Texte aufgefallen).
+6. **Sechs Fragen an die Übungsdaten** (2026-08-16, beim Überarbeiten der Texte aufgefallen).
    Alle sind Sachentscheidungen, keine Textfragen, und deshalb **unverändert gelassen**:
 
    | Übung | Was nicht zusammenpasst |

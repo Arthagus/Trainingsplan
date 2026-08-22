@@ -770,8 +770,25 @@
         // genau die Stelle, an der man die dritte Leiste vergisst; die Höhe des
         // Behälters stimmt dagegen von selbst. Ausgeblendete Kinder tragen
         // nichts bei, ein leerer Stapel misst 0.
+        //
+        // Gemessen wird die UNTERSTE KANTE, nicht offsetHeight: Seit 1.2.10
+        // schwebt die Verbindungsleiste im fluechtigen Zustand
+        // (position: absolute, damit sie beim Auftauchen nichts verschiebt) und
+        // zaehlt damit nicht mehr zur Hoehe des Stapels. Sie verdeckt aber
+        // weiterhin, was darunter liegt -- und sie ist beim Abhaken sichtbar,
+        // also genau dann, wenn hier gesprungen wird. Ueber die Kanten aller
+        // Kinder gerechnet stimmt der Versatz in beiden Faellen von selbst;
+        // eine Aufzaehlung einzelner Leisten waere wieder die Stelle, an der
+        // man die naechste vergisst.
         const stapel = qs('#leisten');
-        const versatz = stapel ? stapel.offsetHeight : 0;
+        let versatz = 0;
+        if (stapel) {
+            versatz = stapel.getBoundingClientRect().bottom;
+            for (const kind of stapel.children) {
+                if (kind.hidden) continue;
+                versatz = Math.max(versatz, kind.getBoundingClientRect().bottom);
+            }
+        }
 
         // Dazu eine Handbreit Luft, damit die Karte nicht bündig am Rand klebt.
         const LUFT = 8;

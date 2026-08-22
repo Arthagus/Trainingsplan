@@ -881,6 +881,90 @@ button.gefahr { background: var(--fehler); }
    entscheidet also die Reihenfolge im Stylesheet. */
 .zeile-wartet     { border-left-style: dashed; }
 
+/* --- Erledigte Karte: der Schleier ---------------------------------------- */
+
+/* Der blaue Balken allein sagte zu leise, dass eine Übung erledigt ist — im
+   Studio sucht man beim Blick aufs Handy die nächste offene Position, und dafür
+   muss das Abgehakte zurücktreten. Die ganze Kartenfläche bekommt deshalb einen
+   grauen Schleier; lesbar bleibt sie ausdrücklich.
+
+   WARUM EIN DUNKLER SCHLEIER UND NICHT `opacity`. Das ist die Stelle, an der der
+   naheliegende Griff das Gegenteil bewirkt, deshalb nachgerechnet gegen die
+   Palette:
+
+     Verfahren                     Fläche      Haupttext   matter Text
+     heute (weiße Karte)           #ffffff     14,76:1     5,09:1
+     Schleier #1f2933 @ 12 %       #e4e5e7     11,71:1     4,61:1
+     opacity 0.55                  #ffffff      3,53:1      —
+     weißer Schleier @ 50 %        #ffffff      3,06:1      —
+
+   `opacity` und ein heller Schleier lassen die Karte gegen den weißen Grund
+   verblassen — dabei verliert ausgerechnet der TEXT seinen Kontrast, und die
+   Fläche bleibt fast weiß. Der dunkle Schleier tut das Umgekehrte: Er dunkelt
+   die Fläche ab und lässt den Text praktisch in Ruhe, weil Text und Schleier
+   fast dieselbe Farbe haben. Deshalb 12 % von --schrift.
+
+   NACH OBEN BEGRENZT DER MATTE TEXT, nicht der Haupttext („zuletzt 40 kg",
+   --schrift-matt): Bei 14 % steht er auf 4,50:1 und damit exakt auf der
+   AA-Grenze, darüber fällt er darunter. Wer den Schleier kräftiger will, muss
+   im selben Zug --schrift-matt in der erledigten Karte anheben.
+
+   Zum Maßstab, wie deutlich 12 % sind: Weiße Karte gegen verschleierte Karte
+   sind 1,26:1 — der Unterschied zwischen weißer Karte und Seitenhintergrund,
+   den man ohne Nachdenken sieht, beträgt 1,10:1.
+
+   Die Fläche stammt aus einem eigenen Layer und nicht aus `background`: So
+   werden Bild, Geräteabzeichen und Muskelgruppen ohne eigene Regel mitgedämpft.
+   Eine Liste einzelner Elemente wäre die Stelle, an der man das nächste
+   farbige Ding vergisst.
+
+   `inset: 0` deckt die PADDING-Box ab, nicht den Rahmen — der farbige Balken
+   am linken Rand bleibt also in voller Kraft, und das Leitsystem aus (c) bleibt
+   lesbar. `pointer-events: none` ist Pflicht: Sonst schluckt der Layer jeden
+   Griff nach Bild, Satzblock und Häkchen.
+
+   Der Layer liegt auf JEDER Positionskarte und ist nur unsichtbar. Entstünde er
+   erst mit der Klasse, gäbe es nichts zu überblenden, und der Schleier spränge
+   hart an; so blendet er in 150 ms. Bewegt wird dabei nichts — nur Deckkraft,
+   Fallstrick 19 (a) bleibt gewahrt. */
+.position-karte { position: relative; }
+
+.position-karte::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(31, 41, 51, 0.12);   /* --schrift, siehe Rechnung oben */
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+}
+
+.zeile-erledigt::after { opacity: 1; }
+
+/* Der Weg zurück muss sichtbar bleiben: „Erledigt" liegt ÜBER dem Schleier,
+   damit man auf einen Blick sieht, wo man die Übung wieder öffnet. Bewusst ohne
+   eigenen Hintergrund (Entscheidung des Benutzers am 2026-08-23) — die Zeile
+   soll sich nicht als weiße Insel aus der Karte lösen.
+
+   Den Unterschied macht dabei weniger der Text als das Ankreuzfeld: Dunkler
+   Text gewinnt unter dem Schleier ohnehin fast nichts (11,7:1 gegen 11,7:1),
+   das blaue Häkchen dagegen leuchtet ungedämpft.
+
+   Nur das Häkchen, nicht die ganze Aktionszeile: „Tauschen" ist an einer
+   erledigten Position ohnehin gesperrt (§7.5) und gehört zurückgenommen. */
+.zeile-erledigt .erledigt-wahl {
+    position: relative;
+    z-index: 1;
+}
+
+/* Ein fehlgeschlagenes Speichern schlägt den Schleier. Beides zugleich gibt es
+   wirklich — ab-wählen kann scheitern, dann steht die Karte noch als erledigt
+   da und ist bereits rot markiert. Der Schleier über dem zarten Rosa ergäbe ein
+   schmutziges Grau und nähme der Warnung ihre Farbe; sichtbar unbestätigt zu
+   bleiben ist wichtiger als der Hinweis, dass hier schon abgehakt war. */
+.zeile-erledigt.zeile-fehler::after { opacity: 0; }
+
 /* --- Leisten-Stapel ------------------------------------------------------- */
 
 /* Der Stapel klebt, die Leisten darin nicht. Warum, steht ausführlich in
@@ -909,6 +993,48 @@ button.gefahr { background: var(--fehler); }
 }
 
 .verbindungs-leiste.verbindung-weg { background: var(--fehler); }
+
+/* Der flüchtige Zustand („… wird gespeichert") SCHWEBT unter dem Stapel, statt
+   in ihm Platz zu belegen.
+
+   Grund: Im Fluss wächst der Stapel beim Einblenden um eine Zeile und schiebt
+   alles darunter nach unten — beim Ausblenden wieder hinauf. Weil die Leiste
+   bei JEDEM Abhaken für den Bruchteil einer Sekunde erscheint, sprang die
+   ganze Seite bei jeder Eingabe hin und her. Die Sortierung nach Beständigkeit
+   in 1.1.14 hat nur die Trainingsleiste ruhiggestellt, nicht den Inhalt
+   darunter. Das ist dieselbe Regel wie bei .zeile-wartet: Was von selbst kommt
+   und geht, darf nichts verschieben — und zwar auch nicht die halbe Seite.
+
+   GEMELDET WURDE ES NUR VOM IPHONE, und das ist der lehrreiche Teil: Auf einem
+   Pixel blieb die Seite ruhig, die Leiste schien den Inhalt sauber zu
+   überblenden. Sie tat es nicht — Chromium und Firefox haben SCROLL ANCHORING
+   (`overflow-anchor`): Wächst oberhalb des Sichtbereichs Layout nach, ziehen
+   sie die Scrollposition um denselben Betrag mit, und das Sichtbare steht
+   still. WebKit setzt das nicht um, dort schlägt dieselbe Layoutänderung
+   ungefedert durch. Die Ursache war also auf beiden Geräten dieselbe, nur eine
+   Engine glich sie aus.
+
+   Zwei Lehren daraus, beide über diesen Fall hinaus: „Auf meinem Gerät ruhig"
+   ist KEIN Beleg dafür, dass eine Layoutänderung ausbleibt — es kann heißen,
+   dass der Browser sie ausbügelt. Und der Ausgleich hat selbst eine Lücke: Bei
+   Scrollposition 0 kann er nicht nach oben korrigieren, dort schob es auch in
+   Chrome. Wer sich darauf verlässt, hat den Fehler oben in der Seite noch.
+
+   `top: 100%` hängt sie an die Unterkante des Stapels, egal wie hoch der
+   gerade ist; der Stapel ist `position: sticky` und damit der Bezugsrahmen.
+   Deckend, nicht durchscheinend — sonst läge Text auf Text.
+
+   NUR für den flüchtigen Fall. „Keine Verbindung zum Server" bleibt stehen,
+   bis das Netz zurück ist, und darf den Inhalt darunter nicht dauerhaft
+   verdecken; die Leiste läuft dort weiter im Fluss mit und schiebt einmal —
+   bei einem echten Zustandswechsel ist das richtig. Gesetzt wird die Klasse in
+   assets/app.js, und nur wenn die Leiste wirklich im Stapel hängt. */
+.verbindungs-leiste.leiste-schwebt {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+}
 
 /* Rückfall für Seiten ohne Leisten-Stapel: Dann klebt die Leiste selbst, so
    wie bis 1.1.13. Greift heute nirgends — alle Seiten binden view_header.php
@@ -1079,11 +1205,13 @@ button.sperr-knopf {
 
 .fortschritt { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0; }
 
+/* Seit 1.2.10 das ERSTE Element des Auswahlkastens (vorher stand sie unter
+   Knopf und Erklärung), deshalb ohne eigenen Abstand nach oben — das Polster
+   der Karte genügt. */
 .plan-wahl {
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
-    margin-top: 0.5rem;
 }
 
 .plan-wahl a {
