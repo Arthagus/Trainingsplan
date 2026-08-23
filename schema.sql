@@ -216,12 +216,29 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_ip_time
 -- derselbe Benutzer darf mehrere Fassungen einer Vorlage nebeneinander halten
 -- ("Push / Pull" und "Push / Pull (2)"). Die Unterscheidung ist Sache des
 -- Namens, nicht der Datenbank.
+-- vorlage_id: aus WELCHER Vorlage diese Kopie stammt (seit 1.2.11, §6.4).
+--
+-- Bis 1.2.10 gab es diesen Verweis ausdruecklich NICHT -- eine Kopie war von
+-- ihrer Vorlage vollstaendig geloest, und Fallstrick 24 sagte, wer ihn je
+-- einbaue, nehme der Kopie ihren Zweck. Das gilt weiterhin fuer den BETRIEB:
+-- Es gibt keine Vererbung, kein automatisches Nachziehen, keine Rueckwirkung
+-- von der Kopie auf die Vorlage. Der Verweis ist reine Herkunftsangabe und
+-- wird an genau EINER Stelle ausgewertet -- "Auf Vorlage zurücksetzen", und
+-- das nur, wenn der Benutzer ihn drueckt.
+--
+-- ON DELETE SET NULL: Verschwindet die Vorlage, verliert die Kopie ihre
+-- Herkunft und der Knopf mit ihr. Richtig so -- es gaebe nichts mehr, womit
+-- man abgleichen koennte.
+--
+-- NULL heisst "keine Vorlage bekannt" und ist der Normalfall: selbst angelegte
+-- Splits, die Migration aus 1.2.0, und jede Vorlage selbst.
 CREATE TABLE IF NOT EXISTS splits (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
     name         TEXT    NOT NULL,
     beschreibung TEXT,
     sort_order   INTEGER NOT NULL DEFAULT 0,
+    vorlage_id   INTEGER REFERENCES splits(id) ON DELETE SET NULL,
     created_at   TEXT    NOT NULL
 );
 

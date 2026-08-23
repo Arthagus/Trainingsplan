@@ -174,6 +174,40 @@
             return;
         }
 
+        const zuruecksetzen = e.target.closest('.split-zuruecksetzen');
+        if (zuruecksetzen) {
+            const vorlage = qs('.split-vorlage', zeile);
+            const wahl    = vorlage ? vorlage.options[vorlage.selectedIndex] : null;
+
+            // Die Vorschau kommt von der VORLAGENKARTE und nicht von der
+            // eigenen: Gefragt ist, wie der Split danach aussieht, nicht wie
+            // er jetzt aussieht. Beide Karten stehen auf derselben Seite.
+            const vorlageId = vorlage ? Number(vorlage.value) : 0;
+            const quelle    = vorlageId ? qs('.split[data-id="' + vorlageId + '"]') : null;
+            const plaene    = quelle ? (qs('.split-plaene', quelle)?.textContent.trim() ?? '') : '';
+
+            // Die Rueckfrage nennt BEIDE Folgen, und die zweite ist die, die
+            // man nicht erwartet: Eigene Anpassungen sind weg -- damit rechnet
+            // man --, aber eine Uebung, die es in der Vorlage nicht mehr gibt,
+            // verliert ausserdem den Bezug ihrer bereits protokollierten
+            // Saetze zur Planposition (ON DELETE SET NULL). Die Saetze selbst
+            // bleiben im Verlauf stehen, nur ihre Position ist danach leer.
+            if (!window.confirm(
+                'Den Split „' + name + '“ auf die Vorlage '
+                + (wahl ? '„' + wahl.textContent.trim() + '“ ' : '')
+                + 'zurücksetzen?\n\n'
+                + (plaene ? 'Danach: ' + plaene + '\n\n' : '')
+                + 'Eigene Änderungen an Plänen und Übungen dieses Splits gehen dabei '
+                + 'verloren. Bereits protokollierte Einheiten bleiben im Verlauf '
+                + 'stehen; bei Übungen, die aus der Vorlage verschwunden sind, '
+                + 'fehlt danach die Zuordnung zur Planposition.'
+            )) {
+                return;
+            }
+            senden(zeile, { action: 'reset', id }, zuruecksetzen);
+            return;
+        }
+
         const loeschen = e.target.closest('.split-loeschen');
         if (loeschen) {
             if (!window.confirm(
@@ -185,6 +219,31 @@
             }
             senden(zeile, { action: 'delete', id }, loeschen);
         }
+    });
+
+    // --- Herkunft zuordnen (§6.4) -------------------------------------------
+    //
+    // 'change' und nicht ein Speichern-Knopf: Die Zuordnung ist folgenlos --
+    // sie schaltet nur den Knopf "Auf Vorlage zurücksetzen" frei, sie aendert
+    // keinen einzigen Plan. Ein Bestaetigungsschritt fuer etwas, das nichts
+    // tut, waere ein Klick ohne Gegenwert.
+    //
+    // Danach wird neu geladen, wie ueberall auf dieser Seite: Ob der Knopf
+    // erscheint, haengt am Vergleich beider Fingerabdruecke, und den rechnet
+    // der Server. Ihn im Browser nachzubauen waere die Dublette, vor der der
+    // Kopfkommentar warnt.
+    document.addEventListener('change', (e) => {
+        const feld = e.target.closest('.split-vorlage');
+        if (!feld) return;
+
+        const zeile = feld.closest('.split[data-id]');
+        if (!zeile) return;
+
+        senden(zeile, {
+            action: 'set_vorlage',
+            id: Number(zeile.dataset.id),
+            vorlage_id: Number(feld.value),
+        }, null);
     });
 
     // --- Split als Text -----------------------------------------------------

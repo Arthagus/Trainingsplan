@@ -22,9 +22,14 @@ require_login();
  *                  danach vollstaendig.
  *
  * Es gibt bewusst KEINEN Weg, direkt auf einer Vorlage zu trainieren, und
- * keinen Abgleich zwischen Vorlage und Kopie. Aendert der Admin die Vorlage,
- * bleibt jede bestehende Kopie, wie sie ist; wer den neuen Stand will, kopiert
- * erneut und unterscheidet die beiden am Namen.
+ * keine Vererbung: Aendert der Admin die Vorlage, bleibt jede bestehende Kopie
+ * unberuehrt.
+ *
+ * Seit 1.2.11 gibt es dazu genau EINEN Weg zurueck, und der Benutzer geht ihn
+ * selbst: Weicht seine Kopie von der Vorlage ab -- weil er sie angepasst hat
+ * ODER weil der Admin die Vorlage verbessert hat --, erscheint an seiner Karte
+ * "Auf Vorlage zurücksetzen". Nichts daran passiert automatisch; ohne den
+ * Knopf bleibt alles, wie es ist.
  */
 
 $benutzer = current_user();
@@ -63,6 +68,11 @@ $splitTexte = split_texte(array_merge(
     array_column($dieVorlagen, 'id')
 ));
 
+// Herkunft und Abweichung der eigenen Splits (§6.4). Nur fuer die eigenen:
+// Eine Vorlage hat selbst keine Vorlage, und fremde Splits verwaltet niemand
+// von hier aus.
+$vorlageStand = vorlage_stand(array_column($meine, 'id'));
+
 $pageTitle = 'Splits';
 require __DIR__ . '/lib/view_header.php';
 
@@ -73,7 +83,9 @@ function split_karte(
     array $splitTexte,
     bool $eigener,
     int $aktivId,
-    bool $gesperrt
+    bool $gesperrt,
+    array $vorlagenListe = [],
+    array $vorlageStand = []
 ): void {
     $id     = (int)$sp['id'];
     $plaene = $planNamen[$id] ?? [];
@@ -109,7 +121,12 @@ function split_karte(
             <?php endif; ?>
         </div>
 
-        <p class="matt">
+        <?php // Die Klasse traegt die Vorschau nicht zur Zierde: splits.js liest
+              // sie AN DER VORLAGENKARTE aus, um in der Rueckfrage vor dem
+              // Zuruecksetzen zu sagen, wie der Split danach aussieht. Damit
+              // steht dort der server-gerenderte Stand und keine zweite,
+              // im Browser zusammengesetzte Fassung derselben Zeile. ?>
+        <p class="matt split-plaene">
             <?php if ($plaene === []): ?>
                 Noch kein Plan darin.
             <?php else: ?>
@@ -118,6 +135,48 @@ function split_karte(
             <?php endif; ?>
         </p>
         <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
+
+        <?php // --- Herkunft und Abgleich (§6.4, seit 1.2.11) ----------------
+              //
+              // Nur an eigenen Splits und nur, wenn es ueberhaupt Vorlagen
+              // gibt: Eine Vorlage hat selbst keine Vorlage, und ohne Katalog
+              // stuende hier ein leeres Auswahlfeld.
+              //
+              // Das Auswahlfeld steht dauerhaft da und nicht hinter einem
+              // Knopf. Es ist die einzige Stelle, an der ein vor 1.2.11
+              // entstandener Split seine Herkunft bekommt -- versteckt faende
+              // sie nur, wer schon weiss, dass es sie gibt. ?>
+        <?php if ($eigener && $vorlagenListe !== []):
+            $stand      = $vorlageStand[$id] ?? null;
+            $herkunft   = $stand === null ? 0 : $stand['vorlage_id'];
+            $abweichung = $stand !== null && $stand['weicht_ab'];
+        ?>
+        <p class="split-herkunft">
+            <label>
+                <span class="matt">Vorlage</span>
+                <select class="split-vorlage" aria-label="Vorlage dieses Splits">
+                    <option value="0" <?= $herkunft === 0 ? 'selected' : '' ?>>— keine —</option>
+                    <?php foreach ($vorlagenListe as $v): ?>
+                        <option value="<?= (int)$v['id'] ?>"
+                                <?= (int)$v['id'] === $herkunft ? 'selected' : '' ?>>
+                            <?= h((string)$v['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <?php // Der Knopf erscheint NUR bei Abweichung -- gleich, von
+                  // welcher Seite sie kommt: eigene Anpassung oder verbesserte
+                  // Vorlage. Stimmen beide ueberein, gaebe es nichts zu tun,
+                  // und ein wirkungsloser Knopf laedt zum Ausprobieren ein. ?>
+            <?php if ($abweichung): ?>
+                <button type="button" class="leise split-zuruecksetzen"
+                        <?= $gesperrt ? 'disabled title="Erst die laufende Einheit beenden"' : '' ?>>
+                    Auf Vorlage zurücksetzen
+                </button>
+            <?php endif; ?>
+        </p>
+        <?php endif; ?>
 
         <?php // Der Text liegt fertig in der Karte, unsichtbar. splits.js holt
               // ihn beim Antippen ueber .textContent -- damit steht in der
@@ -237,7 +296,8 @@ function split_karte(
 <?php else: ?>
     <ul id="meine-splits" class="liste-schlicht" data-aktiv="<?= $aktivId ?>">
         <?php foreach ($meine as $sp): ?>
-            <?php split_karte($sp, $planNamen, $splitTexte, true, $aktivId, $offen !== null); ?>
+            <?php split_karte($sp, $planNamen, $splitTexte, true, $aktivId, $offen !== null,
+                              $dieVorlagen, $vorlageStand); ?>
         <?php endforeach; ?>
     </ul>
 <?php endif; ?>

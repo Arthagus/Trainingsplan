@@ -120,8 +120,26 @@ const API_ZEITLIMIT_MS = 12000;
  */
 const API_ZEITLIMIT_UPLOAD_MS = 120000;
 
-/** Wartezeiten zwischen den automatischen Wiederholungen. */
-const API_PAUSEN_MS = [2000, 5000];
+/**
+ * Wartezeiten zwischen den automatischen Wiederholungen -- drei Pausen, also
+ * bis zu vier Versuche.
+ *
+ * Der ERSTE Wert ist kurz, und das ist der Punkt. Bis 1.2.10 stand hier
+ * [2000, 5000]: Scheiterte der erste Versuch sofort -- ein Aussetzer im WLAN,
+ * eine abgelaufene Verbindung, ein Funkloch von einer Zehntelsekunde --, wartete
+ * der Code stur zwei Sekunden, bevor er es erneut versuchte. Bei "Training
+ * starten" sah das so aus: Knopf blass, zwei Sekunden nichts, dann laeuft das
+ * Training. Gemeldet am 2026-08-23.
+ *
+ * Ein Aussetzer, der beim zweiten Versuch weg ist, ist nach 400 ms genauso weg
+ * wie nach 2000. Dafuer gibt es jetzt einen Umlauf mehr -- der schlimmste Fall
+ * sinkt trotzdem von 7 s auf 4,4 s Wartezeit, und ein laengerer Aussetzer hat
+ * eine Gelegenheit mehr, sich zu erholen.
+ *
+ * Fuer die Warteschlange aendert das wenig: Dort bleibt der Eintrag bei
+ * err.offline ohnehin liegen und wird vom eigenen Zeitgeber nachgeholt.
+ */
+const API_PAUSEN_MS = [400, 2000, 2000];
 
 function schlafen(ms) {
     return new Promise((fertig) => setTimeout(fertig, ms));
@@ -558,6 +576,291 @@ function qs(selektor, wurzel = document) {
 
 function qsa(selektor, wurzel = document) {
     return Array.from(wurzel.querySelectorAll(selektor));
+}
+
+/* --- Leisten-Stapel und Scrollen ----------------------------------------- */
+
+/**
+ * Die unterste Kante des Leisten-Stapels, in Viewport-Koordinaten.
+ *
+ * Gemessen wird der ganze STAPEL (#leisten aus lib/view_header.php) und nicht
+ * eine Liste einzelner Leisten: Dort haengen je nach Lage keine, eine oder
+ * zwei drin, und eine Aufzaehlung waere genau die Stelle, an der man die
+ * dritte vergisst. Ausgeblendete Kinder tragen nichts bei, ein leerer Stapel
+ * misst 0.
+ *
+ * Gemessen wird die UNTERSTE KANTE, nicht offsetHeight: Seit 1.2.10 schwebt
+ * die Verbindungsleiste im fluechtigen Zustand (position: absolute, damit sie
+ * beim Auftauchen nichts verschiebt) und zaehlt damit nicht mehr zur Hoehe des
+ * Stapels. Sie verdeckt aber weiterhin, was darunter liegt. Ueber die Kanten
+ * aller Kinder gerechnet stimmt der Wert in beiden Faellen von selbst.
+ */
+function stapelUnterkante() {
+    const stapel = qs('#leisten');
+    if (!stapel) return 0;
+
+    let unten = stapel.getBoundingClientRect().bottom;
+    for (const kind of stapel.children) {
+        if (kind.hidden) continue;
+        unten = Math.max(unten, kind.getBoundingClientRect().bottom);
+    }
+
+    return unten;
+}
+
+/**
+ * Tastatur-Anker: haelt die Seite still, waehrend die Bildschirmtastatur
+ * hochfaehrt (Fallstrick 19g).
+ *
+ * WebKit scrollt beim Fokussieren eines Eingabefelds die Seite, damit das Feld
+ * ueber der Tastatur steht -- und zwar auch dann, wenn es dort ohnehin schon
+ * stuende. Am iPhone rutschte deshalb bei jedem Tipp ins Gewichtsfeld die ganze
+ * Trainingsansicht ein Stueck nach oben; Chrome auf dem Pixel laesst sie stehen.
+ * Das ist dieselbe Sorte Aerger wie die springende Verbindungsleiste: Was von
+ * selbst kommt und geht, darf nichts verschieben.
+ *
+ * Abschalten laesst sich das nicht -- es gibt keine CSS-Eigenschaft und keinen
+ * Viewport-Schalter dafuer. (`interactive-widget` kennt nur Chromium, und der
+ * wuerde ausgerechnet das Geraet umstellen, das sich heute richtig verhaelt.)
+ *
+ * DER AUFBAU IN ZWEI PHASEN IST DER GANZE WITZ. Der naheliegende Weg -- "warten,
+ * bis die Tastatur oben ist, dann zurueckscrollen" -- erzeugt genau das, was
+ * niemand will: Der Browser bewegt sichtbar, das Skript bewegt sichtbar zurueck,
+ * das Feld huepft. Stattdessen:
+ *
+ *  1. FESTHALTEN. Jede fremde Scrollbewegung wird sofort im scroll-Ereignis
+ *     zurueckgenommen, ohne Vorbedingung. Das laeuft noch vor dem naechsten
+ *     Bildaufbau, der Zwischenzustand wird also gar nicht erst gezeichnet -- die
+ *     Seite steht einfach still.
+ *  2. EINMAL ENTSCHEIDEN. Sobald der Sichtbereich zur Ruhe gekommen ist (die
+ *     Tastatur steht), wird EIN Mal nachgesehen: Ist das Feld sichtbar, war es
+ *     das, und die Seite hat sich nie bewegt. Ist es verdeckt, folgt genau EINE
+ *     Bewegung -- und dann grosszuegig, siehe ankerReserveMelden().
+ *
+ * Im Normalfall also gar keine Bewegung, im Ausnahmefall eine statt hin und her.
+ *
+ * GEMESSEN WIRD GEGEN DEN SICHTBAREN BEREICH (visualViewport), nicht gegen eine
+ * eigene Annahme darueber, wie hoch eine Tastatur ist. Damit haengt die Frage am
+ * Zustand und nicht am Browser -- und beide Geraete beantworten sie gleich:
+ *
+ *   Feld bei offener Tastatur sichtbar  -> es wird NICHT gescrollt.
+ *   Feld von der Tastatur verdeckt      -> es wird gescrollt, einmal.
+ *
+ * Das ist die ganze Zusage, und sie gilt in beide Richtungen. Der Anker nimmt
+ * dem iPhone die ueberfluessige Bewegung, und er ERGAENZT eine, wo der Browser
+ * von sich aus keine macht, das Feld aber verdeckt waere. "Sichtbar" schliesst
+ * dabei den Leisten-Stapel ein: Was unter der klebenden Leiste liegt, ist
+ * genauso wenig zu sehen wie das, was hinter der Tastatur liegt.
+ *
+ * Vier Grenzen, jede aus eigenem Grund:
+ *
+ *  - NUR NACH EINER BERUEHRUNG. Ein Mauszeiger loest keine Tastatur aus. Ohne
+ *    diese Bedingung wuerde am Schreibtisch ein Mausrad-Scroll direkt nach dem
+ *    Klick ins Feld zurueckgedreht -- und schlimmer, jedes Reveal-Scrollen des
+ *    Browsers, das dort voellig in Ordnung ist.
+ *  - NUR TEXTFELDER, und zwar nach einer Positivliste (TASTATUR_TYPEN).
+ *    Ausdruecklich KEINE Kaestchen -- Begruendung dort.
+ *  - NUR EIN KNAPPES ZEITFENSTER bei gehaltenem Fokus, und eine bewusste
+ *    Wischgeste (wheel, touchmove) loest sofort. Wer waehrend des Tippens
+ *    scrollt, soll gescrollt haben.
+ *  - NUR BEGRENZT OFT, als Notbremse gegen einen Browser, der sich anders
+ *    verhaelt als gedacht.
+ */
+const TASTATUR_LUFT = 8;
+
+/** So lange nach dem Fokus wird festgehalten; danach entscheidet Phase 2. */
+const TASTATUR_FENSTER_MS = 900;
+
+/** Ruhe im Sichtbereich, ab der die Tastatur als "steht" gilt. */
+const TASTATUR_RUHE_MS = 160;
+
+/** So alt darf die Beruehrung sein, die den Fokus ausgeloest hat. */
+const TASTATUR_BERUEHRUNG_MS = 1000;
+
+/** Notbremse gegen ein Hochschaukeln; die echte Grenze ist das Zeitfenster. */
+const TASTATUR_MAX_KORREKTUREN = 120;
+
+/**
+ * Welche Feldarten eine Tastatur hochholen -- als POSITIVLISTE.
+ *
+ * Die Umkehrung ("alles ausser Kaestchen und Knoepfen") waere kuerzer und
+ * falsch herum: Eine Feldart, die niemand bedacht hat, bekaeme dann von selbst
+ * einen Anker. So bekommt sie keinen, und das ist der harmlosere Irrtum.
+ *
+ * Kaestchen fehlen hier nicht aus Ordnungsliebe: Das Haekchen "Erledigt" ist
+ * ein <input>, und index.js scrollt unmittelbar danach zur naechsten Uebung
+ * (zurAktivenSpringen). Der Anker wuerde diesen Sprung festhalten und damit
+ * eine gewollte Bewegung verschlucken.
+ */
+const TASTATUR_TYPEN = new Set(['text', 'search', 'tel', 'url', 'email',
+    'password', 'number', 'date', 'time', 'datetime-local', 'month', 'week']);
+
+/** Holt der Fokus auf dieses Element eine Bildschirmtastatur hoch? */
+function holtTastatur(el) {
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+
+    return TASTATUR_TYPEN.has(String(el.type || 'text').toLowerCase());
+}
+
+/**
+ * Wie viel Platz UNTER dem Feld freibleiben soll, wenn ohnehin gescrollt wird.
+ *
+ * Vorgabe: keiner -- dann bleibt es bei der blossen Luft zur Tastaturkante.
+ * Die Trainingsansicht meldet hier ihren eigenen Bedarf an (index.js): Wer im
+ * Satzblock tippt, will gleich danach "+ Satz" druecken und den neuen Satz
+ * ausfuellen, ohne erneut zu scrollen.
+ *
+ * Als MELDER und nicht als feste Rechnung, weil app.js von Satzzeilen nichts
+ * wissen soll -- das ist Sache der Seite, die sie baut. Sonst stuenden hier
+ * Klassennamen aus index.js, und die naechste Seite mit einem aehnlichen
+ * Beduerfnis brauchte einen zweiten Sonderfall daneben.
+ */
+let ankerReserveGeber = null;
+
+/** Meldet die Rechnung an; nimmt das fokussierte Feld, liefert Pixel. */
+function ankerReserveMelden(geber) {
+    ankerReserveGeber = geber;
+}
+
+let ankerFeld = null;
+let ankerY = 0;
+let ankerBis = 0;
+let ankerKorrekturen = 0;
+let ankerUhr = null;
+let letzteBeruehrung = 0;
+
+/** Gibt die Seite wieder frei. */
+function ankerLoesen() {
+    ankerFeld = null;
+    clearTimeout(ankerUhr);
+    ankerUhr = null;
+}
+
+/** Die untere Kante des sichtbaren Bereichs, Tastatur eingerechnet. */
+function sichtUnterkante() {
+    const sicht = window.visualViewport;
+
+    return sicht ? sicht.offsetTop + sicht.height : window.innerHeight;
+}
+
+/**
+ * Phase 1: nimmt eine fremde Scrollbewegung sofort zurueck.
+ *
+ * Ohne jede Pruefung, ob das Feld danach sichtbar waere -- das entscheidet
+ * Phase 2, und zwar erst dann, wenn die Tastatur wirklich steht und die Frage
+ * ueberhaupt beantwortbar ist.
+ */
+function ankerHalten() {
+    if (!ankerFeld) return;
+
+    if (Date.now() > ankerBis
+        || ankerKorrekturen >= TASTATUR_MAX_KORREKTUREN
+        || document.activeElement !== ankerFeld) {
+        ankerLoesen();
+        return;
+    }
+
+    if (window.scrollY === ankerY) return;
+
+    ankerKorrekturen += 1;
+    window.scrollTo(window.scrollX, ankerY);
+}
+
+/**
+ * Phase 2: einmal nachsehen und den Anker loesen.
+ *
+ * Drei Zeilen Rechnung, und die Reihenfolge ist der ganze Inhalt:
+ *
+ *  1. WANN ueberhaupt bewegt wird, entscheidet allein das Feld: Steht seine
+ *     Unterkante ueber der Tastatur, ist nichts zu tun -- auch dann nicht, wenn
+ *     darunter kein Platz mehr fuer weitere Saetze waere. Sonst waere praktisch
+ *     jeder Fokus eine Bewegung, und die Zusage "sichtbar heisst stehenbleiben"
+ *     waere hinfaellig.
+ *  2. WIE WEIT bewegt wird, entscheidet die gemeldete Reserve: Wenn schon
+ *     gescrollt wird, dann gleich so, dass darunter noch etwas hinpasst.
+ *  3. Die Klammer nach oben. Sie faengt drei Faelle auf einmal: das Feld ueber
+ *     dem Stapel, ein Feld hoeher als der verbliebene Streifen -- und die
+ *     grosszuegige Reserve aus (2), die sonst das Feld selbst unter die
+ *     klebende Leiste schoebe. Mehr als "Feld direkt unter den Stapel" ist
+ *     nicht zu holen, und mehr Platz darunter gibt es auf diesem Bildschirm
+ *     dann auch nicht.
+ */
+function ankerAbschliessen() {
+    const feldEl = ankerFeld;
+    ankerLoesen();
+    if (!feldEl || document.activeElement !== feldEl) return;
+
+    const feld = feldEl.getBoundingClientRect();
+    const oben = stapelUnterkante() + TASTATUR_LUFT;
+    const unten = sichtUnterkante() - TASTATUR_LUFT;
+    const reserve = ankerReserveGeber ? ankerReserveGeber(feldEl) : 0;
+
+    let weg = 0;
+    if (feld.bottom > unten) weg = feld.bottom + reserve - unten;
+    if (feld.top - weg < oben) weg = feld.top - oben;
+
+    if (weg !== 0) window.scrollBy(0, weg);
+}
+
+/**
+ * Setzt Phase 2 neu an -- nie spaeter als das Ende des Zeitfensters.
+ *
+ * Jede Aenderung am Sichtbereich schiebt sie nach hinten: Solange sich die
+ * Tastatur noch bewegt, ist die Frage "ist das Feld sichtbar" nicht sinnvoll zu
+ * beantworten.
+ */
+function ankerNachfassen(ms) {
+    clearTimeout(ankerUhr);
+    ankerUhr = setTimeout(ankerAbschliessen,
+        Math.max(0, Math.min(ms, ankerBis - Date.now())));
+}
+
+// Eine Beruehrung merken, BEVOR der Fokus kommt: Nur sie holt eine Tastatur
+// hoch. pointerdown deckt den Normalfall ab, touchstart aeltere Fassungen.
+function beruehrt(e) {
+    if (e.type === 'touchstart' || e.pointerType === 'touch') {
+        letzteBeruehrung = Date.now();
+    }
+}
+document.addEventListener('pointerdown', beruehrt, { capture: true, passive: true });
+document.addEventListener('touchstart', beruehrt, { capture: true, passive: true });
+
+document.addEventListener('focusin', (e) => {
+    const ziel = e.target;
+    if (!(ziel instanceof HTMLElement) || !holtTastatur(ziel)) return;
+    if (Date.now() - letzteBeruehrung > TASTATUR_BERUEHRUNG_MS) return;
+
+    ankerFeld = ziel;
+    ankerY = window.scrollY;
+    ankerBis = Date.now() + TASTATUR_FENSTER_MS;
+    ankerKorrekturen = 0;
+
+    // Auch dann eine Entscheidung faellen, wenn ueberhaupt nichts passiert --
+    // der Regelfall auf einem Geraet, das nicht scrollt.
+    ankerNachfassen(TASTATUR_FENSTER_MS);
+});
+
+document.addEventListener('focusout', ankerLoesen);
+
+// Eine bewusste Wischgeste beendet das Festhalten sofort.
+window.addEventListener('wheel', ankerLoesen, { passive: true });
+window.addEventListener('touchmove', ankerLoesen, { passive: true });
+
+window.addEventListener('scroll', ankerHalten, { passive: true });
+
+if (window.visualViewport) {
+    // resize waehrend der Einblendung, scroll fuer den Fall, dass der Browser
+    // statt der Seite den Sichtbereich verschiebt. Beides heisst: noch in
+    // Bewegung, Phase 2 wartet.
+    window.visualViewport.addEventListener('resize', () => {
+        ankerHalten();
+        if (ankerFeld) ankerNachfassen(TASTATUR_RUHE_MS);
+    });
+    window.visualViewport.addEventListener('scroll', () => {
+        ankerHalten();
+        if (ankerFeld) ankerNachfassen(TASTATUR_RUHE_MS);
+    });
 }
 
 /**

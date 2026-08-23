@@ -496,6 +496,14 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   beim nächsten Upload nicht vergessen kann. Netzfehler tragen `err.offline`, ein
   abgelaufenes Limit zusätzlich `err.timeout`.
 
+  **Die erste Wiederholpause ist kurz, und das ist Fachlichkeit, keine Zahlenkosmetik**
+  (`API_PAUSEN_MS = [400, 2000, 2000]`, seit `1.2.11`). Bis dahin stand dort `[2000, 5000]`:
+  Scheiterte der erste Versuch *sofort* — ein Aussetzer im WLAN, eine abgelaufene
+  Verbindung —, wartete der Code stur zwei Sekunden. Bei „Training starten" sah das aus wie
+  ein toter Knopf, und genau so wurde es am 2026-08-23 gemeldet. Ein Aussetzer, der beim
+  zweiten Versuch weg ist, ist nach 400 ms genauso weg. Dafür ein Umlauf mehr: vier Versuche
+  statt drei, und der schlimmste Fall sinkt trotzdem von 7 s auf 4,4 s.
+
   **`wiederholen: true` ist ausdrücklich anzufordern und nie der Standard.** Erlaubt nur,
   wo der Endpunkt einen zweiten Aufruf verträgt: `api/log.php` (Upsert), `api/session.php →
   start` (liefert die laufende Einheit zurück), lesende Aktionen. **`api/session.php → end`
@@ -521,10 +529,35 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   `assets/app.js` vor jedem `innerHTML`.
 - **Zahleneingaben:** `type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"` —
   nicht `type="number"`, sonst bricht das Dezimalkomma am Handy.
-- **Service Worker:** cacht **nur** `assets/*.css`, `assets/*.js`, `manifest.json`, Icons —
-  mit **`stale-while-revalidate`**. **Niemals HTML oder API-Antworten** (`network-only`),
-  sonst wird eingeloggter Zustand nach dem Logout ausgeliefert und veraltete CSRF-Tokens
-  erzeugen 403er. Zur Cache-Falle siehe Fallstrick 12.
+- **Das aufgeklappte `<select>` am Handy ist mit CSS NICHT gestaltbar** — nachgemessen am
+  2026-08-23, nicht gefolgert. Chrome auf Android zeigt es als Dialog mit Auswahlknöpfen,
+  und dessen Schrift kommt aus den **Android-Systemeinstellungen**; sie ist deutlich größer
+  als der Seitentext und ändert sich weder über `option { font-size }` (in `1.2.11`
+  ausgeliefert, wirkungslos) noch über die Größe des `<select>`. iOS zeigt ohnehin ein
+  Systemrad.
+
+  **Daraus folgt: Zu lange Einträge löst man über den Inhalt, nicht über das Stylesheet.**
+  Im Dialog passen rund 32 Zeichen in eine Zeile; was darüber liegt, bricht um, und daran
+  ist nichts zu machen. Wer eine Auswahl baut, deren Einträge lang werden können, muss den
+  Umbruch hinnehmen — oder dafür sorgen, dass die Texte kurz bleiben.
+
+  **`font-size: 16px` am `<select>` bleibt trotzdem stehen**, aus dem Grund direkt darüber
+  im Stylesheet: Darunter zoomt iOS beim Antippen die Seite. Die 16 px sind für das
+  geschlossene Feld da und nicht für die Liste — die sieht sie nie.
+- **Service Worker:** cacht **nur** `assets/*.css`, `assets/*.js`, `manifest.json`, Icons
+  und die **Seiten-Skripte im Wurzelverzeichnis** (`istSeitenSkript()` in `sw.js`, seit
+  `1.2.11`) — mit **`stale-while-revalidate`**. **Niemals HTML oder API-Antworten**
+  (`network-only`), sonst wird eingeloggter Zustand nach dem Logout ausgeliefert und
+  veraltete CSRF-Tokens erzeugen 403er. Zur Cache-Falle siehe Fallstrick 12.
+
+  **Die Seiten-Skripte sind der Nachzügler, nicht die Ausnahme:** `index.js` ist so groß wie
+  `app.js` und trägt dieselbe `?v=`-Nummer, lag aber im Wurzelverzeichnis — und ging damit
+  bei jedem Seitenaufruf ans Netz, eine volle Runde, bevor die Seite bedienbar war. Erfasst
+  wird **nur**, was direkt im Wurzelverzeichnis liegt und auf `.js` endet; die Wurzel wird
+  aus `self.location` **gerechnet** und nicht als `/` geraten. **Nicht vorab geladen** — der
+  erste Aufruf nach einem Rollout geht ans Netz, jeder weitere kommt aus dem Cache; ein
+  Präcache aller sieben Skripte wäre Verkehr auf genau der Verbindung, die das entlasten
+  soll.
 - **Asset-Adressen tragen die Version** (`style.css?v=…`), gesetzt in
   `lib/view_header.php` und `lib/view_footer.php` aus `app_version()`. Wer eine neue CSS-
   oder JS-Datei einbindet, hängt sie dort mit an — ohne den Parameter friert die Datei im
@@ -703,6 +736,11 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     - **Präcache-Adressen müssen exakt die sein, die der Header anfragt.** `ASSETS` in
       `sw.js` führt `style.css` und `app.js` **mit** `?v=`, Manifest und Icons **ohne** —
       genau so stehen sie im `<head>`. Sonst ist der Precache toter Ballast.
+    - **Die Seiten-Skripte stehen ausdrücklich NICHT in `ASSETS`** (seit `1.2.11`): Sie
+      werden gecacht, wenn sie zum ersten Mal gebraucht werden, nicht auf Vorrat. Ein
+      Präcache holte bei jeder Installation alle sieben, auch die für Seiten, die niemand
+      öffnet. Der Schutz gegen den eingefrorenen Stand hängt hier ohnehin nicht am
+      Precache, sondern am `?v=` in der Adresse — und das tragen sie.
 
 13. **Die Warteschlange fürs Abhaken hängt an `user_id` UND `session_id`** (§7.4), jeder
     Schlüssel aus eigenem Grund:
@@ -852,7 +890,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       Gewichte nie mit `===`: 40.0 aus der Datenbank und 40.0 aus der Eingabe sind dasselbe
       Gewicht, aber nicht zwingend dasselbe Bitmuster.
 
-19. **Sechs Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Schleier der erledigten Karte.
+19. **Sieben Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Schleier der erledigten Karte und zur Tastatur am Handy.
 
     **(a) Was sich im Sekundentakt ändert, darf nichts verschieben.** Der wartende Zustand trug
     einmal einen Hinweissatz in der Karte — sie wurde beim Speichern höher und danach wieder
@@ -954,6 +992,86 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     **Getönt wird `done = 1`, nicht die bloße Existenz einer Protokollzeile** (Fallstrick 18):
     Im Expertenmodus tritt die Karte erst mit dem Häkchen zurück, nicht schon mit dem ersten
     Satz — am gerenderten HTML nachgesehen, nicht gefolgert.
+
+    **(g) Die Tastatur darf die Seite nicht verschieben** — dieselbe Regel wie (a), nur
+    kommt die Bewegung diesmal vom Browser. WebKit scrollt beim Fokussieren eines
+    Eingabefelds die Seite, damit das Feld über der Tastatur steht, **auch wenn es dort
+    ohnehin schon stünde**; am iPhone rutschte deshalb bei jedem Tipp ins Gewichtsfeld die
+    ganze Ansicht ein Stück. Chromium tut es nicht — wieder ein Fall, in dem „auf meinem
+    Gerät ruhig" nichts belegt (siehe (d)). Abschalten lässt es sich nicht: keine
+    CSS-Eigenschaft, kein Viewport-Schalter. `interactive-widget` kennt nur Chromium und
+    würde ausgerechnet das Gerät umstellen, das sich richtig verhält.
+
+    Der **Tastatur-Anker** in `assets/app.js` (seit `1.2.11`) läuft deshalb in **zwei
+    Phasen, und das ist der ganze Witz.** Der naheliegende Weg — warten, bis die Tastatur
+    oben ist, dann zurückscrollen — erzeugt genau das, was niemand will: Der Browser bewegt
+    sichtbar, das Skript bewegt sichtbar zurück, das Feld hüpft. Stattdessen:
+
+    1. **Festhalten.** Jede fremde Scrollbewegung wird sofort im `scroll`-Ereignis
+       zurückgenommen, **ohne jede Vorbedingung**. Das läuft noch vor dem nächsten
+       Bildaufbau, der Zwischenzustand wird also gar nicht erst gezeichnet — die Seite
+       steht still.
+    2. **Einmal entscheiden.** Sobald der Sichtbereich zur Ruhe gekommen ist, wird **ein**
+       Mal nachgesehen: Ist das Feld sichtbar, war es das. Ist es verdeckt, folgt genau
+       **eine** Bewegung, um das Nötigste.
+
+    Im Normalfall also gar keine Bewegung, im Ausnahmefall eine statt hin und her. **Wer
+    hier je die Sichtbarkeitsprüfung nach vorn in Phase 1 zieht, hat wieder den Hüpfer**:
+    Solange die Tastatur fährt, ist „ist das Feld sichtbar" nicht beantwortbar, und die
+    Korrektur fällt auf das späte `resize` zurück — also hinter den Bildaufbau.
+
+    **Gemessen wird gegen `visualViewport`, nie gegen eine eigene Annahme über die Höhe
+    einer Tastatur.** Damit hängt die Entscheidung am Zustand und nicht am Browser, und
+    beide Geräte beantworten sie gleich — das ist die ganze Zusage:
+
+    | Lage bei offener Tastatur | Was passiert |
+    |---|---|
+    | Feld sichtbar | **nicht** gescrollt |
+    | Feld verdeckt | gescrollt, **einmal** |
+
+    Sie gilt in beide Richtungen: Der Anker nimmt dem iPhone die überflüssige Bewegung —
+    und er **ergänzt** eine, wo der Browser von sich aus keine macht, das Feld aber
+    verdeckt wäre. „Sichtbar" schließt den Leisten-Stapel ein: Was unter der klebenden
+    Leiste liegt, ist so wenig zu sehen wie das hinter der Tastatur.
+
+    **WANN gescrollt wird und WIE WEIT sind zwei getrennte Fragen** — hier liegt der
+    häufigste Denkfehler. Das *Ob* entscheidet allein das Feld (Tabelle oben). Das *Wie
+    weit* entscheidet die **Reserve**, die die Seite über `ankerReserveMelden()` anmeldet:
+    Wenn ohnehin gescrollt wird, dann gleich so, dass darunter noch etwas hinpasst. Wer
+    beides vermischt und die Reserve schon ins *Ob* rechnet, scrollt bei **jedem** Fokus —
+    die Reserve ist groß, und damit wäre die Zusage „sichtbar heißt stehenbleiben" wieder
+    hinfällig.
+
+    Die Trainingsansicht meldet dort ihren Bedarf an (`index.js`, `SAETZE_IN_SICHT = 3`):
+    Wer im Satzblock tippt, drückt als Nächstes *„+ Satz"* und füllt die neue Zeile aus.
+    Gerechnet wird **vom Ende des Blocks**, nicht vom Feld — dort sitzt der Knopf, und dort
+    wachsen die neuen Zeilen hinein; steht der Cursor in Satz 1 von fünf, zählen die vier
+    darunter mit. Die Zeilenhöhe wird **gemessen**, ein fester Pixelwert wäre bei der
+    nächsten Schriftgröße falsch.
+
+    **Ein Melder und keine feste Rechnung**, weil `assets/app.js` von Satzzeilen nichts
+    wissen soll: Klassennamen aus `index.js` dort hineinzuschreiben hieße, für die nächste
+    Seite mit ähnlichem Bedürfnis einen zweiten Sonderfall danebenzusetzen. **Zu viel
+    Reserve ist ungefährlich** — die Klammer nach oben schiebt das Feld nie unter den
+    Stapel; im Zweifel landet es ganz oben, und das ist der Fall mit dem meisten Platz
+    darunter.
+
+    Vier Grenzen, jede aus eigenem Grund:
+
+    - **Nur nach einer Berührung** (`pointerdown`/`touchstart`). Ein Mauszeiger holt keine
+      Tastatur hoch; ohne diese Bedingung würde am Schreibtisch das völlig berechtigte
+      Reveal-Scrollen des Browsers festgehalten.
+    - **Nur Textfelder, nach einer Positivliste** (`TASTATUR_TYPEN`). Die Umkehrung wäre
+      kürzer und falsch herum. Kästchen fehlen nicht aus Ordnungsliebe: Das Häkchen
+      *Erledigt* ist ein `<input>`, und `index.js` springt unmittelbar danach zur nächsten
+      Übung — der Anker würde diesen Sprung **verschlucken**.
+    - **Nur ein knappes Zeitfenster bei gehaltenem Fokus**, und `wheel`/`touchmove` lösen
+      sofort. Wer während des Tippens scrollt, soll gescrollt haben.
+    - **Nur begrenzt oft**, als Notbremse.
+
+    **Die Höhe des Stapels rechnet `stapelUnterkante()` in `assets/app.js`** — dieselbe
+    Rechnung, die `zurAktivenSpringen()` braucht (d). Sie stand bis `1.2.10` nur in
+    `index.js`; zwei Fassungen davon liefen irgendwann auseinander.
 
 20. **Der verzögerte Satz-Speicher muss vor Beenden und Tauschen ausgelöst werden**
     (`satzSpeichernJetzt()` in `index.js`). Änderungen gehen erst 800 ms nach der letzten
@@ -1063,9 +1181,54 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     deshalb ausdrücklich **nicht** über `split_zugriff_api()`: Bearbeiten darf er sie,
     auswählen nicht.
 
-    **Es gibt keinen Rückkanal zwischen Vorlage und Kopie** — keine Vererbung, kein
-    Abgleich. Wer den neuen Stand will, kopiert erneut; `split_name_frei()` hängt ` (2)` an.
-    Wer hier je einen Verweis einbaut, nimmt der Kopie ihren einzigen Zweck.
+    **Es gibt keine Vererbung und kein automatisches Nachziehen.** Ändert der Admin die
+    Vorlage, bleibt jede bestehende Kopie unberührt; ändert ein Benutzer seine Kopie,
+    berührt das die Vorlage nicht. Das ist der Kern und gilt unverändert.
+
+    **Seit `1.2.11` gibt es genau EINEN Weg zurück, und ihn geht der Benutzer selbst**
+    (§6.4). Bis `1.2.10` stand hier „kein Rückkanal, wer den neuen Stand will, kopiert
+    erneut" — das war als Weg gedacht, eine verbesserte Vorlage zu übernehmen, und taugte
+    dafür nicht: Erneut kopieren erzeugt `… (2)`, lässt den alten Split stehen und wirft die
+    Auswahl „Diesen trainieren" um. Am 2026-08-23 wurde es deshalb umgedreht.
+
+    Was daran nicht beliebig ist:
+
+    - **`splits.vorlage_id` ist reine Herkunftsangabe.** Ausgewertet wird sie an **einer**
+      Stelle — `split_zuruecksetzen()` —, und nur auf Knopfdruck. Wer daraus ein
+      automatisches Nachziehen macht, ist wieder bei der Vererbung, die es nicht geben soll.
+    - **Ausgelöst wird ausschließlich vom Eigentümer.** `api/splits.php` prüft über
+      `eigener_split_api()` und **nicht** über `split_zugriff_api()`: Ein Admin darf fremde
+      Splits umbenennen und löschen, aber nicht entscheiden, ob jemandes eigene Anpassungen
+      verworfen werden.
+    - **Abgeglichen wird, nicht neu angelegt** — siehe Fallstrick 4. `plan_exercises.id`
+      hängt an `workout_log.plan_exercise_id`; ein „löschen und aus der Vorlage neu
+      schreiben" löste **jede** protokollierte Übung dieses Splits von ihrer Position,
+      lautlos und mit `ok:true`. Vorhandene Zeilen werden deshalb **splitweit**
+      wiederverwendet: Hat die Vorlage eine Übung in einen anderen Plan verschoben, wandert
+      die bestehende Zeile per `UPDATE plan_id` mit. Nur was in der Vorlage wirklich nicht
+      mehr vorkommt, wird gelöscht — und dessen Protokollzeilen verlieren ihren Bezug. Das
+      ist unvermeidbar und steht deshalb in der Rückfrage der Oberfläche.
+    - **Pläne werden nach REIHENFOLGE gepaart, nicht nach Namen.** Ein umbenannter Plan ist
+      derselbe Plan an derselben Stelle; über die Namen zu paaren hieße, ihn zu löschen und
+      neu anzulegen — und damit die Historie seiner Positionen zu kappen.
+    - **Zwei Fingerabdrücke, zwei Fragen.** `split_signaturen()` (**ohne** Namen) beantwortet
+      „ist das inhaltlich dasselbe Training" und steuert das Veröffentlichen-Angebot;
+      `split_abgleich_signaturen()` (**mit** Plannamen) beantwortet „sieht meine Kopie noch
+      aus wie die Vorlage" und steuert den Knopf. Der Name des **Splits** bleibt in beiden
+      draußen: Er gehört dem Benutzer, und ein Knopf, der nach einer eigenen Umbenennung
+      erschiene, wäre eine Falschmeldung.
+    - **Gesperrt bei laufender Einheit** — derselbe Grund wie beim Umsortieren, nur schärfer:
+      Hier könnte der Plan, auf dem gerade trainiert wird, ganz verschwinden.
+    - **Die Herkunft lässt sich von Hand zuordnen** (`set_vorlage`). Ohne das bliebe die
+      Funktion für jeden vor `1.2.11` entstandenen Split wirkungslos — und das sind
+      ausgerechnet die, an denen sie nützt. **Geraten wird nicht:** Ein Fingerabdruck passt
+      nur, solange nichts geändert wurde, und wer nichts geändert hat, braucht den Knopf
+      nicht.
+    - **Auf einer Bestandsdatenbank hat `vorlage_id` KEINEN Fremdschlüssel.** SQLites
+      `ALTER TABLE ADD COLUMN` kann keinen nachtragen (dieselbe Lage wie bei
+      `muscle_groups.parent_id`), das `ON DELETE SET NULL` aus `schema.sql` greift dort also
+      nicht. Aufgefangen wird das im `JOIN` von `vorlage_stand()`: Eine tote ID findet keine
+      Vorlage und gilt als „keine Herkunft".
 
     **`split_kopieren()` bedient vier Knöpfe** (Vorlage→Benutzer, Benutzer→Vorlage,
     Benutzer→derselbe, Vorlage→Vorlage), läuft in **einer Transaktion** und übernimmt

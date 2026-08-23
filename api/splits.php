@@ -18,12 +18,17 @@ require_passwort_gesetzt_api();
  * Splits. Was ein Admin zusaetzlich darf, entscheidet split_zugriff_api() in
  * lib/splits.php -- Vorlagen anlegen, bearbeiten und veroeffentlichen.
  *
- * "copy" ist die fachlich wichtigste Aktion: Sie ist die EINZIGE Verbindung
- * zwischen Vorlage und Benutzer. Nach dem Kopieren gibt es keinen Rueckkanal,
- * keinen Abgleich und keine Vererbung -- eine spaetere Aenderung an der
- * Vorlage laesst bestehende Kopien unberuehrt, und ein dauerhafter Tausch beim
- * Benutzer beruehrt die Vorlage nicht. Wer den neuen Stand will, kopiert
- * erneut und unterscheidet die Fassung am Namen.
+ * "copy" ist die fachlich wichtigste Aktion: Sie ist die Verbindung zwischen
+ * Vorlage und Benutzer. Eine Kopie lebt danach ihr eigenes Leben -- es gibt
+ * KEINE Vererbung und kein automatisches Nachziehen; eine geaenderte Vorlage
+ * laesst bestehende Kopien unberuehrt, und ein dauerhafter Tausch beim
+ * Benutzer beruehrt die Vorlage nicht.
+ *
+ * Seit 1.2.11 gibt es genau EINEN Weg zurueck, und er wird ausschliesslich
+ * vom Benutzer ausgeloest: "reset" bringt eine Kopie auf den Stand ihrer
+ * Vorlage. Voraussetzung ist, dass die Herkunft bekannt ist -- entweder weil
+ * die Kopie so entstand oder weil der Benutzer sie ueber "set_vorlage"
+ * zugeordnet hat. Automatisch passiert nichts, in keiner Richtung.
  */
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -42,6 +47,8 @@ match (to_str($eingabe['action'] ?? '')) {
     'copy'     => aktion_kopieren($eingabe),
     'publish'  => aktion_veroeffentlichen($eingabe),
     'activate' => aktion_aktivieren($eingabe),
+    'set_vorlage' => aktion_vorlage_zuordnen($eingabe),
+    'reset'       => aktion_zuruecksetzen($eingabe),
     default    => json_err('Unbekannte Aktion', 400),
 };
 
@@ -229,6 +236,92 @@ function aktion_kopieren(array $eingabe): never {
     }
 
     json_ok(['id' => $neu, 'name' => (string)(split_laden($neu)['name'] ?? $quelle['name'])]);
+}
+
+/**
+ * Nur der EIGENE Split -- ohne Admin-Ausnahme.
+ *
+ * split_zugriff_api() liesse einen Admin auch fremde Splits anfassen, und fuer
+ * Umbenennen oder Loeschen ist das richtig. Herkunft und Zuruecksetzen sind
+ * etwas anderes: Beides sind Entscheidungen ueber das Training eines
+ * Menschen -- welche Vorlage er benutzt, und ob seine eigenen Anpassungen
+ * verworfen werden. Das darf niemand fuer ihn treffen.
+ */
+function eigener_split_api(int $splitId): array {
+    $split = split_laden($splitId);
+    if ($split === null) {
+        json_err('Diesen Split gibt es nicht.', 404);
+    }
+    if ($split['user_id'] === null || (int)$split['user_id'] !== current_user_id()) {
+        json_err('Das geht nur mit einem eigenen Split.', 403);
+    }
+
+    return $split;
+}
+
+/**
+ * Die Vorlage eines eigenen Splits festlegen oder loesen (§6.4).
+ *
+ * Gebraucht wird das fuer alles, was vor 1.2.11 entstanden ist: Diese Splits
+ * kennen ihre Herkunft nicht, und ohne Zuordnung von Hand bekaemen sie den
+ * Knopf nie zu sehen.
+ */
+function aktion_vorlage_zuordnen(array $eingabe): never {
+    $id = to_int_or_null($eingabe['id'] ?? null);
+    if ($id === null) {
+        json_err('Kein Split angegeben.', 422);
+    }
+
+    eigener_split_api($id);
+
+    // 0 und "" heissen "keine Vorlage" -- das Auswahlfeld schickt beim
+    // Loesen einen leeren Wert, und der darf nicht als fehlende Angabe
+    // durchgehen.
+    $roh      = $eingabe['vorlage_id'] ?? null;
+    $vorlagen = ($roh === null || $roh === '' || (int)$roh === 0)
+        ? null
+        : to_int_or_null($roh);
+
+    try {
+        split_vorlage_setzen($id, $vorlagen);
+    } catch (Throwable $e) {
+        json_err($e->getMessage(), 422);
+    }
+
+    $stand = vorlage_stand([$id])[$id] ?? null;
+
+    json_ok([
+        'id'         => $id,
+        'vorlage_id' => $stand === null ? 0 : $stand['vorlage_id'],
+        'weicht_ab'  => $stand !== null && $stand['weicht_ab'],
+    ]);
+}
+
+/**
+ * Einen eigenen Split auf den Stand seiner Vorlage bringen (§6.4).
+ *
+ * Waehrend eines Trainings gesperrt, und zwar aus demselben Grund wie das
+ * Umsortieren von Uebungen (struktur_sperre_pruefen() in api/plans.php): Die
+ * Fortschrittsanzeige "x/n" zaehlt ueber den Plan, und der veraenderte sich
+ * hier mitten in der Einheit. Hier waere es sogar schlimmer -- der Plan, auf
+ * dem gerade trainiert wird, koennte ganz verschwinden.
+ */
+function aktion_zuruecksetzen(array $eingabe): never {
+    $id = to_int_or_null($eingabe['id'] ?? null);
+    if ($id === null) {
+        json_err('Kein Split angegeben.', 422);
+    }
+
+    eigener_split_api($id);
+    nicht_waehrend_training();
+
+    try {
+        $ergebnis = split_zuruecksetzen($id);
+    } catch (Throwable $e) {
+        json_err($e->getMessage(), 409);
+    }
+
+    json_ok($ergebnis + ['id' => $id]);
 }
 
 /**

@@ -40,7 +40,7 @@ const SPLIT_NAME_MAX = 80;
  */
 function split_laden(int $splitId): ?array {
     $stmt = db()->prepare(
-        'SELECT id, user_id, name, beschreibung, sort_order, created_at
+        'SELECT id, user_id, name, beschreibung, sort_order, vorlage_id, created_at
            FROM splits WHERE id = ?'
     );
     $stmt->execute([$splitId]);
@@ -54,7 +54,7 @@ function split_laden(int $splitId): ?array {
  */
 function splits_von(int $userId): array {
     $stmt = db()->prepare(
-        'SELECT id, user_id, name, beschreibung, sort_order
+        'SELECT id, user_id, name, beschreibung, sort_order, vorlage_id
            FROM splits WHERE user_id = ? ORDER BY sort_order, id'
     );
     $stmt->execute([$userId]);
@@ -250,6 +250,48 @@ function split_texte(array $splitIds): array {
  * @return array<int, string> split_id => Signatur
  */
 function split_signaturen(array $splitIds): array {
+    return signaturen_bauen($splitIds, false);
+}
+
+/**
+ * Fingerabdruck EINSCHLIESSLICH der Plannamen -- fuer den Vorlagenabgleich.
+ *
+ * Zwei Fingerabdruecke, zwei Fragen, und sie duerfen nicht vermischt werden:
+ *
+ *   split_signaturen()          "Ist das inhaltlich dasselbe Training?"
+ *                               Steuert, was sich noch veroeffentlichen laesst
+ *                               (benutzer_splits_ohne_vorlage()). Namen sind
+ *                               dort bewusst DRAUSSEN: Wer eine Vorlage kopiert
+ *                               und umbenennt, hat kein neues Training.
+ *
+ *   split_abgleich_signaturen() "Sieht meine Kopie noch aus wie die Vorlage?"
+ *                               Steuert den Knopf "Auf Vorlage zurücksetzen".
+ *                               Hier zaehlen die Plannamen MIT -- benennt der
+ *                               Admin "Tag A" in "Push" um, ist das ein
+ *                               Unterschied, den man uebernehmen koennen soll.
+ *
+ * Der Name des SPLITS bleibt in beiden draussen: Er gehoert dem Benutzer, der
+ * ihn jederzeit aendern darf, und ein Knopf, der nur wegen einer eigenen
+ * Umbenennung erscheint, waere eine Falschmeldung.
+ *
+ * @param int[] $splitIds
+ * @return array<int, string> split_id => Fingerabdruck
+ */
+function split_abgleich_signaturen(array $splitIds): array {
+    return signaturen_bauen($splitIds, true);
+}
+
+/**
+ * Der gemeinsame Bau beider Fingerabdruecke.
+ *
+ * EINE Abfrage und eine Schleife fuer beide: Zwei getrennte Fassungen liefen
+ * beim naechsten Eingriff auseinander, und dann meldete der eine Abgleich
+ * "gleich", waehrend der andere "verschieden" sagt.
+ *
+ * @param int[] $splitIds
+ * @return array<int, string>
+ */
+function signaturen_bauen(array $splitIds, bool $mitNamen): array {
     $ids = array_values(array_unique(array_map('intval', $splitIds)));
     if ($ids === []) {
         return [];
@@ -259,7 +301,7 @@ function split_signaturen(array $splitIds): array {
 
     // LEFT JOIN, damit ein Plan OHNE Uebungen sein Segment behaelt.
     $stmt = db()->prepare(
-        "SELECT p.split_id, p.id AS plan_id, pe.exercise_id
+        "SELECT p.split_id, p.id AS plan_id, p.name AS plan_name, pe.exercise_id
            FROM plans p
            LEFT JOIN plan_exercises pe ON pe.plan_id = p.id
           WHERE p.split_id IN ($platzhalter)
@@ -268,10 +310,12 @@ function split_signaturen(array $splitIds): array {
     $stmt->execute($ids);
 
     $segmente = [];
+    $namen    = [];
     foreach ($stmt->fetchAll() as $z) {
         $sid = (int)$z['split_id'];
         $pid = (int)$z['plan_id'];
         $segmente[$sid][$pid] ??= [];
+        $namen[$sid][$pid]    ??= (string)$z['plan_name'];
         if ($z['exercise_id'] !== null) {
             $segmente[$sid][$pid][] = (int)$z['exercise_id'];
         }
@@ -280,10 +324,15 @@ function split_signaturen(array $splitIds): array {
     $ergebnis = [];
     foreach ($ids as $sid) {
         $plaene = $segmente[$sid] ?? [];
-        $ergebnis[$sid] = implode('|', array_map(
-            static fn(array $uebungen): string => implode(',', $uebungen),
-            $plaene
-        ));
+        $teile  = [];
+        foreach ($plaene as $pid => $uebungen) {
+            // rawurlencode und nicht der nackte Name: Ein Plan, der '|' oder
+            // '#' im Namen traegt, koennte sonst die Trennzeichen faelschen
+            // und zwei verschiedene Splits gleich aussehen lassen.
+            $teile[] = ($mitNamen ? rawurlencode($namen[$sid][$pid] ?? '') . '#' : '')
+                . implode(',', $uebungen);
+        }
+        $ergebnis[$sid] = implode('|', $teile);
     }
 
     return $ergebnis;
@@ -527,10 +576,31 @@ function split_kopieren(
         $stmt->execute($zielUserId === null ? [] : [$zielUserId]);
         $position = (int)$stmt->fetchColumn() + 1;
 
+        // Woher stammt die neue Kopie? Drei Faelle, und der dritte ist der,
+        // den man vergisst:
+        //
+        //   Ziel ist eine VORLAGE      -> keine Herkunft. Eine Vorlage hat
+        //                                 keine Vorlage; das gilt fuer
+        //                                 "Veroeffentlichen" wie fuer
+        //                                 "Duplizieren" im Katalog.
+        //   Quelle ist eine Vorlage    -> genau diese. Der Regelfall,
+        //                                 "Zu mir kopieren".
+        //   Quelle ist eine KOPIE      -> deren Herkunft wird geerbt. Wer
+        //                                 seinen aus einer Vorlage gezogenen
+        //                                 Split dupliziert, hat zwei Kopien
+        //                                 derselben Vorlage -- beide duerfen
+        //                                 sich zuruecksetzen lassen.
+        $herkunft = null;
+        if ($zielUserId !== null) {
+            $herkunft = $quelle['user_id'] === null
+                ? $quelleId
+                : to_int_or_null($quelle['vorlage_id'] ?? null);
+        }
+
         db()->prepare(
-            'INSERT INTO splits (user_id, name, beschreibung, sort_order, created_at)
-             VALUES (?, ?, ?, ?, ?)'
-        )->execute([$zielUserId, $zielName, $quelle['beschreibung'], $position, $zeit]);
+            'INSERT INTO splits (user_id, name, beschreibung, sort_order, vorlage_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$zielUserId, $zielName, $quelle['beschreibung'], $position, $herkunft, $zeit]);
 
         $neuerSplit = (int)db()->lastInsertId();
 
@@ -572,6 +642,309 @@ function split_kopieren(
         db()->rollBack();
         throw $e;
     }
+}
+
+/**
+ * Herkunft und Abweichung persoenlicher Splits (§6.4, seit 1.2.11).
+ *
+ * Liefert nur Zeilen fuer Splits, die eine Vorlage haben UND deren Vorlage es
+ * noch gibt. Der JOIN ist zugleich die Absicherung gegen eine verwaiste
+ * Herkunft: Auf einer Bestandsdatenbank ist vorlage_id eine gewoehnliche
+ * Spalte ohne Fremdschluessel (SQLite kann keinen nachtragen, siehe
+ * apply_migrations()) -- eine geloeschte Vorlage laesst dort eine tote ID
+ * zurueck. Ohne Treffer im JOIN gilt sie als "keine Herkunft", und der Knopf
+ * erscheint nicht.
+ *
+ * @param int[] $splitIds
+ * @return array<int, array{vorlage_id:int, vorlage_name:string, weicht_ab:bool}>
+ */
+function vorlage_stand(array $splitIds): array {
+    $ids = array_values(array_unique(array_map('intval', $splitIds)));
+    if ($ids === []) {
+        return [];
+    }
+
+    $platzhalter = implode(',', array_fill(0, count($ids), '?'));
+
+    $stmt = db()->prepare(
+        "SELECT s.id, s.vorlage_id, v.name AS vorlage_name
+           FROM splits s
+           JOIN splits v ON v.id = s.vorlage_id AND v.user_id IS NULL
+          WHERE s.id IN ($platzhalter) AND s.user_id IS NOT NULL"
+    );
+    $stmt->execute($ids);
+    $zeilen = $stmt->fetchAll();
+
+    if ($zeilen === []) {
+        return [];
+    }
+
+    // Beide Seiten in EINEM Aufruf: Der Fingerabdruck kostet eine Abfrage,
+    // und die Splitseite zeigt bis zu einem Dutzend Karten.
+    $signaturen = split_abgleich_signaturen(array_merge(
+        array_column($zeilen, 'id'),
+        array_column($zeilen, 'vorlage_id')
+    ));
+
+    $ergebnis = [];
+    foreach ($zeilen as $z) {
+        $id  = (int)$z['id'];
+        $vid = (int)$z['vorlage_id'];
+
+        $ergebnis[$id] = [
+            'vorlage_id'   => $vid,
+            'vorlage_name' => (string)$z['vorlage_name'],
+            'weicht_ab'    => ($signaturen[$id] ?? '') !== ($signaturen[$vid] ?? ''),
+        ];
+    }
+
+    return $ergebnis;
+}
+
+/**
+ * Ordnet einem persoenlichen Split seine Vorlage zu -- oder loest die Zuordnung.
+ *
+ * Gebraucht wird das, weil die Herkunft erst seit 1.2.11 mitgeschrieben wird:
+ * Jeder Split, der vorher entstand, kennt seine Vorlage nicht, und gerade die
+ * bestehenden sind die, an denen der Abgleich nuetzt. Raten waere hier falsch
+ * -- ein Fingerabdruck passt nur, solange nichts geaendert wurde, und wer
+ * nichts geaendert hat, braucht den Knopf nicht.
+ *
+ * NUR VORLAGEN sind zulaessig. Ein persoenlicher Split als "Vorlage" eines
+ * anderen waere eine zweite Art von Beziehung mit eigenen Fragen (Wer darf sie
+ * lesen? Was passiert beim Loeschen des Besitzers?), und §6.4 kennt genau eine.
+ */
+function split_vorlage_setzen(int $splitId, ?int $vorlageId): void {
+    $split = split_laden($splitId);
+    if ($split === null) {
+        throw new RuntimeException('Diesen Split gibt es nicht.');
+    }
+    if ($split['user_id'] === null) {
+        throw new RuntimeException('Eine Vorlage hat selbst keine Vorlage.');
+    }
+
+    if ($vorlageId !== null) {
+        $vorlage = split_laden($vorlageId);
+        if ($vorlage === null || $vorlage['user_id'] !== null) {
+            throw new RuntimeException('Diese Vorlage gibt es nicht.');
+        }
+    }
+
+    db()->prepare('UPDATE splits SET vorlage_id = ? WHERE id = ?')
+        ->execute([$vorlageId, $splitId]);
+}
+
+/**
+ * Bringt einen persoenlichen Split auf den Stand seiner Vorlage (§6.4).
+ *
+ * DIE EINE STELLE, an der die Vorlage auf eine Kopie zurueckwirkt -- und nur,
+ * weil der Benutzer den Knopf drueckt. Es gibt weiterhin keine Vererbung und
+ * kein automatisches Nachziehen (Fallstrick 24).
+ *
+ * ABGEGLICHEN WIRD, NICHT NEU ANGELEGT, und das ist der wichtigste Teil dieser
+ * Funktion. plan_exercises.id haengt an workout_log.plan_exercise_id mit
+ * ON DELETE SET NULL: Ein "alles loeschen und aus der Vorlage neu schreiben"
+ * loeste JEDE protokollierte Uebung dieses Splits von ihrer Position --
+ * lautlos, mit ok:true, sichtbar erst Wochen spaeter im Verlauf. Das ist
+ * genau der Fehler, vor dem Fallstrick 4 warnt.
+ *
+ * Vorhandene Zeilen werden deshalb WIEDERVERWENDET, und zwar splitweit: Hat
+ * die Vorlage eine Uebung von "Tag A" nach "Tag B" verschoben, wandert die
+ * bestehende Zeile mit (UPDATE plan_id), statt zu verschwinden und neu zu
+ * entstehen. Nur was in der Vorlage wirklich nicht mehr vorkommt, wird
+ * geloescht -- und dessen Protokollzeilen verlieren ihren Bezug. Das ist
+ * unvermeidbar und steht deshalb in der Rueckfrage der Oberflaeche.
+ *
+ * Der NAME DES SPLITS bleibt unberuehrt: Er gehoert dem Benutzer. Plannamen,
+ * Reihenfolge, Uebungen und die Beschreibung kommen von der Vorlage.
+ *
+ * @return array{plaene: string[], hinzugefuegt: int, entfernt: int, verschoben: int}
+ */
+function split_zuruecksetzen(int $splitId): array {
+    $split = split_laden($splitId);
+    if ($split === null || $split['user_id'] === null) {
+        throw new RuntimeException('Diesen Split gibt es nicht.');
+    }
+
+    $vorlageId = to_int_or_null($split['vorlage_id'] ?? null);
+    $vorlage   = $vorlageId === null ? null : split_laden($vorlageId);
+    if ($vorlage === null || $vorlage['user_id'] !== null) {
+        throw new RuntimeException('Zu diesem Split ist keine Vorlage hinterlegt.');
+    }
+
+    $ziel  = split_aufbau($vorlageId);
+    $istPlaene = db()->prepare(
+        'SELECT id, name, sort_order FROM plans WHERE split_id = ? ORDER BY sort_order, id'
+    );
+    $istPlaene->execute([$splitId]);
+    $ist = $istPlaene->fetchAll();
+
+    $userId = (int)$split['user_id'];
+    $zeit   = now();
+
+    $hinzugefuegt = 0;
+    $entfernt     = 0;
+    $verschoben   = 0;
+
+    db()->beginTransaction();
+    try {
+        // --- 1. Plaene paaren: nach Reihenfolge, nicht nach Namen ---------
+        // Ein umbenannter Plan ist derselbe Plan an derselben Stelle. Ueber
+        // die Namen zu paaren hiesse, ihn zu loeschen und neu anzulegen --
+        // und damit die Historie seiner Positionen zu kappen.
+        $planIds   = [];
+        $ueberzaehlig = [];
+        foreach ($ist as $i => $alt) {
+            if (isset($ziel[$i])) {
+                $planIds[$i] = (int)$alt['id'];
+            } else {
+                $ueberzaehlig[] = (int)$alt['id'];
+            }
+        }
+
+        $planAnlegen = db()->prepare(
+            'INSERT INTO plans (user_id, split_id, name, sort_order, created_at)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $planSchreiben = db()->prepare(
+            'UPDATE plans SET name = ?, sort_order = ? WHERE id = ?'
+        );
+
+        foreach ($ziel as $i => $z) {
+            if (isset($planIds[$i])) {
+                $planSchreiben->execute([$z['name'], $z['sort_order'], $planIds[$i]]);
+            } else {
+                $planAnlegen->execute([
+                    $userId, $splitId, $z['name'], $z['sort_order'], $zeit,
+                ]);
+                $planIds[$i] = (int)db()->lastInsertId();
+            }
+        }
+
+        // --- 2. Der Vorrat vorhandener Positionen, splitweit ---------------
+        // Geschluesselt nach Uebung, damit eine Zeile auch dann wiederverwendet
+        // wird, wenn die Vorlage sie in einen anderen Plan verschoben hat.
+        $vorratLesen = db()->prepare(
+            'SELECT pe.id, pe.plan_id, pe.exercise_id
+               FROM plan_exercises pe
+               JOIN plans p ON p.id = pe.plan_id
+              WHERE p.split_id = ?
+              ORDER BY pe.sort_order, pe.id'
+        );
+        $vorratLesen->execute([$splitId]);
+
+        $vorrat = [];
+        foreach ($vorratLesen->fetchAll() as $z) {
+            $vorrat[(int)$z['exercise_id']][] = [
+                'id'      => (int)$z['id'],
+                'plan_id' => (int)$z['plan_id'],
+            ];
+        }
+
+        $positionSchreiben = db()->prepare(
+            'UPDATE plan_exercises SET plan_id = ?, sort_order = ? WHERE id = ?'
+        );
+        $positionAnlegen = db()->prepare(
+            'INSERT INTO plan_exercises (plan_id, exercise_id, sort_order) VALUES (?, ?, ?)'
+        );
+
+        foreach ($ziel as $i => $z) {
+            $planId = $planIds[$i];
+            foreach ($z['uebungen'] as $j => $exerciseId) {
+                $nr = $j + 1;
+
+                // Eine Zeile aus demselben Plan bevorzugen -- sie bleibt dann
+                // ganz stehen und aendert nur ihre Nummer.
+                $wahl = null;
+                foreach ($vorrat[$exerciseId] ?? [] as $k => $kandidat) {
+                    if ($wahl === null || $kandidat['plan_id'] === $planId) {
+                        $wahl = $k;
+                    }
+                    if ($kandidat['plan_id'] === $planId) {
+                        break;
+                    }
+                }
+
+                if ($wahl === null) {
+                    $positionAnlegen->execute([$planId, $exerciseId, $nr]);
+                    $hinzugefuegt++;
+                    continue;
+                }
+
+                $zeile = $vorrat[$exerciseId][$wahl];
+                unset($vorrat[$exerciseId][$wahl]);
+
+                if ($zeile['plan_id'] !== $planId) {
+                    $verschoben++;
+                }
+                $positionSchreiben->execute([$planId, $nr, $zeile['id']]);
+            }
+        }
+
+        // --- 3. Was uebrig blieb, kommt in der Vorlage nicht mehr vor ------
+        $positionLoeschen = db()->prepare('DELETE FROM plan_exercises WHERE id = ?');
+        foreach ($vorrat as $zeilen) {
+            foreach ($zeilen as $zeile) {
+                $positionLoeschen->execute([$zeile['id']]);
+                $entfernt++;
+            }
+        }
+
+        // --- 4. Erst jetzt die ueberzaehligen Plaene ----------------------
+        // Nach dem Vorrat, damit eine Uebung aus einem wegfallenden Plan
+        // vorher in einen bleibenden umziehen konnte (Fallstrick 4).
+        $planLoeschen = db()->prepare('DELETE FROM plans WHERE id = ? AND split_id = ?');
+        foreach ($ueberzaehlig as $planId) {
+            $planLoeschen->execute([$planId, $splitId]);
+        }
+
+        db()->prepare('UPDATE splits SET beschreibung = ? WHERE id = ?')
+            ->execute([$vorlage['beschreibung'], $splitId]);
+
+        db()->commit();
+    } catch (Throwable $e) {
+        db()->rollBack();
+        throw $e;
+    }
+
+    return [
+        'plaene'       => array_column($ziel, 'name'),
+        'hinzugefuegt' => $hinzugefuegt,
+        'entfernt'     => $entfernt,
+        'verschoben'   => $verschoben,
+    ];
+}
+
+/**
+ * Der Aufbau eines Splits als einfache Liste -- Plaene in Reihenfolge, je Plan
+ * die Uebungs-IDs in Reihenfolge.
+ *
+ * @return list<array{name:string, sort_order:int, uebungen:int[]}>
+ */
+function split_aufbau(int $splitId): array {
+    $stmt = db()->prepare(
+        'SELECT p.id, p.name, p.sort_order, pe.exercise_id
+           FROM plans p
+           LEFT JOIN plan_exercises pe ON pe.plan_id = p.id
+          WHERE p.split_id = ?
+          ORDER BY p.sort_order, p.id, pe.sort_order, pe.id'
+    );
+    $stmt->execute([$splitId]);
+
+    $plaene = [];
+    foreach ($stmt->fetchAll() as $z) {
+        $pid = (int)$z['id'];
+        $plaene[$pid] ??= [
+            'name'       => (string)$z['name'],
+            'sort_order' => (int)$z['sort_order'],
+            'uebungen'   => [],
+        ];
+        if ($z['exercise_id'] !== null) {
+            $plaene[$pid]['uebungen'][] = (int)$z['exercise_id'];
+        }
+    }
+
+    return array_values($plaene);
 }
 
 /**

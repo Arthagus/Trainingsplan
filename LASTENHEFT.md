@@ -38,9 +38,19 @@ Self-Signup — Benutzer werden ausschließlich vom Administrator angelegt.
   Smartphone „zum Startbildschirm hinzufügen" installierbar ist und im Vollbild läuft.
 
 **Service-Worker-Regel (zwingend):** Der Service Worker cacht **ausschließlich** statische
-Assets — `assets/*.css`, `assets/*.js`, `manifest.json` und die Icons — mit Strategie
+Assets — `assets/*.css`, `assets/*.js`, `manifest.json`, die Icons und (seit `1.2.11`) die
+**Seiten-Skripte im Wurzelverzeichnis** (`index.js`, `plans.js`, …) — mit Strategie
 **`stale-while-revalidate`**: Die Antwort kommt sofort aus dem Cache, parallel wird die
 frische Fassung geholt und abgelegt.
+
+> **Warum die Seiten-Skripte dazugehören.** Dass sie bis `1.2.10` fehlten, war keine
+> Entscheidung, sondern eine Folge ihrer Ablage: `index.js` ist so groß wie `app.js`, trägt
+> dieselbe `?v=`-Nummer und ändert sich genauso selten — lag aber nicht in `assets/` und
+> ging deshalb bei **jedem** Seitenaufruf ans Netz. Zusammen mit `Cache-Control: no-cache`
+> war das eine volle Netzrunde, bevor die Seite bedienbar wurde. Erfasst wird nur, was
+> **direkt** im Wurzelverzeichnis liegt und auf `.js` endet; kein Unterordner, keine andere
+> Endung. Vorab geladen werden sie **nicht** — sonst holte der Service Worker bei jeder
+> Installation alle sieben, auch die für Seiten, die niemand öffnet.
 
 > **Nicht `cache-first`.** Das ist eine Falle: Ein
 > Service Worker wird nur neu installiert, wenn sich **seine eigene Datei** ändert. Bleibt
@@ -369,15 +379,25 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
     bearbeitet ihn, und **nur darauf wird trainiert**.
 - **Zwischen beiden gibt es genau eine Verbindung, und die ist eine Kopie.** Wer eine
   Vorlage benutzen will, kopiert sie zu sich (Split, Pläne und Positionen werden neu
-  angelegt); danach sind beide Seiten unabhängig. Es gibt keinen Verweis, keine
-  Vererbung und keinen Abgleich:
-  - Ändert der Admin die Vorlage, bleibt jede bestehende Kopie unberührt. Wer den neuen
-    Stand will, kopiert erneut und unterscheidet die beiden am Namen (`Push / Pull` und
-    `Push / Pull (2)`).
+  angelegt); danach sind beide Seiten unabhängig. Es gibt **keine Vererbung und kein
+  automatisches Nachziehen**:
+  - Ändert der Admin die Vorlage, bleibt jede bestehende Kopie unberührt.
   - Ändert ein Benutzer seine Kopie — dauerhafter Tausch, Übung entfernen, ergänzen,
     umsortieren —, merkt davon weder die Vorlage noch ein anderer Benutzer. **Das ist
     der Zweck des Ganzen:** Zwei Leute dürfen denselben Split fahren, ohne sich
     gegenseitig in den Bestand zu schreiben.
+- **Eine Kopie kennt ihre Vorlage** (`splits.vorlage_id`) und lässt sich auf deren Stand
+  **zurücksetzen** — auf ausdrücklichen Knopfdruck des Eigentümers und sonst nie. Der
+  Knopf erscheint nur, wenn Kopie und Vorlage auseinanderliegen; ob das an einer eigenen
+  Anpassung liegt oder an einer verbesserten Vorlage, spielt keine Rolle. Die Herkunft
+  entsteht beim Kopieren und lässt sich an der Karte auch nachträglich zuordnen — für
+  Splits, die vor `1.2.11` entstanden sind und ihre Vorlage nicht kennen.
+
+  > Bis `1.2.10` gab es diesen Weg ausdrücklich **nicht**: „Wer den neuen Stand will,
+  > kopiert erneut." Als Weg, eine verbesserte Vorlage zu übernehmen, taugte das nicht —
+  > erneut kopieren erzeugt `… (2)`, lässt den alten Split stehen und wirft die Auswahl
+  > *Diesen trainieren* um. Der Verweis ist reine Herkunftsangabe; er ändert nichts von
+  > selbst.
 - **Dass auf einer Vorlage niemand trainiert, ist keine Frage der Oberfläche.** Der
   dauerhafte Tausch schreibt in `plan_exercises` (§7.5) — auf einer Vorlage wäre das ein
   Schreibzugriff auf fremden Bestand. Durchgesetzt wird es serverseitig in
@@ -697,9 +717,15 @@ getrennt** weiter (§7.6).
   Split, Pläne und Positionen neu an; ab da gehört die Kopie dem Benutzer allein. Er
   darf darin tauschen (einmalig wie dauerhaft), Übungen entfernen, ergänzen und
   umsortieren — nichts davon wirkt auf die Vorlage oder auf andere Benutzer, und eine
-  spätere Änderung des Admins an der Vorlage wirkt nicht auf die Kopie. Wer den neuen
-  Stand will, kopiert erneut; die zweite Fassung heißt automatisch `… (2)` und ist
-  umbenennbar.
+  spätere Änderung des Admins an der Vorlage wirkt nicht auf die Kopie.
+- **Weicht eine Kopie von ihrer Vorlage ab, trägt ihre Karte den Knopf *Auf Vorlage
+  zurücksetzen*.** Er bringt Pläne, deren Reihenfolge, Namen und Übungen auf den Stand
+  der Vorlage; der **Name des Splits bleibt der des Benutzers**. Vorher fragt die
+  Oberfläche nach und nennt dabei zweierlei: dass eigene Anpassungen verlorengehen, und
+  dass Übungen, die es in der Vorlage nicht mehr gibt, ihren Bezug zwischen bereits
+  protokollierten Sätzen und der Planposition verlieren. Während einer laufenden Einheit
+  ist der Knopf gesperrt. Daneben steht ein Auswahlfeld **Vorlage**, mit dem sich die
+  Herkunft setzen und lösen lässt.
 - **Auf einer Vorlage trainiert niemand**, auch kein Admin. Sie ist Katalog, kein
   Bestand — sonst schriebe der erste dauerhafte Tausch in den Bestand aller.
 - **Jede Karte hat einen Knopf *Als Text*.** Er zeigt den Split als reinen Text in einem
@@ -776,10 +802,15 @@ getrennt** weiter (§7.6).
   Katalog wird beim Veröffentlichen eigens erfragt — er ist eine öffentliche Beschriftung
   und muss nicht heißen wie der private Split.
 - Die Planverwaltung selbst heißt seit `1.2.0` **`plans.php`** (vorher `admin_plans.php`)
-  und bearbeitet **einen Split**, gewählt über ein Auswahlfeld: erst die eigenen Splits,
-  für Admins darunter die Vorlagen und die Splits der anderen. Ein unbekannter oder
-  fremder `?split=`-Wert fällt auf den ersten erlaubten zurück — die Liste selbst ist
-  der IDOR-Schutz, wie `$erlaubt` in `index.php`.
+  und bearbeitet **einen Split**, gewählt über das Feld *Angezeigter Split*: erst die
+  eigenen Splits, für Admins darunter die Vorlagen und die Splits der anderen. Ein
+  unbekannter oder fremder `?split=`-Wert fällt zurück — die Liste selbst ist der
+  IDOR-Schutz, wie `$erlaubt` in `index.php`.
+- **Ohne `?split=` steht das Feld auf dem Split, der für den Aufrufer gerade aktiv ist**
+  (seit `1.2.12`) — also auf dem, mit dem er trainiert, und nicht auf dem ersten seiner
+  Liste. Wer über die Kopfzeile auf *Pläne* geht, hat den im Sinn. Ein ausdrückliches
+  `?split=` schlägt das weiterhin; über diesen Weg führt *Pläne bearbeiten* auf
+  `splits.php`. Hat der Benutzer noch keinen aktiven Split, bleibt der erste erlaubte.
 - Pro Split **beliebig viele** Pläne — mindestens einer, nach oben ohne feste Grenze.
   Zwei Pläne (Ober-/Unterkörper) und drei (Push/Pull/Legs) sind die erwarteten Fälle;
   die Rotation in §7.6 ist für jede Anzahl definiert.

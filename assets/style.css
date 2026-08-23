@@ -2026,6 +2026,41 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 .split-abschluss { margin-top: 0.4rem; }
 .split-abschluss > :last-child { margin-left: auto; }
 
+/* --- Herkunft eines Splits (§6.4) ----------------------------------------- */
+
+/* Eine Zeile mit dem Vorlagen-Feld und, bei Abweichung, dem Knopf daneben.
+
+   Das Auswahlfeld MUSS `width: auto` bekommen: Die Formularregel ganz oben
+   setzt jedes <select> auf 100 %, und dann stünde der Knopf zwangsläufig in
+   der nächsten Zeile — auch auf einem breiten Bildschirm, wo beides
+   nebeneinander passt. `flex: 1 1 9rem` lässt es mitwachsen und am Handy
+   trotzdem sauber umbrechen.
+
+   Die Zeile steht bewusst ÜBER den Knopfreihen und nicht darin: Sie beschreibt
+   den Split (wie die Planvorschau darüber), sie ist keine Aktion an ihm. */
+.split-herkunft {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+}
+
+.split-herkunft label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-weight: normal;
+    flex: 1 1 12rem;
+}
+
+.split-herkunft select {
+    width: auto;
+    flex: 1 1 9rem;
+    min-width: 0;
+}
+
 /* --- Split als Text (§6.4) ------------------------------------------------ */
 
 /* Das [open] ist Pflicht und keine Zierde — dieselbe Falle wie bei

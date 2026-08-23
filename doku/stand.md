@@ -17,9 +17,9 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.10` — gemessen am 2026-08-23: `style.css?v=1.2.10` und `app.js?v=1.2.10`. Die Gegenprobe am Gerät steht aus: *Offen*, Punkt 1 |
-| **Arbeitsstand** | `1.2.10`, deckungsgleich mit live |
-| **Rollback-Ziel** | `trainingsplan:1.2.9` — dieses Image in Portainer stehen lassen |
+| **Live** | `trainingsplan:1.2.12` — **gebaut am 2026-08-23 und unmittelbar danach eingespielt.** Noch nicht nachgemessen; der Befehl unten sagt in Sekunden, ob es stimmt. Die Gegenprobe am Gerät steht aus: *Offen*, Punkte 1 und 2 |
+| **Arbeitsstand** | `1.2.12`, deckungsgleich mit live |
+| **Rollback-Ziel** | `trainingsplan:1.2.11` — dieses Image in Portainer stehen lassen. `1.2.11` ist am Live-System durchgeprüft (Splits, Zurücksetzen, Historie) und damit ein belastbarer Stand |
 
 **Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
 lässt, unmittelbar danach ein — am 2026-08-19 ausdrücklich so festgelegt. Daraus folgt für
@@ -62,8 +62,9 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
 
 ## Offen
 
-1. **Gegenprobe am Gerät zu `1.2.10`** — die Version ist ausgerollt, aber alle drei Punkte
-   sind rein optisch und deshalb **ungeprüft**, bis der Benutzer sie gesehen hat.
+1. **Gegenprobe am Gerät zu `1.2.10`** — ausgerollt, aber alle drei Punkte sind rein
+   optisch und deshalb **ungeprüft**, bis der Benutzer sie gesehen hat. Mit `1.2.11` sind
+   sie weiterhin offen; die beiden Listen lassen sich in einem Durchgang abarbeiten.
    Gemeldet am 2026-08-23 vom iPhone: Der Balken
    „… wird gespeichert" erschien an der richtigen Stelle, schob dabei aber die ganze Seite
    eine Zeilenhöhe nach unten und beim Verschwinden wieder hinauf, also bei **jedem**
@@ -102,7 +103,112 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    | Laufende Einheit | Der Kasten nennt den Plan („Pull A" läuft seit …) — sonst stünde er nirgends |
    | Split mit nur einem Plan | Die Knopfreihe steht trotzdem, sonst fehlt der Planname |
 
-2. **Studio-Erprobung der Splits** (`1.2.0` bis `1.2.4`) — **angekündigt für den
+2. **Gegenprobe zu `1.2.11`/`1.2.12`** (beide am 2026-08-23 gebaut) — der **Tastatur-Anker** (Fallstrick 19g). Gemeldet
+   am 2026-08-23: Beim Tippen in ein Gewichtsfeld scrollt die Seite jedes Mal ein Stück
+   nach oben, sobald die Tastatur erscheint; am Pixel nicht. Das ist WebKits eigenes
+   „Feld über die Tastatur holen" — es lässt sich nicht abschalten, nur aufhalten.
+
+   **Die Bauweise ist auf die Rückfrage des Benutzers hin geändert worden** („ich will
+   nicht, dass die Felder wirr hoch und runter springen"): Statt Safaris Bewegung
+   *nachträglich* zurückzunehmen — was genau dieses Springen ergeben hätte —, hält der
+   Anker die Seite fest, solange die Tastatur hochfährt, und entscheidet danach **ein**
+   Mal. Normalfall: gar keine Bewegung. Ausnahmefall: eine statt hin und her.
+
+   **Und wenn schon bewegt wird, dann weit genug** (zweite Rückmeldung vom selben Tag):
+   nicht nur 8 px Luft zur Tastaturkante, sondern so weit, dass „+ Satz" und die nächsten
+   **drei** Sätze darunter sichtbar bleiben. Nachgerechnet für ein kleines Gerät
+   (300 px Sicht, 44 px Zeilenhöhe): geht sich aus, das Feld landet dann 82 px unter dem
+   Rand mit 176 px freiem Platz darunter.
+
+   Die Prüfung gehört aufs **iPhone**. Der erste Punkt ist der eigentliche, der zweite die
+   Probe darauf, dass die Sicherung greift:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Gewichtsfeld der aktiven Karte antippen | Tastatur kommt hoch, **die Seite bleibt stehen** — kein Ruck, auch kein kurzer |
+   | Feld ganz unten in der Liste antippen | **Eine** Bewegung — und weit genug: Unter dem Feld müssen „+ Satz" **und Platz für drei weitere Sätze** sichtbar bleiben. Ein Hin und Her wäre der Fehler |
+   | Drei Sätze hintereinander eintragen | „+ Satz", ausfüllen, „+ Satz", ausfüllen … **ohne dazwischen von Hand zu scrollen** |
+   | Von Feld zu Feld (Wdh. → Gewicht → nächster Satz) | Kein Zucken, die Eingabe bleibt lesbar |
+   | Übung abhaken | Der Sprung zur nächsten Übung läuft **wie bisher** — der Anker fasst Kästchen nicht an |
+   | Bei offener Tastatur bewusst scrollen | Der Griff bleibt stehen |
+
+   **In derselben Version stecken zwei Kleinigkeiten zum Trainingsstart** (gemeldet am
+   2026-08-23: „manchmal passiert zwei Sekunden nichts"). Ursache war nicht das Netz,
+   sondern die feste Wiederholpause von 2 s in `apiFetch` — jetzt `[400, 2000, 2000]`, also
+   ein Umlauf mehr bei kürzerem Einstieg. Dazu heißt der Knopf während des Startens
+   **„Startet …"**. Zu prüfen:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Training starten | Der Knopf sagt „Startet …", bis die Seite neu kommt |
+   | Der bekannte Aussetzer | Falls er wieder auftritt: spürbar kürzer. Der rote Balken „Keine Verbindung zum Server" darf dabei kurz aufblitzen — er ist der Beleg, dass es der Wiederholweg war |
+   | Start ohne Netz (Flugmodus) | Nach ~4,4 s eine Fehlermeldung, und der Knopf heißt wieder „Training starten" |
+
+   **Dazu cacht der Service Worker jetzt auch die Seiten-Skripte** (`index.js` &co.,
+   Punkt 1 aus der Trägheits-Analyse vom 2026-08-23). Das spart auf **jeder** Seite eine
+   Netzrunde. Zu prüfen ist vor allem, dass ein Rollout weiterhin ankommt:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Nach dem Einspielen von `1.2.11` die App öffnen | Alles Neue ist da — Tastatur-Anker, „Startet …". Wenn nicht: **einmal neu laden**, der erste Aufruf holt das Skript noch vom Netz |
+   | Danach zwischen Seiten wechseln | Spürbar zügiger, vor allem bei schwachem Empfang |
+   | Abmelden | Danach ist **keine** Seite mehr zu sehen — HTML wird weiterhin nie gecacht |
+
+   **Wenn nach einem künftigen Rollout etwas alt aussieht**, ist das die erste Adresse:
+   Fallstrick 12, und die Frage lautet, ob die Adresse das `?v=` trägt.
+
+   **Und die Splitauswahl auf `plans.php`** (gemeldet am 2026-08-23 vom Pixel): Chrome auf
+   Android zeigt ein `<select>` als Dialog mit Auswahlknöpfen; bei 16 px brachen längere
+   Splitnamen dort zweizeilig um. Die Größe steht jetzt am `<option>` und nicht am
+   `<select>` — das Feld selbst muss bei 16 px bleiben, sonst zoomt iOS beim Hineintippen.
+   Dazu heißt das Feld nicht mehr „Pläne im Split", sondern **„Angezeigter Split"**.
+
+   **Der Schriftgrößen-Teil ist erledigt und zwar als NICHT machbar** (Gegenprobe am Pixel,
+   2026-08-23): Der Auswahldialog von Chrome auf Android nimmt die **Android-Systemschrift**
+   und ist von CSS nicht erreichbar. Die Regel `option { font-size }` aus `1.2.11` war
+   wirkungslos und ist wieder entfernt; Einzelheiten stehen bei den Frontend-Regeln in
+   `CLAUDE.md`. **Der Hebel sind die Namen:** Im Dialog passen rund 32 Zeichen in eine
+   Zeile, und zwei der vier Splits liegen mit 39 und 41 Zeichen darüber.
+
+   | Was | Was passieren muss |
+   |---|---|
+   | iPhone: Auswahl öffnen | Unverändert das Systemrad — und beim Antippen **kein Zoom** der Seite dahinter |
+
+   **Und der neue Knopf „Auf Vorlage zurücksetzen"** (§6.4, Fallstrick 24) — die
+   folgenreichste Änderung dieser Version, weil sie eine bis dahin festgeschriebene
+   Entscheidung umdreht und **Daten verändert**:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Eigener Split ohne zugeordnete Vorlage | Auswahlfeld **Vorlage** steht da, Knopf **nicht** |
+   | Vorlage zuordnen, die dem Split entspricht | Kein Knopf — es gibt nichts abzugleichen |
+   | Eine Übung im eigenen Split ändern | Knopf erscheint |
+   | Zurücksetzen | Rückfrage nennt Vorlage, künftige Pläne und beide Folgen. Danach: Pläne wie die Vorlage, **Splitname unverändert**, Knopf weg |
+   | Verlauf danach | Die Einheiten stehen **alle** noch da. Übungen, die es in der Vorlage weiter gibt, behalten ihre Zuordnung — auch wenn die Vorlage sie in einen anderen Plan verschoben hat |
+   | Während eines Trainings | Knopf gesperrt, Hinweis „Erst die laufende Einheit beenden" |
+   | Als anderer Benutzer | An fremden Splits gibt es weder Feld noch Knopf |
+
+   **Vorher eine Sicherung ziehen.** Das Zurücksetzen löscht Planpositionen; bei Übungen,
+   die aus der Vorlage verschwunden sind, verlieren bereits protokollierte Sätze ihren
+   Bezug zur Position. Die Sätze selbst bleiben stehen — der Weg zurück führt trotzdem nur
+   über die Sicherung.
+
+   **Bei Ihrem Datenstand ist zuerst die Zuordnung nötig:** Die persönlichen Splits
+   stammen aus der Migration zu `1.2.0`, die Vorlagen wurden **daraus** veröffentlicht —
+   es gibt also keine Kopie-Beziehung, die das System kennen könnte. Erst nach dem Setzen
+   des Feldes **Vorlage** taucht der Knopf überhaupt auf.
+
+   **Neu in `1.2.12`, am Pixel wie am iPhone zu sehen:** *Pläne* über die Kopfzeile
+   aufrufen — das Feld *Angezeigter Split* muss auf dem Split stehen, mit dem gerade
+   trainiert wird, nicht auf dem ersten der Liste. Und von `splits.php` aus über
+   *Pläne bearbeiten* muss weiterhin der **angeklickte** Split erscheinen.
+
+   **Am Pixel dieselben drei Punkte** — dort soll sich nichts verschlechtern: sichtbares
+   Feld antippen (keine Bewegung), Feld ganz unten antippen (eine Bewegung), abhaken (wie
+   vorher). Die Regel ist auf beiden Geräten dieselbe und hängt am Zustand, nicht am
+   Browser: **sichtbar ⇒ nicht scrollen, verdeckt ⇒ einmal scrollen.**
+
+3. **Studio-Erprobung der Splits** (`1.2.0` bis `1.2.4`) — **angekündigt für den
    2026-08-19**. Die `1.1.x`-Reihe ist im Studio erprobt; alles seit `1.2.0` noch nicht.
    Was `curl` nicht sehen kann:
 
@@ -115,14 +221,14 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    | ⇈ / ⇊ an einer Übung | Vier Pfeile in einer Zeile noch treffsicher |
    | **Vorlagenkarte OHNE Adminrecht** (`1.2.6`) | Eine Zeile: „Zu mir kopieren" links, „Als Text" rechts. **Als Einziges aus `1.2.5`/`1.2.6` noch ungesehen** — der Benutzer ist Admin und bekommt an derselben Karte die volle Verwaltungsreihe. Es braucht ein Konto ohne Adminrecht |
 
-3. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden, jetzt auf der Kontoseite)
+4. **Zwei Abnahmekriterien am Handy** — 16 (ein Gerät abmelden, jetzt auf der Kontoseite)
    und die Gerätehälfte von 19 (Expertenmodus). Die Gegenprobe der *Darstellung* deckt sie
    nicht ab; es sind einzelne, benannte Abläufe.
-4. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
+5. **Kriterium 17 (Restore) ist jetzt vollständig prüfbar** — seit dem 2026-08-11 liegt eine
    frische Sicherung *mit* Bildern vor, und damit erstmals eine, deren Einspielen den
    aktuellen Datenstand wiederherstellen würde statt ihn zurückzudrehen. Bisher fehlte genau
    dieses Stück. Wer es durchspielt, sollte danach ab- und neu anmelden (Fallstrick 14).
-5. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
+6. **`bestand_gruppen_uebungen.md` ist veraltet** — es listet die Übungen einzeln auf, samt
    Zählständen, und beides stimmt längst nicht mehr. Die Datei ist ein Überbleibsel aus der
    Zeit, als sie eine Eingabeanleitung war. Sinnvoller als Nachzählen wäre, sie auf das zu
    kürzen, was sich *nicht* täglich ändert: die Muskelgruppen-Gliederung und die
@@ -130,7 +236,7 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    ist zusätzlich die Spalte *Ausführung* dort überholt** — sie trägt den Wortlaut der
    Aufbauphase, und der ist inzwischen bei jeder Übung ein anderer. Ein Grund mehr, die
    Tabelle zu streichen statt sie nachzuziehen.
-6. **Sechs Fragen an die Übungsdaten** (2026-08-16, beim Überarbeiten der Texte aufgefallen).
+7. **Sechs Fragen an die Übungsdaten** (2026-08-16, beim Überarbeiten der Texte aufgefallen).
    Alle sind Sachentscheidungen, keine Textfragen, und deshalb **unverändert gelassen**:
 
    | Übung | Was nicht zusammenpasst |

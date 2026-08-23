@@ -70,10 +70,38 @@ foreach ($waehlbar as $sp) {
     }
 }
 
-// Fehlender, unbekannter oder fremder Parameter: auf den ersten erlaubten
-// zurueckfallen, statt eine leere Seite mit totem Formular zu zeigen.
+// Fehlender, unbekannter oder fremder Parameter: auf den AKTIVEN Split des
+// Aufrufers zurueckfallen -- den, auf dem er gerade trainiert.
+//
+// Bis 1.2.11 stand hier schlicht $waehlbar[0], also der erste eigene Split in
+// seiner Sortierung. Das ist bei mehreren Splits fast immer der falsche: Wer
+// ueber die Kopfzeile auf "Pläne" geht, will den bearbeiten, mit dem er
+// arbeitet, und nicht den, der zufaellig oben steht.
+//
+// aktiver_split() liefert ausschliesslich EIGENE Splits (der JOIN verlangt
+// sp.user_id = u.id) -- ein Admin landet hier also nie auf einer Vorlage oder
+// im Bestand eines anderen. Genommen wird trotzdem die Zeile aus $waehlbar und
+// nicht die von dort: Nur sie traegt 'gruppe' und 'zusatz' fuer das
+// Auswahlfeld.
+//
+// Ein ausdrueckliches ?split= schlaegt das weiterhin -- der Weg von
+// splits.php ("Pläne bearbeiten") fuehrt genau darueber.
 if ($split === null && $waehlbar !== []) {
-    $split    = $waehlbar[0];
+    $aktiv = aktiver_split($userId);
+
+    if ($aktiv !== null) {
+        foreach ($waehlbar as $sp) {
+            if ((int)$sp['id'] === (int)$aktiv['id']) {
+                $split = $sp;
+                break;
+            }
+        }
+    }
+
+    // Kein aktiver Split (noch nie trainiert, gar keine eigenen) -- dann bleibt
+    // der erste erlaubte, statt eine leere Seite mit totem Formular zu zeigen.
+    $split ??= $waehlbar[0];
+
     $gewaehlt = (int)$split['id'];
 }
 
@@ -177,7 +205,12 @@ require __DIR__ . '/lib/view_header.php';
 <?php else: ?>
 
 <form method="get" class="karte">
-    <label for="split">Pläne im Split</label>
+    <?php // "Angezeigter Split" und nicht "Pläne im Split": Ein Label über einem
+          // Auswahlfeld benennt, WAS man waehlt -- und der gewaehlte Wert liest
+          // sich hier als Aussage ueber die Seite darunter, die sich mit ihm
+          // aendert. "Vorhandene Splits" waere die Beschreibung der LISTE und
+          // doppelte ausserdem die Gruppenueberschriften im Menue. ?>
+    <label for="split">Angezeigter Split</label>
     <select id="split" name="split" onchange="this.form.submit()">
         <?php $letzteGruppe = null; ?>
         <?php foreach ($waehlbar as $sp): ?>

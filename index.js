@@ -108,6 +108,15 @@
     if (starten) {
         starten.addEventListener('click', async () => {
             starten.disabled = true;
+
+            // Der Knopf sagt, dass etwas passiert. Zwischen dem Tipp und der
+            // laufenden Einheit liegen drei Netzrunden — der Aufruf hier, die
+            // neu geladene Seite und deren Skript —, und bei einem Aussetzer
+            // kommt eine Wiederholpause dazu. Ein bloß ausgegrauter Knopf ist
+            // in dieser Zeit nicht von einem toten zu unterscheiden.
+            const beschriftung = starten.textContent;
+            starten.textContent = 'Startet …';
+
             try {
                 // wiederholen erlaubt: aktion_starten() liefert die bereits
                 // laufende Einheit zurueck, statt einen Fehler zu werfen.
@@ -122,6 +131,10 @@
                 window.location.reload();
             } catch (fehler) {
                 meldung(fehler.message, 'fehler');
+                // Nur im Fehlerfall zuruecksetzen: Im Erfolgsfall laeuft der
+                // Reload schon, und "Training starten" duerfte dabei nicht
+                // wieder aufblitzen.
+                starten.textContent = beschriftung;
                 starten.disabled = false;
             }
         });
@@ -422,6 +435,49 @@
     }
 
     // --- Sätze (Expertenmodus) ---------------------------------------------
+
+    /** Wie viele weitere Sätze nach dem Scrollen noch hinpassen sollen. */
+    const SAETZE_IN_SICHT = 3;
+
+    /**
+     * Meldet dem Tastatur-Anker (`assets/app.js`, Fallstrick 19g), wie viel
+     * Platz unter einem Satzfeld freibleiben soll.
+     *
+     * Muss der Anker überhaupt scrollen — das Feld läge sonst hinter der
+     * Tastatur —, dann soll er es gleich richtig tun: Wer im Satzblock tippt,
+     * drückt als Nächstes „+ Satz" und füllt die neue Zeile aus. Landet das
+     * Feld nur knapp über der Tastaturkante, ist der Knopf schon verdeckt und
+     * man scrollt bei jedem Satz von Hand nach.
+     *
+     * Gerechnet wird vom **Ende des Blocks**, nicht vom Feld: Dort sitzt „+
+     * Satz", und dort wachsen die neuen Zeilen hinein. Steht der Cursor in
+     * Satz 1 von fünf, zählen die vier darunter mit — sie stehen ja im Weg.
+     * Dazu Platz für SAETZE_IN_SICHT weitere Zeilen in der Höhe, die eine Zeile hier
+     * tatsächlich hat; ein fester Pixelwert wäre bei der nächsten
+     * Schriftgröße falsch.
+     *
+     * Ist es kein Satzfeld (einfacher Modus, Anmeldung, Adminmasken), gibt es
+     * nichts zu reservieren — dann bleibt es bei der blossen Luft zur
+     * Tastaturkante.
+     *
+     * **Zu viel ist hier ungefährlich:** Der Anker klammert nach oben ab und
+     * schiebt das Feld nie unter den Leisten-Stapel. Im Zweifel landet das Feld
+     * also ganz oben, und das ist genau der Fall mit dem meisten Platz darunter.
+     */
+    ankerReserveMelden((feld) => {
+        const zeile = feld.closest('.satz-zeile');
+        if (!zeile) return 0;
+
+        const block = zeile.closest('.saetze-block');
+        const zeilenHoehe = zeile.getBoundingClientRect().height;
+        const blockUnten = block
+            ? block.getBoundingClientRect().bottom
+            : zeile.getBoundingClientRect().bottom;
+
+        const darunter = Math.max(0, blockUnten - feld.getBoundingClientRect().bottom);
+
+        return darunter + zeilenHoehe * SAETZE_IN_SICHT;
+    });
 
     /**
      * Eine Satzzeile als Markup.
@@ -763,32 +819,12 @@
         // sodass die Karte zuverlässig unter ihr landete und der Übungsname
         // verdeckt war.
         //
-        // Gemessen wird der ganze STAPEL (lib/view_header.php), nicht eine
-        // einzelne Leiste: Seit 1.1.14 hängen dort zwei drin — die
-        // Verbindungsleiste und die Trainingsleiste —, und je nach Lage ist
-        // keine, eine oder beide sichtbar. Eine Liste einzelner Elemente wäre
-        // genau die Stelle, an der man die dritte Leiste vergisst; die Höhe des
-        // Behälters stimmt dagegen von selbst. Ausgeblendete Kinder tragen
-        // nichts bei, ein leerer Stapel misst 0.
-        //
-        // Gemessen wird die UNTERSTE KANTE, nicht offsetHeight: Seit 1.2.10
-        // schwebt die Verbindungsleiste im fluechtigen Zustand
-        // (position: absolute, damit sie beim Auftauchen nichts verschiebt) und
-        // zaehlt damit nicht mehr zur Hoehe des Stapels. Sie verdeckt aber
-        // weiterhin, was darunter liegt -- und sie ist beim Abhaken sichtbar,
-        // also genau dann, wenn hier gesprungen wird. Ueber die Kanten aller
-        // Kinder gerechnet stimmt der Versatz in beiden Faellen von selbst;
-        // eine Aufzaehlung einzelner Leisten waere wieder die Stelle, an der
-        // man die naechste vergisst.
-        const stapel = qs('#leisten');
-        let versatz = 0;
-        if (stapel) {
-            versatz = stapel.getBoundingClientRect().bottom;
-            for (const kind of stapel.children) {
-                if (kind.hidden) continue;
-                versatz = Math.max(versatz, kind.getBoundingClientRect().bottom);
-            }
-        }
+        // Wie hoch der Stapel gerade baut, rechnet stapelUnterkante() in
+        // assets/app.js aus — dieselbe Rechnung braucht seit 1.2.11 der
+        // Tastatur-Anker, und zwei Fassungen davon liefen irgendwann
+        // auseinander. Warum die unterste KANTE und nicht offsetHeight, steht
+        // dort.
+        const versatz = stapelUnterkante();
 
         // Dazu eine Handbreit Luft, damit die Karte nicht bündig am Rand klebt.
         const LUFT = 8;

@@ -249,6 +249,23 @@ function apply_migrations(PDO $pdo): void {
                         REFERENCES splits(id) ON DELETE SET NULL');
     }
 
+    // 2026-08-23: Herkunft einer Kopie (§6.4). Traegt die Vorlage, aus der ein
+    // persoenlicher Split kopiert wurde -- Grundlage fuer "Auf Vorlage
+    // zurücksetzen". Rein additiv: Jeder bestehende Split bekommt NULL und
+    // verhaelt sich unveraendert; der Knopf erscheint dort erst, wenn der
+    // Benutzer die Vorlage von Hand zuordnet oder frisch kopiert.
+    //
+    // ALTER TABLE ADD COLUMN kann in SQLite keinen Fremdschluessel nachtragen
+    // -- dieselbe Lage wie bei muscle_groups.parent_id oben. Auf einer
+    // Bestandsdatenbank ist vorlage_id deshalb eine gewoehnliche Spalte, und
+    // das ON DELETE SET NULL aus schema.sql greift dort NICHT. Aufgefangen
+    // wird das in der Anwendung: vorlage_stand() prueft, ob die Vorlage
+    // ueberhaupt noch existiert, und behandelt eine verwaiste Herkunft wie
+    // keine. Verlassen darf man sich auf den Fremdschluessel hier also nicht.
+    if (!column_exists($pdo, 'splits', 'vorlage_id')) {
+        $pdo->exec('ALTER TABLE splits ADD COLUMN vorlage_id INTEGER');
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die
