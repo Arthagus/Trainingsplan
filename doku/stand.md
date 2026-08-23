@@ -17,8 +17,8 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.12` — **gebaut am 2026-08-23 und unmittelbar danach eingespielt.** Noch nicht nachgemessen; der Befehl unten sagt in Sekunden, ob es stimmt. Die Gegenprobe am Gerät steht aus: *Offen*, Punkte 1 und 2 |
-| **Arbeitsstand** | `1.2.12`, deckungsgleich mit live |
+| **Live** | `trainingsplan:1.2.14` — **gebaut am 2026-08-23 und unmittelbar danach eingespielt.** Noch nicht nachgemessen; der Befehl unten sagt in Sekunden, ob es stimmt. Die Gegenprobe am Gerät steht aus: *Offen*, Punkte 1 und 2 |
+| **Arbeitsstand** | `1.2.14`, deckungsgleich mit live. `1.2.13` und `1.2.14` betreffen beide nur den Kasten *Vorlage* auf `splits.php`: gerahmt und leiser, und in `1.2.14` **über** die Abschlusszeile gerückt — in `1.2.13` stand er dahinter und schob „Löschen“ nach oben |
 | **Rollback-Ziel** | `trainingsplan:1.2.11` — dieses Image in Portainer stehen lassen. `1.2.11` ist am Live-System durchgeprüft (Splits, Zurücksetzen, Historie) und damit ein belastbarer Stand |
 
 **Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
@@ -197,6 +197,20 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
    stammen aus der Migration zu `1.2.0`, die Vorlagen wurden **daraus** veröffentlicht —
    es gibt also keine Kopie-Beziehung, die das System kennen könnte. Erst nach dem Setzen
    des Feldes **Vorlage** taucht der Knopf überhaupt auf.
+
+   **Ab `1.2.13`/`1.2.14` steht der Kasten woanders und sieht anders aus** (Rückmeldung
+   2026-08-23: „dezenter und unter die Knöpfe", danach „Löschen soll die unterste Zeile
+   bleiben"): nicht mehr als volle Zeile über den Knopfreihen, sondern als gerahmter
+   Kasten **zwischen** der Verwaltungsreihe und der Abschlusszeile, mit *Vorlage* als
+   kleiner Überschrift darüber und dem Auswahlfeld über die ganze Breite.
+   Das Feld selbst bleibt bei 16 px — darunter zoomt iOS beim Antippen (Frontend-Regeln
+   in `CLAUDE.md`). Am Gerät zu beurteilen, ob es jetzt leise genug ist:
+
+   | Was | Worauf zu achten ist |
+   |---|---|
+   | Eigene Splitkarte | Reihenfolge von oben: Verwaltungsknöpfe, Kasten *Vorlage*, und als **letzte Zeile** „Löschen". Der Kasten liest sich als eigene Funktion und drängt sich nicht auf |
+   | Auswahl antippen (iPhone) | **Kein Zoom** der Seite |
+   | Bei Abweichung | „Auf Vorlage zurücksetzen" steht im Kasten unter dem Feld, über die ganze Breite |
 
    **Neu in `1.2.12`, am Pixel wie am iPhone zu sehen:** *Pläne* über die Kopfzeile
    aufrufen — das Feld *Angezeigter Split* muss auf dem Split stehen, mit dem gerade

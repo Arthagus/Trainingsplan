@@ -136,48 +136,6 @@ function split_karte(
         </p>
         <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
 
-        <?php // --- Herkunft und Abgleich (§6.4, seit 1.2.11) ----------------
-              //
-              // Nur an eigenen Splits und nur, wenn es ueberhaupt Vorlagen
-              // gibt: Eine Vorlage hat selbst keine Vorlage, und ohne Katalog
-              // stuende hier ein leeres Auswahlfeld.
-              //
-              // Das Auswahlfeld steht dauerhaft da und nicht hinter einem
-              // Knopf. Es ist die einzige Stelle, an der ein vor 1.2.11
-              // entstandener Split seine Herkunft bekommt -- versteckt faende
-              // sie nur, wer schon weiss, dass es sie gibt. ?>
-        <?php if ($eigener && $vorlagenListe !== []):
-            $stand      = $vorlageStand[$id] ?? null;
-            $herkunft   = $stand === null ? 0 : $stand['vorlage_id'];
-            $abweichung = $stand !== null && $stand['weicht_ab'];
-        ?>
-        <p class="split-herkunft">
-            <label>
-                <span class="matt">Vorlage</span>
-                <select class="split-vorlage" aria-label="Vorlage dieses Splits">
-                    <option value="0" <?= $herkunft === 0 ? 'selected' : '' ?>>— keine —</option>
-                    <?php foreach ($vorlagenListe as $v): ?>
-                        <option value="<?= (int)$v['id'] ?>"
-                                <?= (int)$v['id'] === $herkunft ? 'selected' : '' ?>>
-                            <?= h((string)$v['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
-
-            <?php // Der Knopf erscheint NUR bei Abweichung -- gleich, von
-                  // welcher Seite sie kommt: eigene Anpassung oder verbesserte
-                  // Vorlage. Stimmen beide ueberein, gaebe es nichts zu tun,
-                  // und ein wirkungsloser Knopf laedt zum Ausprobieren ein. ?>
-            <?php if ($abweichung): ?>
-                <button type="button" class="leise split-zuruecksetzen"
-                        <?= $gesperrt ? 'disabled title="Erst die laufende Einheit beenden"' : '' ?>>
-                    Auf Vorlage zurücksetzen
-                </button>
-            <?php endif; ?>
-        </p>
-        <?php endif; ?>
-
         <?php // Der Text liegt fertig in der Karte, unsichtbar. splits.js holt
               // ihn beim Antippen ueber .textContent -- damit steht in der
               // Zwischenablage genau das, was hier steht, ohne Umweg ueber
@@ -228,6 +186,65 @@ function split_karte(
         </div>
         <?php endif; ?>
 
+        <?php // --- Herkunft und Abgleich (§6.4, seit 1.2.11) ----------------
+              //
+              // Nur an eigenen Splits und nur, wenn es ueberhaupt Vorlagen
+              // gibt: Eine Vorlage hat selbst keine Vorlage, und ohne Katalog
+              // stuende hier ein leeres Auswahlfeld.
+              //
+              // Das Auswahlfeld steht dauerhaft da und nicht hinter einem
+              // Knopf. Es ist die einzige Stelle, an der ein vor 1.2.11
+              // entstandener Split seine Herkunft bekommt -- versteckt faende
+              // sie nur, wer schon weiss, dass es sie gibt.
+              //
+              // SEIT 1.2.13 IM EIGENEN RAHMEN, und seit 1.2.14 zwischen den
+              // beiden Knopfreihen: Die Herkunft ist eine Einstellung, die man
+              // selten anfasst. Als volle Zeile ueber den Knoepfen zog sie
+              // Aufmerksamkeit, die ihr nicht zusteht; der Rahmen sagt "eigene
+              // Funktion", die kleine Ueberschrift haelt sie leise.
+              //
+              // GANZ ANS ENDE gehoert sie trotzdem nicht: Dort stand sie in
+              // 1.2.13 und schob "Loeschen" nach oben. Die Abschlusszeile ist
+              // die letzte Zeile der Karte -- links das Aneignen, rechts das
+              // Zerstoeren --, und was danach kommt, nimmt ihr genau das.
+              // Verstecken war die dritte Moeglichkeit und ist keine, siehe
+              // oben. ?>
+        <?php if ($eigener && $vorlagenListe !== []):
+            $stand      = $vorlageStand[$id] ?? null;
+            $herkunft   = $stand === null ? 0 : $stand['vorlage_id'];
+            $abweichung = $stand !== null && $stand['weicht_ab'];
+        ?>
+        <div class="split-herkunft">
+            <?php // Der sichtbare Text IM label ist zugleich der zugaengliche
+                  // Name des Auswahlfelds -- deshalb steht hier kein
+                  // aria-label mehr: Es haette die Ueberschrift verdeckt,
+                  // statt sie zu ergaenzen. ?>
+            <label>
+                <span class="split-herkunft-titel">Vorlage</span>
+                <select class="split-vorlage">
+                    <option value="0" <?= $herkunft === 0 ? 'selected' : '' ?>>— keine —</option>
+                    <?php foreach ($vorlagenListe as $v): ?>
+                        <option value="<?= (int)$v['id'] ?>"
+                                <?= (int)$v['id'] === $herkunft ? 'selected' : '' ?>>
+                            <?= h((string)$v['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <?php // Der Knopf erscheint NUR bei Abweichung -- gleich, von
+                  // welcher Seite sie kommt: eigene Anpassung oder verbesserte
+                  // Vorlage. Stimmen beide ueberein, gaebe es nichts zu tun,
+                  // und ein wirkungsloser Knopf laedt zum Ausprobieren ein. ?>
+            <?php if ($abweichung): ?>
+                <button type="button" class="leise split-zuruecksetzen"
+                        <?= $gesperrt ? 'disabled title="Erst die laufende Einheit beenden"' : '' ?>>
+                    Auf Vorlage zurücksetzen
+                </button>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <?php // EINE EIGENE ZEILE fuer die beiden folgenreichen Knoepfe, und
               // zwar unabhaengig davon, wie die Reihe darueber umbricht. Genau
               // das ist der Zweck des zweiten Behaelters: Stuenden sie in
@@ -267,6 +284,7 @@ function split_karte(
                 <button type="button" class="gefahr split-loeschen">Löschen</button>
             <?php endif; ?>
         </div>
+
     </li>
     <?php
 }

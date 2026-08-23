@@ -2028,37 +2028,74 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 
 /* --- Herkunft eines Splits (§6.4) ----------------------------------------- */
 
-/* Eine Zeile mit dem Vorlagen-Feld und, bei Abweichung, dem Knopf daneben.
+/* Ein gerahmter Kasten zwischen den beiden Knopfreihen der Splitkarte.
 
-   Das Auswahlfeld MUSS `width: auto` bekommen: Die Formularregel ganz oben
-   setzt jedes <select> auf 100 %, und dann stünde der Knopf zwangsläufig in
-   der nächsten Zeile — auch auf einem breiten Bildschirm, wo beides
-   nebeneinander passt. `flex: 1 1 9rem` lässt es mitwachsen und am Handy
-   trotzdem sauber umbrechen.
+   Bis 1.2.12 war es eine Zeile ÜBER den Knopfreihen, gleich unter der
+   Planvorschau — sie las sich dadurch wie eine Angabe zum Split und stand mit
+   voller Schriftgröße im Weg. Sie ist aber eine Einstellung, die man selten
+   anfasst (Rückmeldung 2026-08-23). Also: nach unten, Rahmen und eigener Grund
+   als Zeichen „gesonderte Funktion", Beschriftung klein.
 
-   Die Zeile steht bewusst ÜBER den Knopfreihen und nicht darin: Sie beschreibt
-   den Split (wie die Planvorschau darüber), sie ist keine Aktion an ihm. */
+   NACH UNTEN heißt nicht ans Ende. In `1.2.13` stand der Kasten hinter der
+   Abschlusszeile und schob „Löschen" mitten in die Karte; seit `1.2.14` sitzt
+   er davor. Die Abschlusszeile bleibt die letzte Zeile — dort steht rechts der
+   rote Knopf, und der ist nur so lange unverwechselbar, wie nichts darunter
+   kommt.
+
+   HALBIERT IST DIE ÜBERSCHRIFT, NICHT DAS AUSWAHLFELD, und das ist keine
+   Nachlässigkeit: Ein <select> unter 16 px lässt iOS beim Antippen in die
+   Seite zoomen (siehe die Formularregel ganz oben). Die 16 px sind also
+   gesetzt und bleiben; leise wird das Feld über Grund und Rahmen, nicht über
+   die Schriftgröße.
+
+   Das Feld liegt auf `--grund`, der Kasten auf `--grund-tief`: Auf gleichem
+   Grund verschwämme das Feld mit dem Kasten, und man sähe nicht mehr, dass es
+   eines ist. */
 .split-herkunft {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0.5rem 0 0;
+    /* Luft nach beiden Seiten: Der Kasten steht zwischen zwei Knopfreihen und
+       darf an keiner kleben — sonst liest er sich als deren Fortsetzung. */
+    margin: 0.75rem 0 0.6rem;
+    padding: 0.5rem 0.6rem 0.6rem;
+    border: 1px solid var(--linie);
+    border-radius: var(--radius);
+    background: var(--grund-tief);
 }
 
 .split-herkunft label {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
+    display: block;
     margin: 0;
     font-weight: normal;
-    flex: 1 1 12rem;
+}
+
+/* Die Überschrift steht in einer eigenen Zeile über dem Feld — nicht daneben:
+   Nebeneinander bliebe für das Feld am Handy nur ein Rest, und die Auswahl ist
+   das, worum es hier geht. */
+.split-herkunft-titel {
+    display: block;
+    margin-bottom: 0.3rem;
+    color: var(--schrift-matt);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .split-herkunft select {
-    width: auto;
-    flex: 1 1 9rem;
-    min-width: 0;
+    width: 100%;
+    background: var(--grund);
+}
+
+/* Der Knopf steht UNTER dem Feld und über die ganze Breite. Daneben passte er
+   am Handy ohnehin nicht in dieselbe Zeile, und ein Knopf, der mal neben und
+   mal unter dem Feld sitzt, sieht nach Zufall aus.
+
+   Die Schrift ist kleiner, die Höhe nicht: var(--tippziel) aus der
+   Knopfregel bleibt unangetastet — dezent heißt leiser, nicht schwerer zu
+   treffen. */
+.split-herkunft button {
+    width: 100%;
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
 }
 
 /* --- Split als Text (§6.4) ------------------------------------------------ */
