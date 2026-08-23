@@ -185,9 +185,29 @@ Drei Fallen, jede davon hat schon Zeit gekostet:
   Code aussieht und in Wahrheit ein Loch im Prüfstand ist. Passiert am 2026-08-17 genau so.
   Wer eine unerwartet leere Liste sieht, prüft zuerst den eigenen Aufbau.
 
-**Der Gegenbeweis gehört dazu:** Dieselbe Prüfung gegen die Fassung aus dem letzten Commit
-laufen lassen (`git show HEAD:assets/app.js > /tmp/alt.js`). Fällt sie dort durch, prüft
-sie wirklich etwas.
+**Auch ein Ereignis-Handler lässt sich ausführen**, etwa der aus `assets/sw.js`: Die
+Registrierungszeile beim Herausschneiden in einen Funktionskopf umschreiben, dann mit
+einem gefälschten `event` aufrufen und mitschreiben, ob `respondWith()` kam.
+
+```js
+const handler = hol(src, /self\.addEventListener\('fetch', \(event\) => \{[\s\S]*\n\}\);/)
+    .replace("self.addEventListener('fetch', (event) => {", 'function behandeln(event) {')
+    .replace(/\}\);\s*$/, '}');
+```
+
+**Und dabei die Falle, die dieselbe Sorte ist wie die leere Satzliste oben:** Der Handler
+steigt ganz oben bei fremder Herkunft aus. Ein `self`-Ersatz mit bloß `location.href`
+lässt `location.origin` `undefined` — dann greift **keine** Regel mehr, und die Prüfung
+meldet für jede Adresse „geht ans Netz". Das sieht nach einem Befund aus und ist ein Loch
+im Prüfstand. Am 2026-08-23 genau so passiert, erkennbar daran, dass **alle** positiven
+Fälle auf einmal durchfielen und alle negativen bestanden.
+
+**Der Gegenbeweis gehört dazu**, und zwar in der schärferen Form: Nicht nur gegen den
+letzten Commit laufen lassen (`git show HEAD:assets/app.js > /tmp/alt.js`), sondern
+**gezielt die eine Zeile entfernen**, um die es geht, und nachsehen, ob genau die
+erwarteten Fälle durchfallen — und nur die. Beim Tastatur-Anker war das die Klammer nach
+oben, beim Service Worker der neue Zweig im Filter. Fällt dabei mehr durch als gedacht,
+prüft der Test etwas anderes als angenommen.
 
 **Eine brauchbare Test-Datenbank braucht mehr als den Erst-Admin.** Für alles rund um
 Training, Verlauf und Sätze führt kein Weg an einem Plan mit Positionen vorbei:
@@ -222,6 +242,24 @@ beides schon einmal falsch geraten. Für eine **abgeschlossene** Einheit zusätz
 `ended_at` setzen und `workout_log`-Zeilen anlegen; für Sätze `workout_sets` mit
 `satz_nr`, `reps`, `weight`.
 
+**Ein Benutzer und ein Split beweisen die halbe Fachlichkeit nicht.** Zwei Fragen
+beantwortet dieser Bestand systematisch falsch, weil es nichts zu verwechseln gibt:
+
+- **Wählt die Seite den RICHTIGEN Split?** Bei einem einzigen ist jede Auswahl richtig.
+  Für `plans.php` und `index.php` braucht es **drei** Splits, und der aktive darf
+  **nicht der erste** sein — sonst sieht ein Rückfall auf `[0]` wie ein Treffer aus.
+- **Greift der IDOR-Schutz?** Ohne zweiten Benutzer gibt es keinen fremden Bestand, an
+  dem er sich zeigen könnte. Der Zweite gehört **ohne** Adminrecht angelegt: Ein Admin
+  darf vieles absichtlich, und dann prüft man die Ausnahme statt der Regel.
+
+```php
+$p->prepare("INSERT INTO users (name,password_hash,is_admin,must_change_password,created_at)
+             VALUES (?,?,0,0,?)")->execute(["nele", password_hash("geheim12345", PASSWORD_DEFAULT), $n]);
+```
+
+Danach `active_split_id` **ausdrücklich** auf einen Split setzen, der nicht der erste
+ist — sonst sucht sich `aktiver_split()` selbst einen, und die Prüfung misst den Zufall.
+
 **Welche Version live läuft, wird gemessen und nicht erinnert.** Die Asset-Adressen tragen
 sie seit `1.1.8` und sind ohne Anmeldung lesbar:
 
@@ -253,7 +291,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Zeitformate, zweisprachiger Übungsname |
 | `lib/csrf.php` | Token, `csrf_check()` für JSON und Formulare, `CSRF_FEHLER_CODE` — steckt in der Boilerplate **jeder** geschützten Seite |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
-| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Inhaltssignatur, Textausgabe `split_texte()`, **die zentrale Rechteprüfung** `split_zugriff_api()` |
+| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Textausgabe `split_texte()`, **die zentrale Rechteprüfung** `split_zugriff_api()` — dazu der Vorlagenabgleich aus `1.2.11` (`vorlage_stand()`, `split_zuruecksetzen()`) und **zwei** Fingerabdrücke mit verschiedenem Zweck, siehe Fallstrick 24 |
 | `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung |
@@ -266,6 +304,27 @@ haben je eine `.htaccess` mit `Require all denied`.
 kennen muss: `api/token.php` liefert ein frisches CSRF-Token (Fallstrick 23) und ist der
 **einzige** Endpunkt ohne `csrf_check()`; `api/maintenance.php` bedient die Wartungsseite
 (Sicherungen anlegen, prüfen, einspielen — die Fachlichkeit steckt in `lib/backup.php`).
+
+**Welcher Endpunkt was kann** — die Karte spart das Suchen, ersetzt aber nicht den Blick
+ins `UPDATE`-Statement, bevor man das erste Mal darauf schreibt (Fallstrick 22):
+
+| Endpunkt | Aktionen |
+|---|---|
+| `auth.php` | `login`, `change_password`, `change_name`, `set_expert_mode`, `set_satz_vorlage`, `revoke_device`, `revoke_all` |
+| `exercises.php` | `create`, `update`, `archive`, `unarchive`, `delete` |
+| `log.php` | `check`, `uncheck` |
+| `maintenance.php` | `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`, `optimize`, `checkpoint` |
+| `muscle_groups.php` | `create`, `update`, `delete`, `reorder` |
+| `plans.php` | `create_plan`, `rename_plan`, `delete_plan`, `reorder_plans`, `exercise_picker`, `add_exercise`, `remove_exercise`, `move_exercise`, `reorder_exercises`, `swap_suggestions`, `swap_exercise` |
+| `session.php` | `start`, `end`, `delete` |
+| `splits.php` | `create`, `rename`, `delete`, `reorder`, `copy`, `publish`, `activate`, `set_vorlage`, `reset` |
+| `swap.php` | `suggestions`, `apply` |
+| `users.php` | `create`, `rename`, `reset_password`, `set_admin`, `set_blocked`, `delete` |
+
+**Die Parameternamen sind NICHT einheitlich**, und das kostet beim ersten Aufruf Zeit:
+`plans.php → rename_plan` nimmt `id`, `move_exercise` dagegen `plan_exercise_id` **und**
+`direction` (`up`/`down`), nicht `plan_id`. Im Zweifel die ersten Zeilen der
+`aktion_*`-Funktion lesen — sie prüfen die Eingabe und stehen damit gleich am Anfang.
 
 **`admin.php` ist der Einstieg in die Verwaltung und kann selbst nichts** (seit `1.2.2`):
 vier Kacheln zu `admin_exercises.php`, `admin_muscle_groups.php`, `admin_users.php` und
