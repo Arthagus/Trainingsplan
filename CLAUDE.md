@@ -209,6 +209,27 @@ erwarteten Fälle durchfallen — und nur die. Beim Tastatur-Anker war das die K
 oben, beim Service Worker der neue Zweig im Filter. Fällt dabei mehr durch als gedacht,
 prüft der Test etwas anderes als angenommen.
 
+**Und die dritte Falle derselben Sorte, die allgemeinste von allen: Eine Attrappe muss die
+Frage BEANTWORTEN, nicht die erwartete Antwort liefern.** Wer eine DOM-Attrappe baut, deren
+`qs`/`qsa` nur die Selektoren kennt, die der Code heute benutzt, und für alles andere `null`
+oder `[]` zurückgibt, hat einen Test gebaut, der sich selbst bestätigt: Die Gegenprobe
+ändert den Selektor, die Attrappe antwortet „nichts gefunden", der Fehler fällt nicht auf.
+Am 2026-08-25 genau so passiert — eine nachweislich falsch zählende Fassung kam durch, weil
+die Attrappe `.zeile-offen` nicht kannte. Der Selektor gehört **geparst**:
+
+```js
+const qsa = (sel) => {
+    const treffer = sel.match(/^\.position-karte\.zeile-([a-z]+)$/);
+    return treffer ? karten.filter((k) => k.zustand === treffer[1]) : [];
+};
+```
+
+**Das Erkennungszeichen ist bei allen dreien dasselbe und steht auf dem Kopf: Die
+Gegenprobe fällt ZU FREUNDLICH aus.** Bei der leeren Satzliste und beim Service Worker
+fiel auf einen Schlag zu viel durch, hier zu wenig. Wer eine Gegenprobe sieht, deren
+Ergebnis „zu glatt" ist — alles grün, obwohl die Zeile entfernt wurde —, prüft zuerst den
+eigenen Aufbau.
+
 **Eine brauchbare Test-Datenbank braucht mehr als den Erst-Admin.** Für alles rund um
 Training, Verlauf und Sätze führt kein Weg an einem Plan mit Positionen vorbei:
 
@@ -239,8 +260,35 @@ im Skript setzt, sieht sofort, was er gebaut hat.
 
 Die Spalten heißen `plans.sort_order` (nicht `position`) und `plan_exercises.sort_order` —
 beides schon einmal falsch geraten. Für eine **abgeschlossene** Einheit zusätzlich
-`ended_at` setzen und `workout_log`-Zeilen anlegen; für Sätze `workout_sets` mit
-`satz_nr`, `reps`, `weight`.
+`ended_at` setzen.
+
+**Protokollzeilen von Hand anzulegen ist der zweite Schritt, und dort steht die Spaltenliste,
+die man sonst im Schema nachschlägt.** `workout_log` trägt die Einheit, den Plan UND die
+Position — die drei zusammen, weil `plan_exercise_id` der eigentliche Schlüssel ist
+(Fallstrick 4) und `plan_id` die Zählung „n" trägt:
+
+```php
+$ins = $p->prepare("INSERT INTO workout_log
+    (session_id,plan_exercise_id,user_id,exercise_id,plan_id,weight,done,performed_at)
+    VALUES (?,?,1,?,?,?,?,?)");
+$ins->execute([$sid, $peId, $uebungId, $plan, 40, 1, $n]);   // fertig
+$p->prepare("INSERT INTO workout_sets (workout_log_id,satz_nr,reps,weight)
+             VALUES (?,1,12,40)")->execute([(int)$p->lastInsertId()]);
+```
+
+**Für alles, was Zustände ANZEIGT — Leiste, Balkenfarben, „x/n" —, braucht der Bestand
+gemischte Positionen, sonst sieht jede Zählung richtig aus.** Drei Sorten, und keine davon
+ist entbehrlich:
+
+| Bestand der Position | Ergibt |
+|---|---|
+| `done = 1` | beendet, blauer Balken |
+| Zeile mit `done = 0` (plus Satz) | angefangen, grüner Balken |
+| gar keine Zeile, aber eine spätere Position hat eine | **übersprungen**, oranger Balken |
+
+Die dritte entsteht nur durch die *Lücke*: Positionen 1 und 3 protokollieren, 2 auslassen.
+Wer der Reihe nach abhakt, bekommt nie einen orangen Balken zu sehen — und prüft damit
+genau die Regel nicht, die schwierig ist (§7.3, `positions_zustaende()`).
 
 **Ein Benutzer und ein Split beweisen die halbe Fachlichkeit nicht.** Zwei Fragen
 beantwortet dieser Bestand systematisch falsch, weil es nichts zu verwechseln gibt:
@@ -632,6 +680,16 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   Standard-Stylesheet unsichtbar. Wer ihm ein Layout gibt, muss auf `[open]` einschränken —
   `#waehlen-dialog[open] { display: flex }` —, sonst steht der Dialog dauerhaft offen in
   der Seite.
+- **Was das Stylesheet nicht angibt, gibt der Browser vor — und zwar nach SEINEM
+  Geschmack.** Dieselbe Mechanik wie bei `[hidden]` direkt darüber, nur umgekehrt herum:
+  Dort schlägt eine eigene Regel versehentlich das Standard-Stylesheet, hier fehlte
+  überhaupt eine. Links hatten bis `1.2.17` keine Farbangabe, also galt die des Browsers —
+  blau, nach dem ersten Klick **lila**, was in dieser Oberfläche sonst nirgends vorkommt.
+  Seither steht ganz oben `a { color: var(--akzent) }`.
+
+  **Ein zweiter Selektor für `:visited` ist dabei NICHT nötig:** In der Kaskade geht die
+  Herkunft vor der Spezifität — eine Autorenregel für `a` schlägt das `:visited` des
+  Browsers. (`:visited` erlaubt aus Datenschutzgründen ohnehin fast nur Farbangaben.)
 - **Mobile-first.** Die Handy-Ansicht ist der Hauptfall, nicht der Sonderfall.
 - **Fehler nie stillschweigend verschlucken:** Schlägt ein Speichern fehl, bleibt das Häkchen
   sichtbar unbestätigt und ein Wiederholen-Knopf erscheint.
@@ -651,7 +709,7 @@ stehen (siehe **11**), statt die folgenden aufrücken zu lassen.
 
 **Wo anfangen:** an Splits und Plänen arbeitet man mit **24–26**, am Training mit
 **1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**, an allem, was einen
-Übungsnamen anzeigt, mit **27**.
+Übungsnamen anzeigt, mit **27**, an Leisten und Meldungen mit **19** und **29**.
 
 **Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
 Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
@@ -932,6 +990,21 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     - **`done = 1` zählt „x/n"** — in `fortschritt()` *und* in `einheiten_verlauf()`. Beide,
       sonst heißt „erledigt" im Verlauf etwas anderes als im Training.
+
+      **Die zweite Zahl der Trainingsleiste („n übersprungen", seit `1.2.15`, hinter dem
+      Bruch) steht ausdrücklich NICHT in `fortschritt()`.** Sie hängt nicht am Datenbestand, sondern an
+      der **Reihenfolge** der Positionen — offen und vor der aktiven. Das ist dieselbe
+      Rechnung, die den orangen Balken setzt (`positions_zustaende()` bzw.
+      `aktiveMarkieren()`), und sie gehört genau einmal dorthin: `zahlenSchreiben()`
+      (`index.js`) zählt schlicht `.zeile-uebersprungen` in der Liste. Damit nennt die
+      Leiste genau die Übungen, die man unten auch orange sieht; eine eigene Rechnung
+      daneben liefe auseinander, und oben stünde eine Zahl, die man unten nicht
+      wiederfindet.
+
+      **Daraus eine Reihenfolge, die man kennen muss:** `aktiveMarkieren()` setzt die
+      Klasse und muss vor `zahlenSchreiben()` gelaufen sein. Alle Aufrufer erfüllen das über
+      `zustandSetzen()`, das beides in dieser Reihenfolge tut — wer einen neuen Aufrufer
+      ergänzt, muss es ebenfalls.
     - **Die Tauschsperre hängt an der EXISTENZ der Zeile**, nicht an `done`: Wer zwei Sätze
       Bankdrücken gemacht hat, kann die Position nicht mehr tauschen. `plan_positionen()`
       liefert dafür `hat_eintrag` neben `erledigt`.
@@ -951,11 +1024,26 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
 19. **Sieben Regeln zur Trainingsansicht, die zusammengehören** — von der Kartenhöhe über `:hover` bis zum Schleier der erledigten Karte und zur Tastatur am Handy.
 
+    Der längste Eintrag dieser Liste, und der Code adressiert ihn buchstabengenau
+    (`Fallstrick 19g`). Deshalb vorab, wo was steht:
+
+    | | Worum es geht |
+    |---|---|
+    | **(a)** | Flüchtiges darf nichts verschieben |
+    | **(b)** | `:hover` nur hinter `@media (hover: hover)` |
+    | **(c)** | Die vier Balkenfarben und wer grün ist |
+    | **(d)** | Der Leisten-Stapel und die Scroll-Rechnung |
+    | **(e)** | `.saetze-kopf` braucht den Kindselektor |
+    | **(f)** | Zurücktreten heißt dunkler, nicht blasser |
+    | **(g)** | Der Tastatur-Anker in zwei Phasen |
+
     **(a) Was sich im Sekundentakt ändert, darf nichts verschieben.** Der wartende Zustand trug
     einmal einen Hinweissatz in der Karte — sie wurde beim Speichern höher und danach wieder
     niedriger, und bei jedem Satz sprang die ganze Liste. `.zeile-wartet` ändert deshalb nur
-    `border-left-style`, nicht einmal die Farbe. Wie viele Eingaben ausstehen, sagt die
-    Leiste am oberen Rand — eine Anzeige genügt.
+    `border-left-style`, nicht einmal die Farbe. **Eine zweite Anzeige daneben gibt es seit
+    `1.2.15` nicht mehr:** Der gestrichelte Rand sagt alles, was über ein laufendes
+    Speichern zu sagen ist, und die Leiste am oberen Rand meldet nur noch echte Störungen
+    (Fallstrick 29).
 
     **(b) Alle `:hover`-Regeln stehen hinter `@media (hover: hover)`.** Auf einem Touchscreen
     gibt es kein Verlassen mit dem Zeiger, `:hover` klebt am zuletzt angetippten Element —
@@ -982,8 +1070,8 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     **(d) Beim Scrollen gehört eingerechnet, was oben klebt.**
     `scrollIntoView({ block: 'start' })` setzt das Ziel **unter** jede `sticky`-Leiste —
-    beim Abhaken wird die Verbindungsleiste sichtbar, und die nächste Übungskarte landete
-    verdeckt.
+    bei laufender Einheit klebt dort immer die Trainingsleiste, und die nächste Übungskarte
+    landete verdeckt.
 
     **`#leisten` (`lib/view_header.php`) ist der gemeinsame Behälter** und trägt als
     einziges Element `position: sticky; top: 0`. Darin liegen die Trainingsleiste (nur
@@ -992,14 +1080,21 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     **Die Reihenfolge im Stapel ist nach BESTÄNDIGKEIT sortiert, nicht nach Wichtigkeit.**
     Die Verbindungsleiste stand einmal oben, mit der plausiblen Begründung „ist das Netz
-    weg, ist das die wichtigste Information" — sie erscheint aber bei **jedem** Abhaken für
-    Sekundenbruchteile und schob dabei die Trainingsleiste hin und her. **Wer eine weitere
-    Leiste ergänzt, sortiert sie danach ein: dauerhaft nach oben, flüchtig nach unten.**
+    weg, ist das die wichtigste Information" — sie erschien damals aber bei **jedem**
+    Abhaken für Sekundenbruchteile und schob dabei die Trainingsleiste hin und her. **Wer
+    eine weitere Leiste ergänzt, sortiert sie danach ein: dauerhaft nach oben, flüchtig
+    nach unten.**
 
-    **Die Sortierung allein genügt nicht — eine flüchtige Leiste darf im Stapel gar keinen
+    **Die bessere Lösung war am Ende, das Flüchtige ganz wegzulassen** (`1.2.15`, siehe
+    Fallstrick 29). Der Weg dorthin ging über zwei Zwischenstufen, und beide sind lehrreich
+    genug, um hier stehen zu bleiben:
+
+    **Die Sortierung allein genügte nicht — eine flüchtige Leiste darf im Stapel gar keinen
     Platz belegen.** Sie hielt zwar die Trainingsleiste ruhig, aber nicht die Seite
     darunter: Der ganze Inhalt wanderte bei jedem Abhaken eine Zeilenhöhe hinunter und
-    gleich wieder hinauf.
+    gleich wieder hinauf. Der Griff dagegen war `.leiste-schwebt` (`position: absolute;
+    top: 100%`, unter der Unterkante des Stapels, ohne dessen Höhe zu ändern) — **seit
+    `1.2.15` entfallen**, weil es nichts Flüchtiges mehr gibt, das schweben müsste.
 
     **Gemeldet wurde das nur vom iPhone, und daraus folgt eine allgemeine Regel: „Auf
     meinem Gerät ruhig" belegt nicht, dass keine Layoutänderung stattfindet.** Chromium und
@@ -1010,22 +1105,12 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     Der Ausgleich hat zudem eine Lücke: Bei Scrollposition 0 kann er nicht nach oben
     korrigieren — oben in der Seite schob es auch in Chrome.
 
-    Seit `1.2.10` trägt die Verbindungsleiste im flüchtigen Zustand
-    („… wird gespeichert") deshalb `.leiste-schwebt` — `position: absolute; top: 100%`,
-    also unter der Unterkante des Stapels, ohne dessen Höhe zu ändern. **Im dauerhaften
-    Zustand („Keine Verbindung") läuft sie weiter im Fluss mit**, und das ist kein
-    Schönheitsfehler: Schwebend verdeckte sie eine Zeile, die niemand mehr zu Gesicht
-    bekäme. Der Tausch lautet *einmal verschieben bei einem echten Zustandswechsel* gegen
-    *nie zappeln*; gesetzt wird die Klasse in `verbindung._zeichnen()` und nur, wenn die
-    Leiste wirklich im Stapel hängt (`_imStapel`) — im Rückfall `.leiste-allein` fehlt der
-    Bezugsrahmen.
-
-    `zurAktivenSpringen()` misst deshalb die **unterste Kante** des Stapels und seiner
-    Kinder (`getBoundingClientRect().bottom`), nicht `offsetHeight`: Eine schwebende Leiste
-    zählt zur Höhe des Behälters nicht mehr mit, verdeckt aber weiterhin, was darunter
-    liegt — und sie ist genau beim Abhaken sichtbar, also genau dann, wenn gesprungen wird.
-    Über die Kanten gerechnet stimmt der Versatz in beiden Fällen von selbst. **Wer eine
-    weitere Leiste ergänzt, muss an der Scroll-Rechnung nichts ändern.**
+    `zurAktivenSpringen()` misst die **unterste Kante** des Stapels und seiner Kinder
+    (`getBoundingClientRect().bottom`), nicht `offsetHeight`. Heute liegt beides gleichauf,
+    weil wieder jede Leiste im Fluss mitläuft; die Rechnung bleibt trotzdem, weil sie auch
+    für eine aus dem Fluss genommene Leiste stimmt. Sie steht als `stapelUnterkante()` in
+    `assets/app.js`, weil der Tastatur-Anker (g) dieselbe braucht. **Wer eine weitere Leiste
+    ergänzt, muss an der Scroll-Rechnung nichts ändern.**
 
     **(e) `.saetze-kopf` allein reicht als Selektor nicht.** `.summary-knopf` steht weiter unten
     in derselben Datei und hat dieselbe Spezifität, also gewinnt die spätere Regel. Deshalb
@@ -1172,6 +1257,25 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       nicht.
     - **`users.last_plan_id` ist tot** — weder gelesen noch geschrieben, in `schema.sql` so
       gekennzeichnet. **Nicht wieder in Betrieb nehmen.**
+
+    **`?plan=` schlägt die Rotation, und genau deshalb wirft das Beenden die Adresse ab**
+    (`neuLadenNachEnde()` in `index.js`, seit `1.2.15`). Der Parameter kommt aus der
+    Planwahl **vor** dem Training. Während der Einheit ist er wirkungslos — der Plan kommt
+    aus `sessions.plan_id` —, und deshalb fällt nicht auf, dass er noch in der Adresse
+    steht. Nach dem Beenden greift er wieder: Die Seite schlüge denselben Plan vor, den man
+    gerade fertig trainiert hat. Neu geladen wird deshalb auf `location.pathname`, nicht
+    über `reload()`. Nachgemessen an zwei Plänen: ohne Query steht der **nächste** blau, mit
+    `?plan=` der eben beendete.
+
+    Daran hängt der zweite Teil derselben Zeile: **Der Sprung nach oben.** „Training
+    beendet" steht auch am Ende der Liste, und das Ziel ist eine Seite, die oben beginnt.
+    Der Browser stellt beim Neuladen die alte Scrollposition wieder her, also wird
+    `history.scrollRestoration` vorher auf `'manual'` gestellt — und auf der neuen Seite
+    **zweimal** gescrollt (sofort und beim `load`-Ereignis), weil nicht zugesichert ist, ob
+    eine Wiederherstellung vor oder nach dem Skript liegt. Zurückgestellt wird
+    `scrollRestoration` **immer**, auch ohne Sprung: Der Wert gehört dem History-Eintrag und
+    überlebte das Neuladen, und ein verlorener Merker (privater Modus) ließe den Tab sonst
+    dauerhaft ohne Wiederherstellung.
 
 22. **`api/exercises.php → update` ersetzt die ganze Übung, es ändert keine Felder.**
     `aktion_bearbeiten()` schreibt `name_de`, `name_en`, `description`, `focus`,
@@ -1412,6 +1516,45 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     ohnehin aus, damit greift es auch für die Dialoge. **`window.location.reload()` gehört
     dort nicht mehr direkt in eine Aktion.**
 
+29. **Eine Anzeige, die im Sekundentakt kommt und geht, sagt nichts — sie kostet nur
+    Aufmerksamkeit.** Die Verbindungsleiste meldete bis `1.2.14` auch den flüchtigen
+    Zustand „n Eingaben werden gespeichert …". Der erschien bei **jedem** Abhaken für einen
+    Sekundenbruchteil, und der Benutzer hat ihn am 2026-08-25 als schlicht störend
+    gemeldet: „nervt mich und ist unnötig".
+
+    Er war es auch. Dass eine Zeile noch aussteht, sagt ihr gestrichelter Rand
+    (`.zeile-wartet`); dass ein Speichern endgültig gescheitert ist, meldet die Zeile selbst
+    mit Wiederholen-Knopf. Die Leiste wiederholte also eine Auskunft, die zweimal daneben
+    stand, und trainierte einem dabei das Wegsehen an — genau von der Leiste, die im
+    Ernstfall die Störung meldet.
+
+    **Seit `1.2.15` kennt sie genau einen Zustand:** Der Server ist nicht erreichbar. Dann
+    steht sie **rot** da (`--fehler`, keine zweite Farbe mehr) und **bleibt stehen**, bis das
+    Problem weg ist. Vier Dinge hängen daran:
+
+    - **„Gescheitert" heißt ENDGÜLTIG gescheitert.** `verbindung.erreichbar(false)` steht in
+      `apiFetch` erst im Zweig, der wirklich wirft — nicht mehr bei jedem einzelnen
+      Fehlversuch. Sonst blitzte die Leiste bei einem Aussetzer, den der Wiederversuch nach
+      400 ms auffängt, für ebenjene 400 ms auf, und der Ärger wäre derselbe wie vorher, nur
+      in Rot.
+    - **Wartende Eingaben lösen sie NICHT aus.** `verbindung.wartend(n)` schreibt die Zahl
+      nur fort; sie steht in der Leiste, wenn das Netz ohnehin weg ist, und sonst nirgends.
+    - **Wer stehen bleibt, muss das Ende der Störung selbst bemerken.** Die Leiste fragt
+      deshalb alle 15 s nach (`_nachfassenPlanen()`). In der Trainingsansicht täte das auch
+      die Warteschlange, auf jeder anderen Seite passiert von selbst gar nichts — und auf
+      `online` ist kein Verlass (Fallstrick 13). Bewusst ein **roher `fetch`** auf
+      `api/token.php` und kein `apiFetch`: Gefragt ist allein, ob überhaupt eine Antwort
+      kommt; **jede** beweist das, auch ein 401 — das `apiFetch` zur Anmeldung umleiten
+      würde, aus einer Hintergrundabfrage heraus mitten im Training.
+    - **`.leiste-schwebt` ist damit ersatzlos entfallen** (Fallstrick 19d). Der ganze
+      Schwebe-Kniff aus `1.2.10` war dafür da, dass das Aufblitzen die Seite nicht
+      verschiebt. Was nur bei einem echten Zustandswechsel erscheint, darf einmal schieben —
+      und darf den Inhalt darunter nicht dauerhaft verdecken, läuft also im Fluss mit.
+
+    **Die allgemeine Form: Eine Statusanzeige gehört an einen Zustand, den jemand ändern
+    kann, nicht an jeden Vorgang, den es gibt.** Wo der Normalfall ohnehin gutgeht, ist
+    Schweigen die richtige Meldung.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -1458,6 +1601,19 @@ Daraus die Zählweise:
   die er bauen lässt, unmittelbar danach in Portainer ein (festgelegt am 2026-08-19). Es
   gibt deshalb **keine Rückfrage** „ist die Nummer schon draußen?" und keine Lücken in der
   Zählung: gebaut heißt ausgerollt.
+
+  **Das ist eine VORGABE für den Normalfall und keine Tatsachenbehauptung.** Eine Auskunft
+  des Benutzers schlägt sie, und zwar in beide Richtungen — am 2026-08-25 an einem Tag
+  zweimal: Erst blieb die Nummer trotz dreier Bauläufe stehen („noch nicht eingespielt"),
+  dann war eine gebaute Version doch schon live und die nächste Änderung brauchte eine neue
+  Nummer. Daraus zwei Dinge:
+
+  - **Ohne gegenteilige Ansage nach der Vorgabe handeln** — nicht nachfragen, das war der
+    Sinn der Regel.
+  - **Aber nichts darauf stützen, was man messen kann.** Wer `doku/stand.md` auf „live"
+    zieht oder ein Rollback-Ziel benennt, misst vorher (der `curl`-Einzeiler unter
+    „Lokale Entwicklung"). Genau diese Zeile stand am 2026-08-25 falsch da, weil die Vorgabe
+    für einen Befund gehalten wurde.
 - **Umgekehrt: Ein Paket, das den Rechner nie verlassen hat, gibt seine Nummer wieder
   frei.** Das betrifft nur den Fall, dass **ungefragt** gebaut wurde — dann wird das Paket
   gelöscht und der Arbeitsstand behält die Nummer. **Nummern werden nicht übersprungen,

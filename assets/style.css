@@ -56,6 +56,23 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* Links tragen die Akzentfarbe — auch BESUCHTE.
+ *
+ * Ohne diese Regel gibt es hier gar keine Angabe zur Linkfarbe, und dann gilt
+ * das Standard-Stylesheet des Browsers: Blau, nach dem ersten Klick Lila. Genau
+ * so stand „Aktuellen Split wechseln" in der Trainingsansicht irgendwann in
+ * einem Lila da, das in dieser Oberfläche sonst nirgends vorkommt.
+ *
+ * Ein zweiter Selektor für `:visited` ist NICHT nötig: Die Regel des Autors
+ * schlägt die des Browsers, gleich welcher Spezifität — Herkunft geht in der
+ * Kaskade vor Spezifität. (`:visited` erlaubt aus Datenschutzgründen ohnehin
+ * fast nur Farbangaben.)
+ *
+ * Betroffen sind allein die Links im Fließtext. Jeder Link mit eigener Klasse
+ * — Kopfzeile, Knöpfe, Filter, Planwahl, Adminkacheln — setzt seine Farbe
+ * selbst und gewinnt über die Spezifität; nachgesehen, nicht angenommen. */
+a { color: var(--akzent); }
+
 body {
     margin: 0;
     background: var(--grund-tief);
@@ -965,6 +982,67 @@ button.gefahr { background: var(--fehler); }
    bleiben ist wichtiger als der Hinweis, dass hier schon abgehakt war. */
 .zeile-erledigt.zeile-fehler::after { opacity: 0; }
 
+/* Die Nummer der Übung, in die obere linke Ecke der Karte GESETZT — nicht
+   daneben gelegt.
+
+   Gezeichnet werden nur ZWEI Linien: rechts der Zahl von oben nach unten, dann
+   unter ihr nach links bis an den farbigen Balken. Die anderen beiden Seiten
+   des Rechtecks hat die Karte schon — ihr oberer Rand und der Balken links.
+   Deshalb `border-right` und `border-bottom` und sonst nichts: Ein volles
+   Kästchen zöge dort, wo die Karte ohnehin eine Linie hat, eine zweite
+   daneben. Wo die beiden Linien zusammentreffen, ist die Ecke abgerundet —
+   siehe unten bei `border-bottom-right-radius`.
+
+   `top: 0; left: 0` bezieht sich auf die PADDING-Box, also auf die Innenkante
+   genau dieser beiden Ränder — das Kästchen sitzt damit bündig in der Ecke,
+   ohne dass eine Zahl im Stylesheet die Randstärken nachbilden müsste.
+
+   Kein eigener Grund: Die Zahl selbst steht im Innenabstand der Karte (1rem)
+   und damit nie über dem Bild; nur die beiden Linien streifen dessen obere
+   linke Ecke, und die ist wegen `border-radius` ohnehin abgerundet. Das hält
+   die Ecke auch auf der roten Fehlerkarte richtig, wo ein weißes Kästchen als
+   Fremdkörper säße.
+
+   ANZEIGE UND KEIN BEDIENELEMENT: kein Tippziel-Maß und `pointer-events: none`
+   — das Bild darunter ist ein Knopf (Beschreibung und großes Bild), und der
+   Kreis darf ihm keine Fläche wegnehmen, ausgerechnet in der Ecke, die man
+   beim Zielen zuerst trifft.
+
+   KEIN z-index: So bleibt die Nummer unter dem Schleier der erledigten Karte
+   (`::after` ist das letzte Kind und gewinnt damit die Malreihenfolge) und
+   tritt mit ihr zurück — anders als „Erledigt", der Weg zurück.
+
+   `line-height: 1` hält die Höhe unabhängig von der globalen Zeilenhöhe;
+   tabular-nums hält die Breite bei zweistelligen Nummern gleich. */
+.position-nummer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.3rem;
+    padding: 0 0.3rem;
+    border-right: 1px solid var(--linie);
+    border-bottom: 1px solid var(--linie);
+    /* Die eine Ecke, die aus zwei gezeichneten Linien entsteht: dort, wo die
+       Linie nach links umbiegt. Sie bekommt --radius wie jede andere Box,
+       jeder Knopf und jede Auswahl -- eine spitze 90-Grad-Ecke war der einzige
+       harte Winkel der ganzen Oberflaeche.
+
+       Nur DIESE Ecke: Oben links rundet die Karte selbst, die beiden anderen
+       sind gar keine Ecken, sondern Stellen, an denen eine Linie auf den
+       Kartenrand bzw. den farbigen Balken trifft. */
+    border-bottom-right-radius: var(--radius);
+    color: var(--schrift-matt);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
 /* --- Leisten-Stapel ------------------------------------------------------- */
 
 /* Der Stapel klebt, die Leisten darin nicht. Warum, steht ausführlich in
@@ -972,8 +1050,8 @@ button.gefahr { background: var(--fehler); }
    und zurAktivenSpringen() braucht EINE Höhe, die von selbst stimmt.
 
    Die Reihenfolge darin ist nach Beständigkeit sortiert — oben, was dauerhaft
-   dasteht (Trainingsleiste), unten, was kurz aufblitzt (Verbindungsleiste).
-   Andersherum zappelt bei jedem Abhaken die Zeile, die man abliest.
+   dasteht (Trainingsleiste), unten, was nur im Ausnahmefall dazukommt
+   (Verbindungsleiste). Andersherum schöbe die zweite die erste hin und her.
 
    Steht über allem, auch über dem Kopf. */
 .leisten-stapel {
@@ -984,56 +1062,23 @@ button.gefahr { background: var(--fehler); }
 
 /* --- Verbindungsleiste ---------------------------------------------------- */
 
+/* Rot, und nur bei einem echten Verbindungsverlust.
+
+   Bis 1.2.14 war sie zweifarbig: orange für den flüchtigen Zustand
+   („n Eingaben werden gespeichert …"), rot für „Keine Verbindung". Den
+   flüchtigen gibt es nicht mehr — er erschien bei jedem Abhaken für einen
+   Sekundenbruchteil und meldete nichts, wonach jemand handeln könnte. Übrig
+   bleibt die Warnung, und eine Warnung hat genau eine Farbe. Damit ist auch
+   `.leiste-schwebt` entfallen: Der Schwebe-Kniff aus 1.2.10 war ausschließlich
+   dafür da, dass das Aufblitzen die Seite nicht verschiebt. Was nur bei einem
+   echten Zustandswechsel erscheint, darf einmal schieben — und darf den Inhalt
+   darunter auch nicht dauerhaft verdecken, läuft also im Fluss mit. */
 .verbindungs-leiste {
     padding: 0.5rem 1rem;
-    background: var(--warnung);
+    background: var(--fehler);
     color: #fff;
     font-size: 0.9rem;
     text-align: center;
-}
-
-.verbindungs-leiste.verbindung-weg { background: var(--fehler); }
-
-/* Der flüchtige Zustand („… wird gespeichert") SCHWEBT unter dem Stapel, statt
-   in ihm Platz zu belegen.
-
-   Grund: Im Fluss wächst der Stapel beim Einblenden um eine Zeile und schiebt
-   alles darunter nach unten — beim Ausblenden wieder hinauf. Weil die Leiste
-   bei JEDEM Abhaken für den Bruchteil einer Sekunde erscheint, sprang die
-   ganze Seite bei jeder Eingabe hin und her. Die Sortierung nach Beständigkeit
-   in 1.1.14 hat nur die Trainingsleiste ruhiggestellt, nicht den Inhalt
-   darunter. Das ist dieselbe Regel wie bei .zeile-wartet: Was von selbst kommt
-   und geht, darf nichts verschieben — und zwar auch nicht die halbe Seite.
-
-   GEMELDET WURDE ES NUR VOM IPHONE, und das ist der lehrreiche Teil: Auf einem
-   Pixel blieb die Seite ruhig, die Leiste schien den Inhalt sauber zu
-   überblenden. Sie tat es nicht — Chromium und Firefox haben SCROLL ANCHORING
-   (`overflow-anchor`): Wächst oberhalb des Sichtbereichs Layout nach, ziehen
-   sie die Scrollposition um denselben Betrag mit, und das Sichtbare steht
-   still. WebKit setzt das nicht um, dort schlägt dieselbe Layoutänderung
-   ungefedert durch. Die Ursache war also auf beiden Geräten dieselbe, nur eine
-   Engine glich sie aus.
-
-   Zwei Lehren daraus, beide über diesen Fall hinaus: „Auf meinem Gerät ruhig"
-   ist KEIN Beleg dafür, dass eine Layoutänderung ausbleibt — es kann heißen,
-   dass der Browser sie ausbügelt. Und der Ausgleich hat selbst eine Lücke: Bei
-   Scrollposition 0 kann er nicht nach oben korrigieren, dort schob es auch in
-   Chrome. Wer sich darauf verlässt, hat den Fehler oben in der Seite noch.
-
-   `top: 100%` hängt sie an die Unterkante des Stapels, egal wie hoch der
-   gerade ist; der Stapel ist `position: sticky` und damit der Bezugsrahmen.
-   Deckend, nicht durchscheinend — sonst läge Text auf Text.
-
-   NUR für den flüchtigen Fall. „Keine Verbindung zum Server" bleibt stehen,
-   bis das Netz zurück ist, und darf den Inhalt darunter nicht dauerhaft
-   verdecken; die Leiste läuft dort weiter im Fluss mit und schiebt einmal —
-   bei einem echten Zustandswechsel ist das richtig. Gesetzt wird die Klasse in
-   assets/app.js, und nur wenn die Leiste wirklich im Stapel hängt. */
-.verbindungs-leiste.leiste-schwebt {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
 }
 
 /* Rückfall für Seiten ohne Leisten-Stapel: Dann klebt die Leiste selbst, so
@@ -1072,14 +1117,52 @@ button.gefahr { background: var(--fehler); }
 
 .training-leiste .leiste-dauer { white-space: nowrap; }
 
-/* Die offenen Übungen sind die Nebenauskunft — sie stehen da, damit man nicht
-   selbst rechnen muss, sollen aber nicht mit der Hauptzahl konkurrieren. */
-.training-leiste .leiste-offen { opacity: 0.75; }
+/* Zwei Gruppen: „4/6 beendet · 2 übersprungen".
 
-@media (max-width: 22rem) {
-    /* Auf sehr schmalen Geräten weicht zuerst die Nebenauskunft, nicht der
-       Umbruch: Eine zweizeilige Leiste änderte die Höhe von allem darunter. */
-    .training-leiste .leiste-offen { display: none; }
+   Sie ergänzen sich nicht zur Anzahl der Übungen, und das ist Absicht — sie
+   beantworten zwei Fragen. „beendet" ist der Fortschritt, „übersprungen" die
+   Merkliste: was man ausgelassen hat und noch nachholen will. Der Rest (offen
+   und noch nicht drangewesen) braucht keine Zahl; er kostete nur die Breite,
+   die der Bruch jetzt bekommt.
+
+   Der Fortschritt steht vorn (seit 1.2.16), weil man ihn dauernd abliest; die
+   übersprungenen sind die Ausnahme. */
+.leiste-zahlen {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    /* NICHT umbrechen, und lieber abschneiden als wachsen: Ein Umbruch machte
+       die Leiste zweizeilig und schöbe damit alles darunter — dieselbe Regel
+       wie bei .zeile-wartet. Auslösen könnte ihn schon eine Zahl, die von 9 auf
+       10 springt, also mitten im Training. */
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Der Trennpunkt gehört zur FOLGENDEN Gruppe, nicht zwischen die beiden — so
+   verschwindet er mit ihr, statt verwaist am Rand stehen zu bleiben, falls
+   einmal eine Gruppe wegfällt. */
+.zahl-gruppe + .zahl-gruppe::before {
+    content: "· ";
+    opacity: 0.6;
+}
+
+/* Die übersprungenen sind im Normalfall 0, und dann sollen sie nichts von sich
+   reden machen. Gibt es welche, trägt die Zahl die Farbe der Balken, die man in
+   der Liste dazu sieht — dasselbe Signalorange, dieselbe Aussage: „steht noch
+   aus". Die Klasse setzt index.php beim Aufbau und zahlenSchreiben() im
+   Betrieb.
+
+   #ff6600 auf dem dunklen Grund der Leiste (--schrift) kommt auf 5,0:1 und
+   liegt damit über AA. Das ist die andere Richtung als beim Abzeichen auf
+   orangem Grund (2,94:1, siehe oben bei --signal) — hier trägt der dunkle
+   Hintergrund die helle Farbe. */
+.training-leiste .zahl-uebersprungen { opacity: 0.7; }
+
+.training-leiste .zahl-uebersprungen.zaehlt {
+    opacity: 1;
+    color: var(--signal);
 }
 
 /* --- Kurzmeldung --------------------------------------------------------- */

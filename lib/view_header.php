@@ -90,24 +90,23 @@ function nav_item(
       // die Verbindungsleiste (aus assets/app.js, auf jeder Seite).
       //
       // Die REIHENFOLGE ist Fachlichkeit, nicht Geschmack: Was dauerhaft
-      // dasteht, gehoert nach oben; was im Sekundentakt kommt und geht, nach
-      // unten. Andersherum -- so war es in 1.1.14 -- schiebt die kurz
-      // aufblitzende Verbindungsleiste bei JEDEM Abhaken die Trainingsleiste
-      // nach unten und gleich wieder hinauf. Wer also eine weitere Leiste
-      // ergaenzt, sortiert sie nach Bestaendigkeit ein.
+      // dasteht, gehoert nach oben; was nur im Ausnahmefall dazukommt, nach
+      // unten. Andersherum -- so war es in 1.1.14 -- schoebe die
+      // Verbindungsleiste beim Auftauchen die Trainingsleiste nach unten und
+      // beim Verschwinden wieder hinauf. Wer eine weitere Leiste ergaenzt,
+      // sortiert sie nach Bestaendigkeit ein.
       //
       // Der Stapel ist sticky, die Leisten darin sind es NICHT. Zwei Elemente
       // mit `top: 0` legen sich sonst uebereinander, und ein fester Versatz
       // fuer die zweite waere falsch: Die Verbindungsleiste ist meistens gar
       // nicht da und kann auf schmalen Geraeten zweizeilig werden.
       //
-      // Seit 1.2.10 belegt die Verbindungsleiste in ihrem FLUECHTIGEN Zustand
-      // ("... wird gespeichert") gar keinen Platz mehr im Stapel, sondern
-      // schwebt unter dessen Unterkante (`.leiste-schwebt`). Die Sortierung
-      // nach Bestaendigkeit hielt zwar die Trainingsleiste ruhig, aber nicht
-      // die Seite darunter: Die wanderte bei jedem Abhaken eine Zeilenhoehe
-      // hinunter und gleich wieder hinauf. Bei "Keine Verbindung" laeuft die
-      // Leiste weiterhin im Fluss mit -- Einzelheiten im Stylesheet.
+      // Seit 1.2.15 gibt es dort nichts mehr, was im Sekundentakt kommt und
+      // geht: Der fluechtige Zustand ("... wird gespeichert") ist entfallen,
+      // die Leiste meldet nur noch einen echten Verbindungsverlust und bleibt
+      // dann stehen. Damit ist auch die schwebende Fassung aus 1.2.10
+      // (`.leiste-schwebt`) weg -- ein einmaliges Verschieben bei einem echten
+      // Zustandswechsel ist kein Zappeln.
       //
       // Der eigentliche Gewinn steckt aber woanders: zurAktivenSpringen() in
       // index.js muss beim Weiterspringen die Hoehe dessen abziehen, was oben

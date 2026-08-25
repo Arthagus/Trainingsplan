@@ -434,8 +434,8 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   Bestandszeile richtig einordnet. Im Expertenmodus nicht: Dort entsteht die Zeile mit dem
   **ersten Satz**, und da ist man mitten in der Übung. Ohne diese Spalte hakte sich die
   Übung mit dem ersten Satz selbst ab.
-- **„x/n" zählt `done = 1`**, nicht die bloße Existenz der Zeile — in der Trainingsansicht
-  wie im Verlauf. **Die Tauschsperre (§7.5) hängt dagegen an der Existenz der Zeile**: Wer
+- **Als „beendet" zählt `done = 1`**, nicht die bloße Existenz der Zeile — in der
+  Trainingsansicht wie im Verlauf. **Die Tauschsperre (§7.5) hängt dagegen an der Existenz der Zeile**: Wer
   zwei Sätze Bankdrücken gemacht hat, kann die Position nicht mehr tauschen, auch ohne
   Häkchen. Die zwei Sätze waren Bankdrücken.
 - **Hier steht keine Wiederholungsspalte.** Ein Feld je Einheit kann nicht abbilden, was tatsächlich passiert — bei
@@ -984,13 +984,57 @@ getrennt** weiter (§7.6).
   den Plan bloß anschaut, sieht eine ruhige Liste — beides wäre sonst eine Aussage über
   einen Ablauf, der noch gar nicht läuft. **„Training starten" öffnet den Block der ersten
   Übung und scrollt dorthin**; dasselbe passiert beim Abhaken einer Übung für die nächste.
-  Dabei wird die Höhe der Verbindungsleiste abgezogen — sie klebt oben am Rand und verdeckte
+  Dabei wird die Höhe des Leisten-Stapels abgezogen — er klebt oben am Rand und verdeckte
   sonst genau den Übungsnamen der angesprungenen Karte.
   - **„Erledigt"-Häkchen**,
   - Aktion **„Übung tauschen"** (§7.5).
-- Fortschrittsanzeige „x/n erledigt" und der **„Training beendet"-Button** (§7.6) sind während
-  einer offenen Einheit sichtbar. `n` ist die Anzahl der Planpositionen, `x` die Anzahl der
-  Positionen mit `workout_log`-Eintrag in dieser Einheit.
+- **Die Nummer der Übung sitzt in der oberen linken Ecke der Karte** (seit `1.2.15`). Nur
+  die Ziffer, ohne Wort — sie beantwortet „die wievielte ist das": die Ansage im Studio und
+  der Bezug zur Reihenfolge im Plan.
+
+  **Gezeichnet werden nur zwei Linien:** rechts der Zahl von oben nach unten, dann unter ihr
+  nach links bis an den farbigen Balken. Die anderen beiden Seiten des Rechtecks hat die
+  Karte schon — ihr oberer Rand und der Balken links. Ein vollständiges Kästchen zöge dort,
+  wo ohnehin eine Linie ist, eine zweite daneben.
+
+  Wo die beiden Linien zusammentreffen — **unten rechts an der Zahl** —, ist die Ecke
+  **abgerundet** (seit `1.2.17`, Radius wie bei jeder anderen Box, jedem Knopf und jeder
+  Auswahl). Die übrigen Ecken des
+  wahrgenommenen Kästchens sind keine: Oben links rundet die Karte selbst, oben rechts und
+  unten links trifft je eine Linie auf den Kartenrand bzw. den farbigen Balken.
+
+  **Die Ecke, weil sie in beiden Modi frei ist.** Mittig in der Aktionszeile wäre der
+  naheliegende Platz und im Expertenmodus auch richtig — im Standardmodus sitzt dort das
+  Gewichtsfeld, und zwei Dinge in einer Mitte sind keine Mitte mehr.
+
+  Sie ist **Anzeige, kein Bedienelement** — kein Knopf, kein Tippziel, und ohne Zugriff auf
+  Zeigereignisse: Das Bild darunter ist ein Knopf (Beschreibung und großes Bild), und die
+  Ecke darf ihm keine Fläche wegnehmen, ausgerechnet dort, wo man beim Zielen zuerst
+  hintippt. Die Zahl selbst steht im Innenabstand der Karte und damit nie über dem Bild;
+  nur die beiden Linien streifen dessen abgerundete Ecke.
+- **Die Trainingsleiste** und der **„Training beendet"-Button** (§7.6) sind während einer
+  offenen Einheit sichtbar. Die Leiste nennt seit `1.2.15` zwei Zahlen, in dieser
+  Reihenfolge:
+
+  | | Was zählt | |
+  |---|---|---|
+  | **x/n beendet** | abgehakt (`done = 1`) von allen Planpositionen | der Fortschritt |
+  | **n übersprungen** | offene Positionen **vor** der aktiven — die orangen Balken | die Merkliste |
+
+  Der Fortschritt steht **vorn** (seit `1.2.16`): Er ist das, was man dauernd abliest. Die
+  übersprungenen sind die Ausnahme und dürfen dahinter.
+
+  **Sie ergänzen sich nicht zur Anzahl der Übungen, und das ist Absicht** — sie beantworten
+  zwei Fragen. Was dazwischen liegt (offen und noch nicht drangewesen), braucht keine eigene
+  Zahl: Es ist der Rest, und danach fragt im Studio niemand. Der Bruch spart dafür die
+  Breite, die eine dritte Gruppe gekostet hätte.
+
+  **Die übersprungenen kommen aus derselben Rechnung wie der orange Balken** (§7.3) und
+  nicht aus einer eigenen Zählung — die Leiste nennt damit genau die Übungen, die man in der
+  Liste auch orange sieht. Sind es keine, steht dort „0 übersprungen" in gedämpftem Grau;
+  ab eins trägt die Zahl das **Signalorange** der Balken.
+
+  Bis `1.2.14` stand dort „x/n erledigt · y offen".
 
 **7.4 Gewichts-Logging & „Erledigt"**
 - Das Gewicht muss **nicht** jedes Mal neu eingegeben werden — Default ist der letzte Wert;
@@ -1005,7 +1049,8 @@ getrennt** weiter (§7.6).
   nur die Bequemlichkeit davor.
 
   Der Preis: Wer abwählt, ändert und dann vergisst, wieder abzuhaken, hat für diese Position
-  nichts protokolliert. Das ist aber sichtbar — das Häkchen fehlt und „x/n" steht niedriger.
+  nichts protokolliert. Das ist aber sichtbar — das Häkchen fehlt und „beendet" steht
+  niedriger.
   Kein stiller Verlust. Eine eigene „Wert nachträglich speichern"-Aktion gibt es
   dementsprechend **nicht**.
 - **Ab-wählen** von „Erledigt" (versehentliches Häkchen) löscht den zugehörigen
@@ -1055,8 +1100,8 @@ getrennt** weiter (§7.6).
   - **„Erledigt" ist ein Schalter und kein Nebeneffekt** (korrigiert in `1.1.1` nach dem
     ersten Studio-Einsatz). Sätze einzutragen heißt *nicht*, mit der Übung fertig zu sein —
     man will ja gleich den nächsten machen. Die `workout_log`-Zeile entsteht mit dem ersten
-    Satz, aber mit `done = 0`; „x/n" springt erst, wenn der Benutzer das Häkchen selbst
-    setzt.
+    Satz, aber mit `done = 0`; „x/n beendet" springt erst, wenn der Benutzer das Häkchen
+    selbst setzt.
 
     Die erste Fassung hatte das andersherum („Erledigt folgt den Sätzen") und war damit
     falsch: Ab dem zweiten Satz stand die Übung als erledigt da, während der Benutzer noch
@@ -1120,8 +1165,10 @@ getrennt** weiter (§7.6).
   **orange**, was nach einem Fehler aussah, obwohl gerade alles seinen Gang geht; und in der
   Karte stand zusätzlich ein Hinweissatz, der sie für die Dauer des Speicherns höher und
   danach wieder niedriger machte — bei jedem Satz sprang dadurch die ganze Liste darunter.
-  **Wie viele Eingaben ausstehen, sagt die Leiste am oberen Rand**, und die genügt: Sie ist
-  `sticky` und damit immer im Blick.
+  **Der gestrichelte Balken ist seit `1.2.15` der einzige Hinweis auf ein laufendes
+  Speichern**, und er genügt: Er steht an der Zeile, um die es geht, und verschiebt nichts.
+  Die Leiste am oberen Rand nennt die Zahl der wartenden Eingaben nur noch dann, wenn das
+  Netz tatsächlich weg ist.
 
   - **Nur innerhalb einer bereits laufenden Einheit.** Ohne offene Einheit bleibt es beim
     direkten Aufruf. Sonst müsste die Anzeige eine Einheit zeigen, die es serverseitig nicht
@@ -1134,18 +1181,40 @@ getrennt** weiter (§7.6).
     es sonst über `einheit_sicherstellen()` eine **neue** Einheit eröffnen.
   - **Ein Eintrag je Planposition**, der neueste gewinnt. Die Schlange kann damit nie länger
     werden als der Plan. Im Expertenmodus trägt der Eintrag zusätzlich die **vollständige
-    Satzliste** — deshalb heißt der `localStorage`-Schlüssel seit `1.1.0`
-    `trainingsplan-warteschlange-v2`: Ein alter Eintrag ohne dieses Feld liefe als „check
-    ohne Satzliste" durch und löschte damit die Sätze der Position.
+    Satzliste** — deshalb bekam der `localStorage`-Schlüssel in `1.1.0` eine neue Nummer
+    (`…-v2`): Ein alter Eintrag ohne dieses Feld liefe als „check ohne Satzliste" durch und
+    löschte damit die Sätze der Position. **Aktuell ist `trainingsplan-warteschlange-v3`**
+    — `1.1.1` hat mit `done` ein weiteres Pflichtfeld ergänzt (§4). Die Nummer steht in
+    `assets/app.js` und wird nur hochgezählt, wenn sich die **Form** eines Eintrags ändert;
+    eine neue Einstellung allein ist kein Grund, siehe `CLAUDE.md` Fallstrick 17.
   - **Endgültige Ablehnungen (4xx) fliegen aus der Schlange** und erscheinen als Zeilenfehler
     mit Wiederholen-Knopf. Bliebe der Eintrag liegen, blockierte er alle folgenden dauerhaft.
   - **Beenden ist gesperrt, solange etwas aussteht** — eine geschlossene Einheit nähme die
     nachgeholten Einträge nicht mehr an.
 
-- **Verbindungsleiste.** Eine Leiste am oberen Rand nennt den Zustand und die Zahl der
-  wartenden Eingaben. Maßgeblich ist dabei, was tatsächlich gescheitert ist, **nicht**
-  `navigator.onLine`: Das steht im Studio-WLAN ohne Internet und bei einem Balken Mobilfunk
-  durchgehend auf `true`.
+- **Verbindungsleiste.** Eine rote Leiste am oberen Rand meldet **ausschließlich einen
+  echten Verbindungsverlust** — der Server ist nicht erreichbar, Eingaben kommen gerade
+  nicht durch — und bleibt stehen, bis das Problem weg ist. Steht etwas in der
+  Warteschlange, nennt sie die Zahl der wartenden Eingaben dazu.
+
+  **Den flüchtigen Zustand „n Eingaben werden gespeichert …" gibt es seit `1.2.15` nicht
+  mehr** (Rückmeldung 2026-08-25). Er erschien bei jedem Abhaken für einen Sekundenbruchteil
+  und sagte nichts, wonach jemand handeln könnte: Dass eine Zeile noch aussteht, zeigt ihr
+  gestrichelter Rand, und ein endgültig gescheitertes Speichern meldet die Zeile selbst mit
+  Wiederholen-Knopf. Eine Leiste, die ständig auf- und zuklappt, wird überlesen — und genau
+  dann fällt die eine Meldung nicht mehr auf, die zählt.
+
+  Maßgeblich ist, was tatsächlich gescheitert ist, **nicht** `navigator.onLine`: Das steht im
+  Studio-WLAN ohne Internet und bei einem Balken Mobilfunk durchgehend auf `true`.
+  „Gescheitert" heißt dabei **endgültig gescheitert**, also nach allen Wiederversuchen des
+  Aufrufs — ein Aussetzer, den der zweite Anlauf nach 400 ms auffängt, ist kein Zustand, den
+  jemand sehen muss.
+
+  Weil die Leiste stehen bleibt, braucht es etwas, das das **Ende** der Störung bemerkt: Sie
+  fragt alle 15 s selbst nach (`api/token.php`, roher `fetch` — jede Antwort beweist, dass
+  der Server wieder da ist). Ohne das stünde sie auf jeder Seite außerhalb des Trainings rot
+  da, bis jemand von sich aus etwas anklickt; das `online`-Ereignis feuert beim klassischen
+  einen Balken Empfang nie.
 
 **7.5 Übungstausch (Alternativen)**
 - „Übung tauschen" schlägt alternative Übungen **derselben primären Muskelgruppe** vor: alle
@@ -1286,6 +1355,20 @@ getrennt** weiter (§7.6).
 
   Beim Ende wird `ended_at` = jetzt gesetzt. Sonst nichts — die Rotation merkt sich nichts,
   sie liest die Historie (siehe unten).
+
+  **Danach steht die Seite ganz oben und ohne `?plan=`** (seit `1.2.15`). Beides gehört
+  zusammen und hängt an demselben Umstand: Was nach dem Beenden erscheint, ist nicht mehr das
+  eben trainierte Training, sondern der Vorschlag für das **nächste**.
+
+  - **Ganz oben**, weil der „Training beendet"-Button auch am **Ende** der Übungsliste steht
+    (siehe unten) — man steht also unten, während die neue Seite oben beginnt: Startkasten,
+    Planwahl, Vorschlag. Ohne den Sprung landete man mitten in der Übungsliste eines
+    Trainings, das gar nicht läuft. Der Browser stellt beim Neuladen von sich aus die alte
+    Position wieder her; das wird dafür ausdrücklich abgeschaltet.
+  - **Ohne `?plan=`**, weil der Parameter aus der Planwahl **vor** dem Training stammt.
+    Während der Einheit ist er wirkungslos (der Plan kommt aus `sessions.plan_id`), danach
+    greift er wieder — und die Seite schlüge denselben Plan vor, den man gerade fertig
+    trainiert hat, statt den nächsten aus der Rotation.
 - Pro Benutzer ist **höchstens eine** Einheit offen. Der „Training beendet"-Button ist während
   einer offenen Einheit stets erreichbar, sodass eine vergessene offene Einheit jederzeit
   geschlossen werden kann.
@@ -1546,14 +1629,16 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
     Vorgeschichte** einmal „+ Satz" antippen → es erscheint eine leere Zeile, **kein** roter
     Rand und **kein** „Erneut versuchen". Bei einer Übung **mit** Vorgeschichte dreimal
     „+ Satz": Die Vorschläge entsprechen Satz für Satz der letzten Einheit, die
-    Wiederholungen lassen sich mit −/+ korrigieren. **„x/n" bleibt dabei stehen** — die
-    Position ist protokolliert, aber nicht fertig; „Tauschen" ist trotzdem schon gesperrt.
-    Erst das Häkchen lässt „x/n" springen, klappt den Satzblock zu und springt zur nächsten
-    offenen Übung. Häkchen wieder entfernen → „x/n" geht zurück, **die Sätze bleiben
-    stehen**. Handy sperren und App neu öffnen → die Sätze stehen noch. Flugmodus
-    einschalten, einen Satz ändern → der grüne Balken strichelt (er wird **nicht** orange,
-    und die Karte ändert ihre Höhe nicht), oben erscheint die Leiste mit der Anzahl, Beenden
-    ist gesperrt; Flugmodus aus → der Satz wird nachgeholt. Training beenden; im
+    Wiederholungen lassen sich mit −/+ korrigieren. **„x/n beendet" bleibt dabei stehen** —
+    die Position ist protokolliert, aber nicht fertig; „Tauschen" ist trotzdem schon
+    gesperrt. Erst das Häkchen lässt den Bruch springen, klappt den Satzblock zu und springt
+    zur nächsten offenen Übung. Häkchen wieder entfernen → der Bruch geht zurück, **die
+    Sätze bleiben stehen**. Handy sperren
+    und App neu öffnen → die Sätze stehen noch. Flugmodus einschalten, einen Satz ändern →
+    der grüne Balken strichelt (er wird **nicht** orange, und die Karte ändert ihre Höhe
+    nicht), nach den Wiederversuchen erscheint oben die **rote** Leiste mit der Anzahl,
+    Beenden ist gesperrt; Flugmodus aus → der Satz wird nachgeholt und die Leiste
+    verschwindet. Training beenden; im
     Verlauf steht unter „Einheiten" die Folge `12×40 · 10×40 · 9×45`, unter „Übungen" laufen
     Volumen- und 1RM-Kurve samt Näherungs-Hinweis. Gegenprobe: Expertenmodus wieder
     ausschalten → die alte Ansicht ist unverändert da, die protokollierten Einheiten bleiben

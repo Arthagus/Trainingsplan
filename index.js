@@ -60,14 +60,14 @@
 
         try {
             await apiFetch('api/session.php', { body: { action: 'end' } });
-            window.location.reload();
+            neuLadenNachEnde();
         } catch (fehler) {
             // 409 heisst "es laeuft keine Einheit" -- genau das war das Ziel.
             // Typischer Hergang bei schlechtem Empfang: Der erste Aufruf kam
             // durch, seine ANTWORT ging verloren, der Benutzer tippt erneut.
             // Eine Fehlermeldung waere hier schlicht falsch.
             if (fehler.status === 409) {
-                window.location.reload();
+                neuLadenNachEnde();
                 return;
             }
             meldung(fehler.message, 'fehler');
@@ -75,18 +75,23 @@
     }
 
     /**
-     * Merkt über den Seitenwechsel hinweg, dass zur aktiven Übung gesprungen
-     * werden soll.
+     * Merkt über den Seitenwechsel hinweg, wohin die neue Seite scrollen soll.
+     *
+     * Zwei Ziele, beide nach einem Neuladen, das diese Seite selbst ausgelöst
+     * hat: nach dem START zur aktiven Übung, nach dem ENDE ganz nach oben. Ein
+     * gewöhnlicher Seitenaufruf trägt keinen Merker und scrollt nicht.
      *
      * `sessionStorage` und nicht `localStorage`: Das gilt für genau diesen Tab
      * und diesen Moment. Bliebe es liegen, spränge die Seite beim nächsten
      * Öffnen grundlos.
      */
-    const SPRUNG_SCHLUESSEL = 'trainingsplan-sprung-zur-aktiven';
+    const SPRUNG_SCHLUESSEL = 'trainingsplan-sprung';
+    const SPRUNG_AKTIVE     = 'aktive';
+    const SPRUNG_OBEN       = 'oben';
 
-    function merkeSprungZurAktiven() {
+    function merkeSprung(ziel) {
         try {
-            window.sessionStorage.setItem(SPRUNG_SCHLUESSEL, '1');
+            window.sessionStorage.setItem(SPRUNG_SCHLUESSEL, ziel);
         } catch (e) {
             // Privater Modus: Dann wird eben nicht gescrollt.
         }
@@ -94,12 +99,44 @@
 
     function sprungAbholen() {
         try {
-            if (window.sessionStorage.getItem(SPRUNG_SCHLUESSEL) !== '1') return false;
+            const ziel = window.sessionStorage.getItem(SPRUNG_SCHLUESSEL);
             window.sessionStorage.removeItem(SPRUNG_SCHLUESSEL);
-            return true;
+            return ziel;
         } catch (e) {
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * Nach dem Beenden: Seite neu holen, OHNE `?plan=` und ganz oben.
+     *
+     * Zwei Dinge, die beide am selben Moment hängen — die Einheit ist zu, und
+     * was jetzt kommt, ist der Vorschlag für das NÄCHSTE Training:
+     *
+     * 1. **Ohne Query.** `?plan=` stammt aus der Planwahl VOR dem Training.
+     *    Während der Einheit ist der Parameter wirkungslos (der Plan kommt aus
+     *    `sessions.plan_id`), danach greift er wieder — und die Seite zeigte
+     *    denselben Plan, den man gerade fertig trainiert hat, statt den nächsten
+     *    aus der Rotation. `location.pathname` wirft ihn ab und ist zugleich
+     *    basispfad-sicher.
+     * 2. **Ganz nach oben.** Der Knopf steht auch am ENDE der Liste, man steht
+     *    also unten — und die neue Seite ist eine andere: Startkasten,
+     *    Planwahl, Vorschlag. Unten stünde man dann mitten in der Übungsliste
+     *    eines Trainings, das noch gar nicht läuft.
+     *
+     * `scrollRestoration = 'manual'` gehört dazu, weil Punkt 1 nicht in jedem
+     * Fall eine neue Adresse ergibt: Ohne `?plan=` ist Ziel gleich Herkunft,
+     * der Browser behandelt das als Neuladen und stellt die alte Scrollposition
+     * wieder her — also genau das Ende der Liste, das wir verlassen wollen.
+     */
+    function neuLadenNachEnde() {
+        merkeSprung(SPRUNG_OBEN);
+        try {
+            window.history.scrollRestoration = 'manual';
+        } catch (e) {
+            // Ältere Browser: Dann greift nur das Scrollen auf der neuen Seite.
+        }
+        window.location.href = window.location.pathname;
     }
 
     // Punkt 7: Einheit ausdrücklich starten, damit der Zeitstempel den
@@ -127,7 +164,7 @@
                 // Die Seite kommt gleich neu — erst danach gibt es eine
                 // laufende Einheit und damit eine aktive Übung. Der Merker
                 // sagt der neuen Seite, dass sie dorthin scrollen soll.
-                merkeSprungZurAktiven();
+                merkeSprung(SPRUNG_AKTIVE);
                 window.location.reload();
             } catch (fehler) {
                 meldung(fehler.message, 'fehler');
@@ -206,7 +243,7 @@
     // --- Fortschritt -------------------------------------------------------
 
     /**
-     * Schreibt „x/n" fort und fragt bei Vollständigkeit nach.
+     * Schreibt die Zahlen der Leiste fort und fragt bei Vollständigkeit nach.
      *
      * Die Einheit schließt sich NIE von selbst (§7.6): Sonst wäre das
      * Ab-wählen eines versehentlichen Häkchens undefiniert, und der Bildschirm
@@ -222,34 +259,50 @@
     }
 
     /**
-     * Schreibt „x/n" und die Zahl der offenen Uebungen in die Leiste am oberen
-     * Rand.
+     * Schreibt „x/y beendet · n übersprungen" in die Leiste am oberen Rand.
      *
-     * Die beiden Zahlen stehen zwar nebeneinander, sind aber EINE Aussage --
-     * deshalb eine Funktion und nicht zwei Stellen, die man getrennt vergessen
-     * kann. Fehlt die Leiste (kein laufendes Training), passiert nichts.
+     * Die übersprungenen werden NICHT übergeben, sondern hier aus der Liste
+     * gezählt — und zwar an den orangen Balken selbst (`.zeile-uebersprungen`).
+     * Das ist der Kern: Die Leiste nennt damit genau die Übungen, die man in
+     * der Liste auch orange sieht. Eine eigene Rechnung daneben liefe früher
+     * oder später auseinander, und dann stünde oben eine Zahl, die man unten
+     * nicht wiederfindet.
+     *
+     * Daraus folgt eine Reihenfolge, die man kennen muss: `aktiveMarkieren()`
+     * setzt die Klasse und muss VORHER gelaufen sein. Alle Aufrufer erfüllen
+     * das über `zustandSetzen()`, das beides in dieser Reihenfolge tut.
+     *
+     * Fehlt die Leiste (kein laufendes Training), passiert nichts.
      */
-    function zahlenSchreiben(erledigt, gesamt) {
-        const text = qs('#fortschritt-text');
-        if (text) text.textContent = erledigt + '/' + gesamt;
+    function zahlenSchreiben(beendet, gesamt) {
+        const uebersprungen = qsa('.position-karte.zeile-uebersprungen', liste).length;
 
-        const offen = qs('#fortschritt-offen');
-        if (offen) offen.textContent = String(Math.max(0, gesamt - erledigt));
+        const anzeige = qs('#zahl-uebersprungen');
+        if (anzeige) {
+            anzeige.textContent = String(uebersprungen);
+            // Orange erst, wenn es wirklich welche gibt: „0 übersprungen" ist
+            // der Normalfall und keine Warnung.
+            anzeige.parentNode.classList.toggle('zaehlt', uebersprungen > 0);
+        }
+
+        const fortschritt = qs('#zahl-beendet');
+        if (fortschritt) fortschritt.textContent = beendet + '/' + gesamt;
     }
 
     /**
-     * Schreibt „x/n" aus dem fort, was auf dem Bildschirm steht.
+     * Schreibt die Zahlen aus dem fort, was auf dem Bildschirm steht.
      *
      * Solange Eintraege in der Warteschlange liegen, kennt der Server den
      * Stand noch nicht -- die Zeilen sind die Wahrheit. Sobald die Schlange
      * leer ist, uebernimmt wieder fortschrittSetzen() mit der Serverzahl.
      */
     function fortschrittLokal() {
-        if (!qs('#fortschritt-text')) return;
+        if (!qs('#fortschritt')) return;
 
-        const x = qsa('.position-karte.zeile-erledigt', liste).length;
-        zahlenSchreiben(x, Number(liste.dataset.gesamt) || 0);
-        liste.dataset.erledigt = x;
+        const beendet = qsa('.position-karte.zeile-erledigt', liste).length;
+
+        zahlenSchreiben(beendet, Number(liste.dataset.gesamt) || 0);
+        liste.dataset.erledigt = beendet;
     }
 
     /**
@@ -794,6 +847,30 @@
     }
 
     /**
+     * Der Gegenpol zu zurAktivenSpringen(): an den Anfang der Seite.
+     *
+     * Aufgerufen nach dem BEENDEN, wenn die neue Seite steht. Sie zeigt dann
+     * etwas anderes als vorher — Startkasten, Planwahl, Vorschlag für das
+     * nächste Training —, und das steht oben.
+     *
+     * ZWEIMAL gescrollt, und das ist kein Gürtel-und-Hosenträger: Der Browser
+     * stellt eine gemerkte Scrollposition irgendwann während des Ladens wieder
+     * her, und wann genau, ist nicht zugesichert. Läuft dieses Skript vorher,
+     * überschriebe die Wiederherstellung den Sprung. Der zweite Aufruf beim
+     * `load`-Ereignis liegt sicher dahinter. `neuLadenNachEnde()` schaltet die
+     * Wiederherstellung ohnehin ab; das hier greift, wenn der Browser das nicht
+     * kennt oder der Merker über einen anderen Weg gesetzt wurde.
+     *
+     * Ohne `behavior: 'smooth'`: Die Seite ist gerade erst entstanden, es gibt
+     * keine Bewegung, der man folgen könnte — ein Scrollen über die halbe
+     * Übungsliste wäre nur Zeit, in der man wartet.
+     */
+    function nachObenSpringen() {
+        window.scrollTo(0, 0);
+        window.addEventListener('load', () => window.scrollTo(0, 0), { once: true });
+    }
+
+    /**
      * Klappt den Satzblock der aktiven Übung auf und scrollt sie in den Blick.
      *
      * Zwei Aufrufer: nach dem Abhaken einer Übung und nach dem Start eines
@@ -812,12 +889,11 @@
         if (block) block.open = true;
 
         // NICHT scrollIntoView({block:'start'}): Das setzt die Karte exakt an den
-        // oberen Viewport-Rand — und dort klebt unter Umständen die
-        // Verbindungsleiste. Sie hängt als erstes Element im <body> und ist
-        // `position: sticky; top: 0`, überlagert das Darunterliegende also. Genau
-        // beim Abhaken wird sie sichtbar (die Eingabe geht in die Warteschlange),
-        // sodass die Karte zuverlässig unter ihr landete und der Übungsname
-        // verdeckt war.
+        // oberen Viewport-Rand — und dort klebt der Leisten-Stapel
+        // (`position: sticky; top: 0`), der das Darunterliegende überlagert. Bei
+        // laufender Einheit hängt dort immer die Trainingsleiste, im Störfall
+        // zusätzlich die Verbindungsleiste; ohne den Versatz landete die Karte
+        // unter ihnen und der Übungsname war verdeckt.
         //
         // Wie hoch der Stapel gerade baut, rechnet stapelUnterkante() in
         // assets/app.js aus — dieselbe Rechnung braucht seit 1.2.11 der
@@ -902,9 +978,9 @@
             zustandSetzen(karte, erledigt);
             fortschrittSetzen(daten);
 
-            // Die erste Aktion startet die Einheit — die Kopfzeile mit „x/n"
+            // Die erste Aktion startet die Einheit — die Leiste mit den Zahlen
             // und dem Beenden-Knopf gibt es dann noch gar nicht.
-            const brauchtReload = aktiv && daten.session_id && !qs('#fortschritt-text');
+            const brauchtReload = aktiv && daten.session_id && !qs('#fortschritt');
             abschlussFrage(daten, brauchtReload);
         } catch (fehler) {
             zustandSetzen(karte, vorher);
@@ -1381,8 +1457,24 @@
     // nachgezogen, falls die Warteschlange den Stand verschoben hat.
     aktiveMarkieren();
 
-    // Nur direkt nach „Training starten": Die Seite kam gerade neu, und jetzt
-    // gibt es eine aktive Übung, zu der gesprungen werden kann. Bei jedem
-    // gewöhnlichen Seitenaufruf bleibt der Bildschirm, wo er ist.
-    if (sprungAbholen()) zurAktivenSpringen();
+    // Nur direkt nach „Training starten" bzw. „Training beendet": Die Seite kam
+    // gerade neu, und erst jetzt steht fest, wohin geschaut werden soll. Bei
+    // jedem gewöhnlichen Seitenaufruf bleibt der Bildschirm, wo er ist.
+    const sprungZiel = sprungAbholen();
+    if (sprungZiel === SPRUNG_AKTIVE) zurAktivenSpringen();
+    else if (sprungZiel === SPRUNG_OBEN) nachObenSpringen();
+
+    // `scrollRestoration` gehört dem History-Eintrag und überlebt das Neuladen.
+    // Zurückgestellt wird es deshalb IMMER und nicht nur nach einem Sprung:
+    // Ginge der Merker verloren (privater Modus), bliebe der Tab sonst dauerhaft
+    // ohne Wiederherstellung — und ein Neuladen mitten im Training spränge nach
+    // oben. Erst beim `load`-Ereignis, denn bis dahin hätte der Browser eine
+    // Wiederherstellung längst vorgenommen.
+    window.addEventListener('load', () => {
+        try {
+            window.history.scrollRestoration = 'auto';
+        } catch (e) {
+            // Nichts zu tun.
+        }
+    }, { once: true });
 })();

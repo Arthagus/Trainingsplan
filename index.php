@@ -93,6 +93,24 @@ $zustaende      = positions_zustaende($positionen, $laeuft);
 $aktivePosition = $zustaende['aktiv'];
 $uebersprungen  = $zustaende['uebersprungen'];
 
+// Die zwei Zahlen der Trainingsleiste (§7.4), in dieser Reihenfolge:
+//
+//   x/n beendet    abgehakt von allen Planpositionen
+//   uebersprungen  offene Positionen VOR der aktiven -- die orangen Balken
+//
+// Sie ergaenzen sich nicht zu $gesamt, und das ist Absicht: Sie beantworten
+// zwei verschiedene Fragen. "beendet" ist der Fortschritt, "uebersprungen" die
+// Merkliste -- was man ausgelassen hat und noch nachholen will. Was dazwischen
+// liegt (offen und noch nicht drangewesen), braucht keine Zahl: Es ist der
+// Rest, und danach fragt im Studio niemand.
+//
+// Die uebersprungenen kommen aus positions_zustaende() und NICHT aus einer
+// eigenen Zaehlung -- es ist dieselbe Liste, die den orangen Balken setzt.
+// Zwei Rechenwege fuer dieselbe Aussage liefen irgendwann auseinander, und die
+// Leiste zeigte dann eine Zahl, die man in der Liste nicht wiederfindet.
+$beendetAnz        = $erledigt;
+$uebersprungenAnz  = count($uebersprungen);
+
 // Eine offene Einheit, die aelter als 12 Stunden ist, ist mit hoher
 // Wahrscheinlichkeit vergessen worden -- sie blockiert sonst dauerhaft die
 // Rotation (§7.6). Automatisch geschlossen wird trotzdem nichts.
@@ -115,13 +133,29 @@ if ($offen !== null) {
 // rechnete daraus Unsinn. So ist der Wert beim Laden exakt, und index.js zaehlt
 // nur noch die Zeit SEIT dem Laden dazu -- dafuer genuegt jede Uhr.
 //
-// "x/n" behaelt seine bisherige id: Die Zahl stand bis 1.1.13 in der Karte
-// oben, dieselben zwei Funktionen in index.js schreiben sie jetzt hier. Eine
-// zweite Anzeige daneben gibt es ausdruecklich nicht.
+// Die Zahlen standen bis 1.1.13 in der Karte oben und bis 1.2.14 als
+// "x/n erledigt · y offen" hier. Seit 1.2.15 nennt sie den Fortschritt als
+// Bruch und daneben, was man UEBERSPRUNGEN hat. Der Bruch spart den Platz,
+// den eine dritte Gruppe gebraucht haette; "offen" ist ohnehin der Rest und
+// war die Auskunft, nach der niemand gefragt hat.
+//
+// Die REIHENFOLGE ist Ansage des Benutzers und kam in 1.2.16 dazu: Der
+// Fortschritt ist das, was man dauernd abliest, und steht deshalb an der
+// Stelle, auf die der Blick zuerst faellt. Die uebersprungenen sind die
+// Ausnahme und duerfen dahinter.
+//
+// Eine zweite Anzeige daneben gibt es weiterhin ausdruecklich nicht.
+//
+// Die ids traegt jeweils das <strong> mit der blossen Zahl: index.js schreibt
+// nur sie fort, die Beschriftung daneben bleibt stehen.
 $leisteOben = '';
 if ($laeuft && $plan !== null && $positionen !== []) {
     $sekunden = max(0, time() - (int)strtotime((string)$offen['started_at']));
-    $offenAnz = max(0, $gesamt - $erledigt);
+
+    $zahl = static fn(string $id, string $wert, string $wort, string $klasse = ''): string =>
+        '<span class="zahl-gruppe zahl-' . $id . ($klasse === '' ? '' : ' ' . $klasse) . '">'
+      . '<strong id="zahl-' . $id . '">' . $wert . '</strong> ' . $wort
+      . '</span>';
 
     $leisteOben =
         // KEIN role="status": Die Dauer aendert sich von selbst, und ein
@@ -129,10 +163,21 @@ if ($laeuft && $plan !== null && $positionen !== []) {
         // vor. Die Verbindungsleiste hat das Attribut zu Recht -- sie meldet
         // ein Ereignis, keinen Zaehler.
         '<div class="training-leiste" data-sekunden="' . $sekunden . '">'
-      .   '<span>'
-      .     '<strong id="fortschritt-text">' . $erledigt . '/' . $gesamt . '</strong> erledigt'
-      .     '<span class="leiste-offen"> · <span id="fortschritt-offen">'
-      .       $offenAnz . '</span> offen</span>'
+      .   '<span class="leiste-zahlen" id="fortschritt">'
+      .     $zahl('beendet', $beendetAnz . '/' . $gesamt, 'beendet')
+            // Das Leerzeichen ist fuer den Screenreader, nicht fuers Auge: Der
+            // sichtbare Abstand kommt aus `gap`, der Trennpunkt aus einem
+            // ::before im Stylesheet -- ohne diese Fuge liest er "beendet1
+            // uebersprungen" in einem Wort. Sichtbar aendert es nichts:
+            // Leerraum ZWISCHEN Flex-Kindern wird nicht zum eigenen Kind.
+      .     ' '
+      .     $zahl(
+              'uebersprungen',
+              (string)$uebersprungenAnz,
+              'übersprungen',
+              // Orange nur, wenn es wirklich welche gibt -- siehe Stylesheet.
+              $uebersprungenAnz > 0 ? 'zaehlt' : ''
+            )
       .   '</span>'
       .   '<span class="leiste-dauer" id="leiste-dauer"></span>'
       . '</div>';
@@ -206,10 +251,10 @@ require __DIR__ . '/lib/view_header.php';
                 <span class="matt">seit <?= h(format_datetime($offen['started_at'])) ?></span>
             <?php endif; ?>
 
-            <?php // "x/n erledigt" stand bis 1.1.13 hier. Es steht jetzt in der
+            <?php // Der Fortschritt stand bis 1.1.13 hier. Er steht jetzt in der
                   // Leiste am oberen Rand, die waehrend des Trainings immer
                   // sichtbar ist -- genau deshalb gibt es sie. Zwei Anzeigen
-                  // derselben Zahl waeren doppelte Pflege ohne Gegenwert. ?>
+                  // derselben Zahlen waeren doppelte Pflege ohne Gegenwert. ?>
             <p>
                 <button type="button" id="einheit-beenden" class="gefahr">Training beendet</button>
             </p>
@@ -310,7 +355,7 @@ require __DIR__ . '/lib/view_header.php';
                   // auch keine Sperre bei laufendem Training. ?>
             data-satz-vorlage="<?= h(satz_vorlage_normalisieren($benutzer['satz_vorlage'] ?? null)) ?>"
             data-erledigt="<?= $erledigt ?>" data-gesamt="<?= $gesamt ?>">
-            <?php foreach ($positionen as $z): ?>
+            <?php foreach ($positionen as $i => $z): ?>
                 <?php // Die Satzlisten reisen als JSON im Attribut mit. Gezeichnet
                       // werden die Zeilen ausschliesslich in index.js: Sie sind ein
                       // Bedienelement, das sich im Betrieb staendig aendert
@@ -342,6 +387,28 @@ require __DIR__ . '/lib/view_header.php';
                               // einfachen Modus kommt, hat hier trotzdem eine Zahl. ?>
                         data-letztes-gewicht="<?= h(format_decimal($z['letztes_gewicht'])) ?>"
                     <?php endif; ?>>
+
+                    <?php // Die Nummer der Uebung, oben links in der Ecke der Karte
+                          // (Ansage des Benutzers am 2026-08-25). Nur die Ziffer, ohne
+                          // Wort -- sie beantwortet "die wievielte ist das".
+                          //
+                          // Sie stand kurzzeitig mittig in der Aktionszeile. Das war im
+                          // Expertenmodus richtig, im Standardmodus aber besetzt: Dort
+                          // sitzt genau dort das Gewichtsfeld, und zwei Dinge in einer
+                          // Mitte sind keine Mitte mehr. Die Ecke ist in BEIDEN Modi
+                          // frei und immer an derselben Stelle.
+                          //
+                          // Sie liegt ueber der oberen linken Ecke des Bildes, mit
+                          // eigenem Grund -- Uebungsbilder sind dort praktisch immer
+                          // weiss, und der weisse Kreis traegt die Ziffel auch dann,
+                          // wenn es einmal nicht so ist.
+                          //
+                          // Steht VOR dem Kopf, damit ein Screenreader "Uebung 3" vor
+                          // dem Namen liest; ein Kreis, der als Anzeige gedacht ist,
+                          // gehoert nicht ans Ende der Karte. Ohne Zeilenumbruch im
+                          // Element: Vorspann und Ziffer sind EIN Textknoten, sonst
+                          // sitzt die Ziffer im Kreis nicht mittig. ?>
+                    <span class="position-nummer"><span class="nur-lesbar">Übung </span><?= $i + 1 ?></span>
 
                     <div class="uebung-kopf">
                         <?php if (!empty($z['image_path'])): ?>

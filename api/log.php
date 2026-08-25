@@ -508,13 +508,23 @@ function aktion_abwaehlen(array $eingabe): never {
 }
 
 /**
- * Der Zaehler "x/n": n sind die Planpositionen, x die als ERLEDIGT markierten
- * Positionen dieser Einheit (§7.3).
+ * Der Zaehler "x/n" der Trainingsleiste: n sind die Planpositionen, x die als
+ * ERLEDIGT markierten Positionen dieser Einheit (§7.3).
  *
  * `done = 1` und nicht blosse Existenz der Zeile: Im Expertenmodus entsteht die
  * Zeile schon mit dem ersten Satz, und dann ist man mitten in der Uebung und
  * nicht fertig damit. Im einfachen Modus fallen beide zusammen -- dort schreibt
  * jeder Aufruf `done = 1`.
+ *
+ * Die zweite Zahl der Leiste ("n uebersprungen") steht hier bewusst NICHT: Sie
+ * haengt nicht am Datenbestand, sondern an der REIHENFOLGE der Positionen --
+ * offen und vor der aktiven. Das ist dieselbe Rechnung, die den orangen Balken
+ * setzt (positions_zustaende() bzw. aktiveMarkieren()), und sie gehoert genau
+ * einmal dorthin.
+ *
+ * `alle_erledigt` haengt allein an `done` -- angefangene Uebungen sind nicht
+ * fertig, und die Rueckfrage "Training beenden?" darf nicht kommen, solange
+ * irgendwo noch ein Haekchen fehlt.
  */
 function fortschritt(int $sessionId, int $planId): array {
     $stmt = db()->prepare('SELECT COUNT(*) FROM plan_exercises WHERE plan_id = ?');

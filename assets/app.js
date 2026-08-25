@@ -219,11 +219,16 @@ async function apiFetch(url, options = {}) {
             antwort = await fetch(url, opt);
         } catch (e) {
             clearTimeout(wecker);
-            verbindung.erreichbar(false);
             if (!letzterVersuch) {
                 await schlafen(API_PAUSEN_MS[versuch]);
                 continue;
             }
+            // Erst JETZT gilt die Verbindung als weg, nicht schon beim ersten
+            // gescheiterten Versuch. Ein Aussetzer, den der Wiederversuch nach
+            // 400 ms auffaengt, ist kein Problem, das jemand sehen muss -- die
+            // Leiste blitzte dafuer fuer einen Sekundenbruchteil rot auf, und
+            // genau solches Aufblitzen soll es nicht mehr geben.
+            verbindung.erreichbar(false);
             throw verbindungsFehler(abbruch.signal.aborted);
         }
         clearTimeout(wecker);
@@ -307,10 +312,27 @@ function verbindungsFehler(abgelaufen) {
 
 /* --- Verbindungszustand -------------------------------------------------- */
 
+// Wie lange nach einem Verbindungsverlust bis zur naechsten Nachfrage.
+const VERBINDUNG_NACHFASSEN_MS = 15000;
+
 /**
- * Die Leiste am oberen Rand, die den Verbindungszustand anzeigt.
+ * Die Leiste am oberen Rand -- eine WARNUNG, keine Fortschrittsanzeige.
  *
- * `navigator.onLine` allein taugt dafuer nicht: Es meldet lediglich, ob das
+ * Sie kennt genau einen Zustand: Der Server ist nicht erreichbar, Eingaben
+ * kommen gerade nicht durch. Dann steht sie rot da und bleibt stehen, bis das
+ * Problem weg ist.
+ *
+ * Bis 1.2.14 meldete sie zusaetzlich den fluechtigen Zustand "n Eingaben
+ * werden gespeichert ...". Der erschien bei JEDEM Abhaken fuer einen
+ * Sekundenbruchteil -- und war damit genau die Sorte Anzeige, die staendig
+ * auf- und zuklappt, ohne je etwas zu sagen, wonach jemand handeln koennte.
+ * Die wartende Zeile ist ohnehin am gestrichelten Rand zu erkennen
+ * (.zeile-wartet), und ein endgueltig gescheitertes Speichern meldet die Zeile
+ * selbst, mit Wiederholen-Knopf. Damit ist auch der ganze Schwebe-Kniff aus
+ * 1.2.10 (.leiste-schwebt) hinfaellig: Was nur noch bei einem echten
+ * Zustandswechsel erscheint, darf den Inhalt einmal schieben.
+ *
+ * `navigator.onLine` allein taugt als Quelle nicht: Es meldet lediglich, ob das
  * Geraet ueberhaupt eine Netzwerkschnittstelle hat. Im Studio-WLAN ohne
  * Internet oder bei einem Balken Mobilfunk steht es auf true, waehrend jeder
  * Aufruf ins Leere laeuft. Die belastbare Aussage liefert deshalb apiFetch:
@@ -320,19 +342,27 @@ function verbindungsFehler(abgelaufen) {
 const verbindung = {
     _erreichbar: true,
     _wartend: 0,
-    // Haengt die Leiste im Leisten-Stapel? Nur dann darf sie schweben -- im
-    // Rueckfall (siehe _element()) fehlt der Bezugsrahmen, und `absolute`
-    // bezoege sich auf das Dokument statt auf den Stapel.
-    _imStapel: false,
+    _pruefUhr: null,
 
-    /** Von apiFetch gesetzt: Hat der letzte Aufruf den Server erreicht? */
+    /**
+     * Von apiFetch gesetzt: Hat der Aufruf den Server erreicht?
+     *
+     * `false` kommt erst, wenn ein Aufruf ENDGUELTIG gescheitert ist -- nach
+     * allen Wiederversuchen, die er hatte.
+     */
     erreichbar(ja) {
         if (this._erreichbar === ja) return;
         this._erreichbar = ja;
         this._zeichnen();
     },
 
-    /** Von der Seite gesetzt: Wie viele Eingaben warten noch auf das Netz? */
+    /**
+     * Von der Seite gesetzt: Wie viele Eingaben warten noch auf das Netz?
+     *
+     * Die Zahl loest die Leiste NICHT aus -- sie steht nur in ihr, wenn das
+     * Netz ohnehin weg ist. Wartende Eingaben bei stehender Verbindung sind
+     * kein Problem, sondern der Normalfall zwischen zwei Tastendruecken.
+     */
     wartend(anzahl) {
         const n = Number(anzahl) || 0;
         if (this._wartend === n) return;
@@ -352,29 +382,16 @@ const verbindung = {
             el.hidden = true;
 
             // In den Leisten-Stapel aus lib/view_header.php, und zwar ganz
-            // nach UNTEN.
-            //
-            // In 1.1.14 stand sie oben, mit der Begruendung "ist das Netz weg,
-            // ist das die wichtigste Information auf dem Bildschirm". Das war
-            // falsch herum, und es ist im Studio sofort aufgefallen: Diese
-            // Leiste erscheint bei JEDEM Abhaken fuer den Bruchteil einer
-            // Sekunde. Stand sie oben, schob sie die Trainingsleiste jedes Mal
-            // nach unten und gleich wieder hinauf -- ausgerechnet die Zeile,
-            // die man staendig abliest, zappelte bei jeder Eingabe.
-            //
-            // Das ist dieselbe Regel wie bei .zeile-wartet (Fallstrick 19):
-            // Was von selbst kommt und geht, darf nichts verschieben, was
-            // stehen bleiben soll. Unten angehaengt bleibt die Trainingsleiste
-            // ruhig; sichtbar und sticky ist die Verbindungsleiste weiterhin,
-            // sie sitzt nur eine Zeile tiefer.
+            // nach UNTEN -- die Trainingsleiste steht laenger da als diese
+            // hier und gehoert deshalb oben hin (siehe dort).
             //
             // Der Rueckfall auf body ist fuer den Fall, dass eine Seite den
             // Stapel nicht rendert (etwa ohne Kopf-Partial). Dann klebt die
-            // Leiste wie bisher selbst; die Regel dafuer steht im Stylesheet.
+            // Leiste wie bis 1.1.13 selbst; die Regel dafuer steht im
+            // Stylesheet.
             const stapel = qs('#leisten');
             if (stapel) {
                 stapel.appendChild(el);
-                this._imStapel = true;
             } else {
                 el.classList.add('leiste-allein');
                 document.body.insertBefore(el, document.body.firstChild);
@@ -389,38 +406,50 @@ const verbindung = {
         let text = '';
 
         if (weg && n > 0) {
-            text = 'Keine Verbindung — ' + n + (n === 1 ? ' Eingabe wartet' : ' Eingaben warten')
+            text = 'Keine Verbindung zum Server — ' + n
+                 + (n === 1 ? ' Eingabe wartet' : ' Eingaben warten')
                  + ' auf das Netz. Nichts geht verloren.';
         } else if (weg) {
             text = 'Keine Verbindung zum Server.';
-        } else if (n > 0) {
-            text = n + (n === 1 ? ' Eingabe wird' : ' Eingaben werden') + ' gespeichert …';
         }
 
         const el = this._element();
         el.textContent = text;
-        el.classList.toggle('verbindung-weg', weg);
-
-        // Der fluechtige Fall schwebt, der dauerhafte nicht.
-        //
-        // "... wird gespeichert" erscheint bei JEDEM Abhaken fuer einen
-        // Sekundenbruchteil. Belegte sie dabei Platz im Stapel, schoebe sie die
-        // ganze Seite nach unten und gleich wieder hinauf -- genau das war am
-        // 2026-08-23 vom iPhone gemeldet. Auf einem Pixel fiel es nie auf: Dort
-        // gleicht Scroll Anchoring die Layoutaenderung durch Mitziehen der
-        // Scrollposition aus, WebKit kennt das nicht (siehe Stylesheet).
-        // Schwebend aendert sie die Hoehe des Stapels
-        // nicht und verschiebt deshalb nichts; sie verdeckt fuer diesen Moment
-        // die oberste Zeile darunter, und das ist der guenstigere Tausch.
-        //
-        // "Keine Verbindung zum Server" bleibt dagegen stehen, bis das Netz
-        // zurueck ist. Schwebend verdeckte sie dauerhaft eine Zeile, die
-        // niemand mehr zu Gesicht bekaeme -- also laeuft sie im Fluss mit und
-        // schiebt einmal. Ein einmaliges Verschieben bei einem echten
-        // Zustandswechsel ist kein Zappeln.
-        el.classList.toggle('leiste-schwebt', this._imStapel && !weg);
-
         el.hidden = text === '';
+
+        if (weg) this._nachfassenPlanen();
+    },
+
+    /**
+     * Fragt selbst nach, ob der Server wieder da ist.
+     *
+     * Die Zusage lautet: Die Leiste bleibt stehen, BIS das Problem weg ist --
+     * also braucht es etwas, das das Ende des Problems ueberhaupt bemerkt. In
+     * der Trainingsansicht erledigt das die Warteschlange, die ohnehin
+     * nachfasst; auf jeder anderen Seite passiert von selbst gar nichts, und
+     * die Leiste stuende bis zum naechsten Klick rot da, obwohl das Netz
+     * laengst zurueck ist. Auf das `online`-Ereignis ist dabei kein Verlass:
+     * Beim klassischen einen Balken Empfang feuert es nie.
+     *
+     * Bewusst ein nackter fetch und kein apiFetch: Gefragt ist allein, ob
+     * ueberhaupt eine Antwort kommt. JEDE Antwort beweist das -- auch ein 401,
+     * bei dem apiFetch zur Anmeldung umleiten wuerde, und zwar aus einer
+     * Hintergrundabfrage heraus mitten im Training.
+     */
+    _nachfassenPlanen() {
+        if (this._pruefUhr !== null) return;
+
+        this._pruefUhr = setTimeout(() => {
+            this._pruefUhr = null;
+            // Nur der von apiFetch gemeldete Zustand wird nachgeprueft. Steht
+            // die Leiste bloss wegen navigator.onLine, meldet sich das
+            // `online`-Ereignis von selbst.
+            if (this._erreichbar) return;
+
+            fetch('api/token.php', { cache: 'no-store', credentials: 'same-origin' })
+                .then(() => this.erreichbar(true))
+                .catch(() => this._nachfassenPlanen());
+        }, VERBINDUNG_NACHFASSEN_MS);
     },
 };
 
@@ -589,11 +618,13 @@ function qsa(selektor, wurzel = document) {
  * dritte vergisst. Ausgeblendete Kinder tragen nichts bei, ein leerer Stapel
  * misst 0.
  *
- * Gemessen wird die UNTERSTE KANTE, nicht offsetHeight: Seit 1.2.10 schwebt
- * die Verbindungsleiste im fluechtigen Zustand (position: absolute, damit sie
- * beim Auftauchen nichts verschiebt) und zaehlt damit nicht mehr zur Hoehe des
- * Stapels. Sie verdeckt aber weiterhin, was darunter liegt. Ueber die Kanten
- * aller Kinder gerechnet stimmt der Wert in beiden Faellen von selbst.
+ * Gemessen wird die UNTERSTE KANTE, nicht offsetHeight. Heute liegt beides
+ * gleichauf -- seit 1.2.15 laeuft jede Leiste wieder im Fluss mit, nachdem der
+ * fluechtige Zustand der Verbindungsleiste entfallen ist und mit ihm die
+ * schwebende Fassung aus 1.2.10 (`.leiste-schwebt`, position: absolute). Die
+ * Rechnung ueber die Kanten bleibt trotzdem: Sie stimmt auch fuer eine Leiste,
+ * die aus dem Fluss genommen ist, und das ist genau der Fall, den man beim
+ * naechsten Mal wieder braeuchte, ohne hier daran zu denken.
  */
 function stapelUnterkante() {
     const stapel = qs('#leisten');

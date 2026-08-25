@@ -244,8 +244,9 @@ require __DIR__ . '/lib/view_header.php';
         <strong>Offene Trainingseinheit seit <?= h(format_datetime($offeneEinheit['started_at'])) ?>.</strong>
         <p class="matt">
             Solange lassen sich Übungen weder hinzufügen, entfernen noch umsortieren:
-            Die Fortschrittsanzeige „x/n“ am Handy würde sich mitten im Training
-            verschieben. Umbenennen und die Reihenfolge der Pläne bleiben möglich.
+            Die Zahlen am oberen Rand der Trainingsansicht würden sich mitten im
+            Training verschieben. Umbenennen und die Reihenfolge der Pläne bleiben
+            möglich.
         </p>
     </div>
 <?php endif; ?>

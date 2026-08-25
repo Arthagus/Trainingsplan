@@ -9,7 +9,7 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 **Diese Datei nach jedem Rollout nachziehen.**
 
-*Letzte Aktualisierung: 2026-08-23*
+*Letzte Aktualisierung: 2026-08-25*
 
 ---
 
@@ -17,8 +17,8 @@ Fallstricke — steht in `CLAUDE.md` und veraltet nicht.
 
 | | |
 |---|---|
-| **Live** | `trainingsplan:1.2.14` — **gebaut am 2026-08-23 und unmittelbar danach eingespielt.** Noch nicht nachgemessen; der Befehl unten sagt in Sekunden, ob es stimmt. Die Gegenprobe am Gerät steht aus: *Offen*, Punkte 1 und 2 |
-| **Arbeitsstand** | `1.2.14`, deckungsgleich mit live. `1.2.13` und `1.2.14` betreffen beide nur den Kasten *Vorlage* auf `splits.php`: gerahmt und leiser, und in `1.2.14` **über** die Abschlusszeile gerückt — in `1.2.13` stand er dahinter und schob „Löschen“ nach oben |
+| **Live** | `trainingsplan:1.2.17` — am 2026-08-25 auf Ansage gebaut und nach der Regel unmittelbar eingespielt. **Nicht nachgemessen**, und an genau dieser Stelle lag diese Zeile heute schon einmal falsch (siehe *Zählweise*): Der Befehl unten sagt in Sekunden, was wirklich läuft |
+| **Arbeitsstand** | `1.2.17`, gebaut, deckungsgleich mit live. Zwei optische Punkte gegenüber `1.2.16`: (a) die Ecke, an der die Linie unter der Übungsnummer nach links umbiegt, ist abgerundet statt spitz (`--radius`, wie jede andere Box); (b) **besuchte Links sind nicht mehr lila** — es gab überhaupt keine Angabe zur Linkfarbe, also galt das Standard-Stylesheet des Browsers. Betrifft alle Links im Fließtext, aufgefallen an „Aktuellen Split wechseln". `1.2.16` brachte davor: In der Trainingsleiste steht der Fortschritt vorn — „2/6 beendet · 1 übersprungen" statt umgekehrt. Dazu ein Leerzeichen zwischen den beiden Gruppen, damit ein Screenreader nicht „beendet1 übersprungen" liest; sichtbar ändert das nichts. Was `1.2.15` gebracht hat, steht weiter unten in dieser Zeile — die Gegenproben dazu sind unverändert offen. Drei Rückmeldungen vom 2026-08-25. (1) Die Verbindungsleiste meldet nur noch echte Störungen: Der Balken „n Eingaben werden gespeichert …" ist ersatzlos weg, übrig bleibt eine **rote** Leiste bei tatsächlich nicht erreichbarem Server, die stehen bleibt, bis das Problem behoben ist (Fallstrick 29). (2) Die Trainingsleiste zählt „2/6 beendet · 1 übersprungen" statt „2/6 erledigt · 4 offen", und jede Übungskarte trägt **oben links in der Ecke ihre Nummer**, eingefasst von zwei Linien. Beides in zwei Runden entstanden: erst „aktiv · offen · beendet" und ein Kreis mittig in der Aktionszeile, dann auf Ansage umgestellt — „aktiv" sagt weniger als „übersprungen", und die Mitte der Aktionszeile ist im Standardmodus vom Gewichtsfeld besetzt. (3) Nach „Training beendet" springt die Seite **nach oben** und wirft dabei `?plan=` aus der Adresse — sonst schlug sie denselben Plan wieder vor, den man gerade beendet hat. Alle drei sind **optisch bzw. am Gerät zu beurteilen** und deshalb bis zur Gegenprobe ungeprüft |
 | **Rollback-Ziel** | `trainingsplan:1.2.11` — dieses Image in Portainer stehen lassen. `1.2.11` ist am Live-System durchgeprüft (Splits, Zurücksetzen, Historie) und damit ein belastbarer Stand |
 
 **Ein gebautes Paket geht sofort live.** Der Benutzer spielt jede Version, die er bauen
@@ -27,6 +27,19 @@ die Zählweise: **Sobald `paket_bauen.sh` unter einer Nummer gelaufen ist, ist s
 vergeben**, und die nächste Änderung an etwas, das im Paket steckt, hebt auf die nächste.
 Die frühere Rückfrage „ist die Nummer schon draußen?" entfällt, und es entstehen keine
 Lücken.
+
+**Die Ausnahme ist, dass der Benutzer es SAGT** — am 2026-08-25 dreimal hintereinander:
+`1.2.15` war gebaut, aber noch nicht eingespielt, und es kamen weitere Änderungswünsche.
+Die Nummer blieb auf seine ausdrückliche Ansage stehen, das Paket wurde jedes Mal unter
+derselben Nummer neu gebaut („ein Paket, das den Rechner nie verlassen hat, gibt seine
+Nummer wieder frei").
+
+**Und dann kippte es genauso ausdrücklich in die andere Richtung:** Beim nächsten
+Änderungswunsch war `1.2.15` inzwischen doch ausgerollt, und die Nummer war damit vergeben
+— `1.2.16`. Die Lehre für beide Fälle ist dieselbe: **Die Regel „gebaut heißt ausgerollt"
+ist eine Vorgabe für den Normalfall und keine Tatsachenbehauptung.** Sie ersetzt keine
+Auskunft, die der Benutzer von sich aus gibt, und der Arbeitsstand hier ist nur so aktuell
+wie die letzte davon — deshalb der Messbefehl darunter.
 
 **Die Version wird trotzdem gemessen, nicht erinnert.** Diese Datei ist die Notiz, nicht
 die Quelle — sie stand schon dreimal falsch da, zuletzt am 2026-08-19 mit `1.2.3`, während
@@ -62,24 +75,57 @@ Benutzer, und `Nele` ist die einzige, die weder Vorlagen noch fremde Splits anfa
 
 ## Offen
 
-1. **Gegenprobe am Gerät zu `1.2.10`** — ausgerollt, aber alle drei Punkte sind rein
-   optisch und deshalb **ungeprüft**, bis der Benutzer sie gesehen hat. Mit `1.2.11` sind
-   sie weiterhin offen; die beiden Listen lassen sich in einem Durchgang abarbeiten.
-   Gemeldet am 2026-08-23 vom iPhone: Der Balken
-   „… wird gespeichert" erschien an der richtigen Stelle, schob dabei aber die ganze Seite
-   eine Zeilenhöhe nach unten und beim Verschwinden wieder hinauf, also bei **jedem**
-   Abhaken. Er schwebt jetzt unter dem Leisten-Stapel, statt darin Platz zu belegen
-   (`.leiste-schwebt`, Fallstrick 19d).
-
-   **Auf dem Pixel war das nie zu sehen** — dort gleicht Scroll Anchoring die
-   Layoutänderung aus, WebKit kennt das nicht. **Die Gegenprobe gehört deshalb aufs
-   iPhone**; ein ruhiges Bild am Pixel sagt hier nichts, es sagte auch vorher nichts:
+0. **Die Verbindungsleiste am Gerät gegenprüfen** (`1.2.15`, sobald die Version läuft).
+   Rückmeldung vom 2026-08-25: Das kurze Aufpoppen beim Speichern nervt
+   und ist unnötig. Es ist ersatzlos weg; die Leiste meldet nur noch, dass der Server
+   **wirklich** nicht erreichbar ist, ist dann **rot** und bleibt stehen, bis es wieder geht.
 
    | Was | Was passieren muss |
    |---|---|
-   | Übung abhaken | Der Balken blitzt auf, **nichts darunter bewegt sich** — Trainingsleiste, Kopfzeile und Kartenliste stehen still |
-   | Weiterspringen danach | Die nächste Karte landet **unter** dem Balken, nicht dahinter — der Übungsname bleibt lesbar |
-   | Flugmodus einschalten, abhaken | „Keine Verbindung …" **darf** einmal schieben und muss stehen bleiben, ohne den Inhalt darunter zu verdecken |
+   | Normal trainieren, abhaken, Sätze eintragen | **Oben passiert gar nichts.** Die wartende Zeile erkennt man am gestrichelten Rand, sonst nichts (die Trainingsleiste zählt weiter, sie kommt und geht ja nicht) |
+   | Kurzer Aussetzer (WLAN aus und gleich wieder an) | Ebenfalls **keine** Leiste, solange der Wiederversuch durchkommt |
+   | Flugmodus an, abhaken | Rote Leiste: „Keine Verbindung zum Server — 1 Eingabe wartet …". Bleibt stehen |
+   | Flugmodus aus, nichts anfassen | Die Leiste verschwindet **von selbst**, spätestens nach 15 s |
+   | Auf einer anderen Seite (z. B. `splits.php`) Netz kappen, etwas speichern | Rote Leiste, bleibt stehen; nach dem Wiedereinschalten verschwindet sie von selbst |
+
+0b. **Die neuen Zahlen und die Nummer in der Ecke** (`1.2.15`, am Gerät zu beurteilen).
+   Die Leiste zählt „x/n beendet · n übersprungen"; jede Karte trägt oben links ihre
+   Nummer, eingefasst von zwei Linien.
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Training starten, nichts eintragen | „0/n beendet · 0 übersprungen", die zweite Null in gedämpftem Grau |
+   | Erste Übung abhaken | „1/n beendet" |
+   | Eine Übung auslassen und die nächste beginnen | Die ausgelassene bekommt den **orangen** Balken, und die Leiste zählt „1 übersprungen" — in **derselben** Farbe |
+   | Zur ausgelassenen zurückgehen und abhaken | Der Zähler geht auf 0 zurück und wird wieder grau |
+   | Immer | Die Zahl der übersprungenen stimmt mit der Zahl der orangen Balken überein |
+   | Nummer in der Ecke | Bündig in der Ecke, zwei Linien: rechts der Zahl herunter, dann nach links bis an den farbigen Balken — auf **jeder** Karte, in **beiden** Modi, auch unter dem Schleier der erledigten Karte lesbar. Die Ecke, an der die Linie umbiegt, ist **abgerundet** (ab `1.2.17`) |
+   | Bild antippen | Öffnet weiterhin Beschreibung und großes Bild, **auch direkt neben der Nummer** — sie nimmt dem Knopf keine Fläche weg |
+   | Karte ohne Bild | Die Nummer steht an derselben Stelle |
+   | Aktionszeile | Wieder wie zuvor: Tauschen links, Gewichtsfeld mittig (nur Standardmodus), Erledigt rechts |
+
+
+0c. **Nach dem Beenden** (`1.2.15`). Der Knopf am Ende der Liste ist der Fall,
+   um den es geht — vom oberen Knopf aus steht man ohnehin schon oben.
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Ganz unten „Training beendet" → bestätigen | Die neue Seite steht **ganz oben**, kein Nachrutschen, kein kurzes Aufblitzen des Listenendes |
+   | Vorher einen Plan über die Knopfreihe gewählt haben | Die Adresse trägt danach **kein** `?plan=` mehr, und blau markiert ist der **nächste** Plan der Rotation — nicht der eben beendete |
+   | Rückfrage „Alle Übungen erledigt — Training beenden?" → *Beenden* | Dasselbe Verhalten; es ist derselbe Weg |
+   | Seite mitten im Training von Hand neu laden | Die Scrollposition bleibt, wo sie war — der Sprung gilt nur nach dem Beenden |
+
+1. **Gegenprobe am Gerät zu `1.2.10`** — ausgerollt, aber alle drei Punkte sind rein
+   optisch und deshalb **ungeprüft**, bis der Benutzer sie gesehen hat. Mit `1.2.11` sind
+   sie weiterhin offen; die beiden Listen lassen sich in einem Durchgang abarbeiten.
+   **Der Balken „… wird gespeichert" hat sich mit `1.2.15` erledigt** — er ist ersatzlos
+   entfallen (siehe Punkt 0), und damit auch die Frage, ob er beim Aufblitzen etwas
+   verschiebt. Zu prüfen bleibt davon nur der Fall, in dem die Leiste noch erscheint:
+
+   | Was | Was passieren muss |
+   |---|---|
+   | Flugmodus einschalten, abhaken | Die **rote** Leiste erscheint, **darf** dabei einmal schieben und bleibt dann stehen |
+   | Weiterspringen bei sichtbarer Leiste | Die nächste Karte landet **unter** der Leiste, nicht dahinter — der Übungsname bleibt lesbar |
 
    **Dazu der Schleier auf erledigten Karten** (12 %, blendet in 150 ms ein). Zu beurteilen
    ist beides am Gerät, im Studiolicht:
@@ -320,9 +366,9 @@ Warteschlange greift **nur bei laufender Einheit** — vorher „Training starte
 
 | Was tun | Was passieren muss |
 |---|---|
-| Netz trennen, eine Übung abhaken | Häkchen **bleibt** stehen, Zeile bekommt einen gestrichelten Rand und „Noch nicht gespeichert", rote Leiste oben mit der Zahl |
-| Noch zwei abhaken | Zähler in der Leiste steigt, „x/n" zählt mit |
-| Netz wieder einschalten | Leiste verschwindet, gestrichelte Ränder werden grün — ohne Zutun |
+| Netz trennen, eine Übung abhaken | Häkchen **bleibt** stehen, Zeile bekommt einen gestrichelten Rand; nach den Wiederversuchen (gut 4 s) erscheint die **rote** Leiste oben mit der Zahl |
+| Noch zwei abhaken | Zähler in der Leiste steigt, „beendet" zählt mit |
+| Netz wieder einschalten | Leiste verschwindet, gestrichelte Ränder werden grün — ohne Zutun. Spätestens nach 15 s, auch wenn man gar nichts anfasst |
 | Danach neu laden | Alle drei Häkchen sind da |
 | Netz trennen, abhaken, App **schließen**, öffnen, Netz an | Das Häkchen wird nachgeholt |
 | Mit wartenden Eingaben „Training beendet" drücken | Wird abgelehnt: „Es sind noch Eingaben nicht gespeichert" |
