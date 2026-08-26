@@ -1840,27 +1840,40 @@ verlangt, vorher prüfen, dass nichts davon im Index steht:
 git diff --cached --name-only | grep -iE '\.(db|zip|tar\.gz)$|^uploads/[^.]|^\.env$|settings\.local'
 ```
 
-**Der Push muss OHNE Sandbox laufen** (`dangerouslyDisableSandbox`). Der Schlüssel
-`~/.ssh/github_rezeption` ist gültig, bei GitHub hinterlegt und **nicht** passphrasegeschützt
-— aus der Sandbox heraus kommt `ssh` nur nicht an das Schlüsselmaterial, und dann entsteht
-gar keine Signatur.
+**Der Push braucht einen ssh-agent — und ohne ihn hängt er, statt zu scheitern.**
+`~/.ssh/github_rezeption` ist bei GitHub hinterlegt **und passphrasegeschützt**. Ist ein
+Agent erreichbar (`SSH_AUTH_SOCK` gesetzt, Schlüssel geladen), läuft `git push origin main`
+durch; ist keiner da, will `ssh` die Passphrase abfragen und findet kein Terminal.
 
-**Die Meldung führt dabei in die Irre**, und zwar auf die teure Art: Es kommt ein schlichtes
-`git@github.com: Permission denied (publickey)`, das nach falschem oder gesperrtem Schlüssel
-aussieht. Der erste Versuch hängt außerdem, bis das Zeitlimit greift. Am 2026-08-26 wurde
-daraus die falsche Schlussfolgerung „Schlüssel hat eine Passphrase, es läuft kein
-ssh-agent" — und der Benutzer bekam eine Anleitung für ein Problem, das er nicht hatte.
+**Die Meldung führt dabei zweimal in die Irre**, und am 2026-08-26 bin ich auf beides
+hereingefallen:
 
-Wer die Ursache sehen will, fragt `ssh` selbst; die Stelle steht in der ausführlichen
-Ausgabe, nicht in der Fehlermeldung:
+- **Ohne Terminal hängt der Aufruf**, bis das Zeitlimit zuschlägt — kein Fehler, keine
+  Ausgabe. Mit `-o BatchMode=yes` kommt stattdessen ein schlichtes
+  `git@github.com: Permission denied (publickey)`, das nach falschem oder entzogenem
+  Schlüssel aussieht. Beides sagt nichts über die eigentliche Ursache.
+- **`ssh-keygen -y -f <key>` beweist NICHT, dass der Schlüssel unverschlüsselt ist.** Genau
+  daraus habe ich zuerst geschlossen, es liege an der Sandbox, und diese falsche Erklärung
+  stand einen halben Tag hier. Der Beleg steht an einer anderen Stelle:
 
 ```bash
-ssh -vvv -o BatchMode=yes -T git@github.com 2>&1 | sed -n '/Offering public key/,/denied/p'
+GIT_SSH_COMMAND="ssh -v" git push origin main < /dev/null 2>&1 | tail -3
 ```
 
-`Server accepts key` gefolgt von `signing using …` und `we did not send a packet` heißt:
-Der Schlüssel ist richtig, die Sandbox ist das Hindernis. **Dann den Push wiederholen und
-die Sandbox ausdrücklich abschalten** — der Benutzer hat ihn ja verlangt.
+`read_passphrase: can't open /dev/tty` heißt: Passphrase, kein Agent. `Server accepts key`
+gefolgt von `signing using …` und `we did not send a packet` heißt dagegen wirklich, dass
+die **Sandbox** ans Schlüsselmaterial nicht heranlässt — dann hilft
+`dangerouslyDisableSandbox`.
+
+**Der verlässliche Weg**, wenn in dieser Sitzung mehrfach gepusht werden soll: einen Agenten
+an einem festen Pfad starten und den Schlüssel einmal entsperren —
+
+```bash
+eval "$(ssh-agent -a /run/user/1000/ssh-agent.sock)" && ssh-add ~/.ssh/github_rezeption
+```
+
+— danach `SSH_AUTH_SOCK=/run/user/1000/ssh-agent.sock git push origin main`, weiterhin ohne
+Sandbox. Sonst pusht der Benutzer selbst; der Commit liegt ja fertig auf `main`.
 
 Die `.gitignore` ist eine **Positivliste-Denkweise**: Was neu dazukommt und nicht in ein
 öffentliches Verzeichnis gehört, wird dort ergänzt. Schon einmal durchgerutscht wäre
