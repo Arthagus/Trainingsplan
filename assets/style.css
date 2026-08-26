@@ -700,20 +700,15 @@ button.gefahr { background: var(--fehler); }
     margin: 0.5rem 0;
 }
 
-.rotation-glied,
-.rotation-naechster {
+/* Die Kette sagt die Reihenfolge, sonst nichts: Bis 1.2.18 hob .rotation-naechster
+   den vorgeschlagenen Plan blau hervor. Auf der Planseite ist das die falsche
+   Auskunft — welches Training als Nächstes kommt, steht in der Trainingsansicht.
+   Damit sehen alle Glieder gleich aus, und die Regel ist eine statt zweier. */
+.rotation-glied {
     padding: 0.2rem 0.7rem;
     border-radius: 999px;
     border: 1px solid var(--linie);
     background: var(--grund-tief);
-}
-
-/* Der als Nächstes vorgeschlagene Plan — das ist die Aussage der Kette. */
-.rotation-naechster {
-    background: var(--akzent);
-    border-color: var(--akzent);
-    color: #fff;
-    font-weight: 600;
 }
 
 .rotation-pfeil { color: var(--schrift-matt); }
@@ -736,29 +731,65 @@ button.gefahr { background: var(--fehler); }
     padding-left: 0;
 }
 
-/* Zweizeilig: oben die Nummer und daneben Bild und Name, darunter die Knöpfe
-   über beide Spalten. Alles in einer Zeile ließ dem Namen bei vier Knöpfen
-   kaum Platz. Die Nummer steht neben der oberen Zeile und ist zu ihr mittig —
-   nicht zur ganzen Position: Sie gehört zum Namen, nicht zu den Knöpfen. */
+/* Zweizeilig: oben Bild und Name, darunter die Knöpfe. Alles in einer Zeile
+   ließ dem Namen bei vier Knöpfen kaum Platz.
+
+   Die Nummer hat seit 1.2.19 KEINE eigene Spalte mehr. Sie stand links neben
+   dem Bild und mittig zur oberen Zeile; Zahl und Abstand nahmen dem 72px-Bild
+   rund 26px der Breite weg — auf einem 360px-Gerät ein spürbarer Teil. Jetzt
+   liegt sie in der oberen linken Ecke, wie auf der Trainingsseite, und die
+   Zeile daneben beginnt am linken Rand. */
 .position {
     counter-increment: position;
+    /* Bezugsrahmen für die Nummer in der Ecke. */
+    position: relative;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    column-gap: 0.4rem;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--linie);
 }
 
-/* Zahlenspalte plus Abstand bleiben zusammen unter den 1.5rem, die die Liste
-   vorher als Einrückung hatte — die Zeile daneben wird also nicht schmaler.
+/* Die Nummer als Kästchen in der oberen linken Ecke — dieselbe Anordnung wie
+   .position-nummer im Training, nur mit einem Unterschied, der aus der Lage
+   folgt: Dort trifft das Kästchen auf den Rand der Karte und braucht deshalb
+   nur zwei gezeichnete Linien; hier steht es frei über dem Bild und bekommt
+   einen vollen Rahmen mit --radius ringsum.
+
+   Deshalb auch eine eigene Fläche (--grund): Der Rahmen liegt teilweise auf
+   dem Thumbnail, und eine Zahl ohne Grund wäre auf einem dunklen Motiv nicht
+   zu lesen.
+
+   `top: 0.5rem` ist der Innenabstand der Zeile darüber, also die Oberkante
+   des Inhalts: Damit steht die Zahl auf einer Höhe mit der ersten Zeile des
+   deutschen Namens. Ändert sich das padding oben, gehört dieser Wert mit
+   geändert.
+
+   ANZEIGE UND KEIN BEDIENELEMENT: `pointer-events: none`, weil das Bild
+   darunter ein Knopf ist (Beschreibung und großes Bild). Die Ecke ist die
+   Stelle, die man beim Zielen zuerst trifft — sie darf nicht tot sein.
+
    Ziffern gleicher Laufweite, damit ab der zehnten Übung nichts springt. */
 .position::before {
-    content: counter(position) ".";
+    content: counter(position);
+    position: absolute;
+    top: 0.5rem;
+    left: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.3rem;
+    padding: 0 0.3rem;
+    border: 1px solid var(--linie);
+    border-radius: var(--radius);
+    background: var(--grund);
     color: var(--schrift-matt);
-    min-width: 1.2rem;
-    text-align: right;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
     font-variant-numeric: tabular-nums;
+    pointer-events: none;
 }
 
 .position:last-child { border-bottom: 0; }
@@ -784,11 +815,14 @@ button.gefahr { background: var(--fehler); }
    nur der Primärgruppe in einer Zeile; das war die Abweichung. */
 .position-raster > .uebung-text { grid-column: 2; }
 
-/* Die Knopfzeile ist ein Kind des <li> und spannt über BEIDE seiner Spalten,
-   die der Positionsnummer eingeschlossen: „Tauschen" beginnt damit am linken
-   Rand der Karte, so wie die Aktionszeile im Training. Läge sie im
-   .position-raster, finge sie erst hinter der Nummer an — sichtbar eingerückt
-   und rund 26px schmaler.
+/* Die Knopfzeile ist ein Kind des <li> und spannt über dessen ganze Breite:
+   „Tauschen" beginnt damit am linken Rand der Karte, so wie die Aktionszeile
+   im Training. Läge sie im .position-raster, finge sie erst hinter dem Bild
+   an — sichtbar eingerückt und rund 78px schmaler.
+
+   `grid-column: 1 / -1` stammt aus der Zeit, als das <li> zwei Spalten hatte
+   (Nummer und Inhalt). Es bleibt stehen und stimmt weiter: Bei einer Spalte
+   ist es genau diese eine.
 
    Grundzustand ist ein umbrechender Flex-Fluss: Passen die drei nicht
    nebeneinander, rutscht „Entfernen" in eine eigene Zeile und bleibt dort über

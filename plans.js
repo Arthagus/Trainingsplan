@@ -35,6 +35,34 @@
     if (!liste) return;
 
     const splitId = Number(liste.dataset.split);
+    const gesperrt = liste.dataset.gesperrt === '1';
+
+    /**
+     * Die einfachen Pfeile einer Planliste nachziehen: oben kein „↑", unten
+     * kein „↓".
+     *
+     * Serverseitig setzt plans.php dieselbe Sperre. Hier steht sie ein zweites
+     * Mal, weil das Umsortieren INNERHALB eines Plans der einzige Weg ist, der
+     * die Seite nicht neu lädt (siehe reorder_exercises unten): Die Zeile
+     * wandert im DOM, und ohne das hier behielte die alte erste Zeile ihren
+     * toten Pfeil, während die neue erste einen anbietet, der ins Leere greift.
+     * Alles andere — Nachbarplan, Entfernen, Hinzufügen, Pläne tauschen — lädt
+     * neu und bekommt den Zustand vom Server.
+     *
+     * Bei laufender Einheit wird gar nicht erst umsortiert; die Sperre aus
+     * $gesperrt bleibt dann unangetastet, statt hier versehentlich aufgehoben
+     * zu werden.
+     */
+    function posPfeileNachziehen(plan) {
+        if (gesperrt) return;
+        const zeilen = qsa('.position', plan);
+        zeilen.forEach((zeile, i) => {
+            const hoch = qs('.pos-hoch', zeile);
+            const runter = qs('.pos-runter', zeile);
+            if (hoch) hoch.disabled = i === 0;
+            if (runter) runter.disabled = i === zeilen.length - 1;
+        });
+    }
 
     function zeilenFehler(zeile, text) {
         const p = qs('.zeilen-fehler', zeile);
@@ -392,9 +420,53 @@
                 liste.insertBefore(nachbar, plan);
             }
 
+            // ALLE Pfeile der Liste sperren, bis die Antwort da ist — nicht nur
+            // die dieser Karte. Zwei schnelle Tipps schickten sonst zwei
+            // reorder_plans gleichzeitig los, und weil jeder die GANZE
+            // Reihenfolge schreibt, gewinnt die zuletzt eingetroffene Antwort
+            // und nicht die zuletzt gestellte Frage (dieselbe Falle wie bei der
+            // Übungsauswahl, Fallstrick 28). Am schwachen Netz im Studio, wo
+            // apiFetch zusätzlich wiederholt, ist das keine Theorie.
+            //
+            // Gesperrt und nicht in eine Warteschlange gelegt: Ein Pfeil, der
+            // sich für einen Moment nicht drücken lässt, ist ehrlicher als
+            // einer, der Tipps sammelt, die man nicht mehr sieht.
+            const planPfeile = qsa('.plan-hoch, .plan-runter', liste);
+            const vorherGesperrt = planPfeile.map((k) => k.disabled);
+            planPfeile.forEach((k) => { k.disabled = true; });
+
             const ids = qsa('.plan', liste).map((li) => Number(li.dataset.id));
-            await senden(plan, { action: 'reorder_plans', split_id: splitId, ids },
+            const gut = await senden(plan, { action: 'reorder_plans', split_id: splitId, ids },
                 'Reihenfolge gespeichert.');
+
+            // Scheitert das Speichern, wird die Verschiebung ZURÜCKGENOMMEN — die
+            // einzige Stelle dieser Seite, an der das nötig ist.
+            //
+            // Der Grund sind die Pfeile: Ihre Sperre kommt aus dem
+            // Server-Rendering (oberster Plan kein ↑, unterster kein ↓). Bliebe
+            // die Reihenfolge nach einem Fehlschlag verschoben, gehörte jede
+            // Sperre zur falschen Karte — bei genau ZWEI Plänen wäre danach kein
+            // Pfeil mehr benutzbar (einer gesperrt, der andere ohne Nachbarn,
+            // siehe `if (!nachbar) return`), und selbst der zweite Versuch fiele
+            // aus.
+            //
+            // Zurücknehmen statt Nachziehen, weil der Erfolgsfall hier ohnehin
+            // neu lädt: Die verschobene Ansicht ist NUR im Fehlerfall zu sehen,
+            // und dort ist „nichts bewegt" die Wahrheit — womit auch ⇈/⇊ und die
+            // Rotationskette weiter stimmen, die beide am Plan hängen. Innerhalb
+            // eines Plans ist es umgekehrt (posPfeileNachziehen()): Dort lädt
+            // auch der Erfolg nicht neu, die Ansicht MUSS also vorgreifen.
+            //
+            // Aus demselben Grund kommen die Sperren nur hier zurück: Der Erfolg
+            // lädt neu, und neuLaden() sperrt dabei absichtlich jeden Knopf.
+            if (!gut) {
+                if (hoch) {
+                    liste.insertBefore(nachbar, plan);
+                } else {
+                    liste.insertBefore(plan, nachbar);
+                }
+                planPfeile.forEach((k, i) => { k.disabled = vorherGesperrt[i]; });
+            }
             return;
         }
 
@@ -512,9 +584,24 @@
                 eltern.insertBefore(nachbar, position);
             }
 
+            // Gesperrt, solange gespeichert wird — derselbe Grund wie bei den
+            // Plänen oben, nur trifft es hier härter: Dieser eine Weg lädt auch
+            // im Erfolgsfall NICHT neu. Zwei überholende Antworten hinterließen
+            // also eine Datenbank, die anders sortiert ist als der Bildschirm,
+            // beide Aufrufe mit ok, und man sähe es erst beim nächsten Aufruf
+            // der Seite.
+            const pfeile = qsa('.pos-hoch, .pos-runter', plan);
+            pfeile.forEach((k) => { k.disabled = true; });
+
             const ids = qsa('.position', plan).map((li) => Number(li.dataset.pe));
             await senden(plan, { action: 'reorder_exercises', plan_id: planId, ids },
                 'Reihenfolge gespeichert.', false);
+
+            // Hebt die Sperre wieder auf UND setzt sie neu, wo sie hingehört:
+            // oben kein „↑", unten kein „↓". Auch nach einem Fehlschlag, denn
+            // die Zeile bleibt dann liegen, wo sie liegt — die Ansicht ist hier
+            // der Arbeitsstand, und die Pfeile müssen zu ihr passen.
+            posPfeileNachziehen(plan);
         }
     });
 })();

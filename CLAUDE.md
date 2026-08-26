@@ -690,6 +690,14 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   **Ein zweiter Selektor für `:visited` ist dabei NICHT nötig:** In der Kaskade geht die
   Herkunft vor der Spezifität — eine Autorenregel für `a` schlägt das `:visited` des
   Browsers. (`:visited` erlaubt aus Datenschutzgründen ohnehin fast nur Farbangaben.)
+- **Eine Abschnittsüberschrift steht ÜBER dem Kasten, nicht darin.** `<h2>` trägt
+  `margin-top: 1.5rem` — innerhalb einer `.karte` sieht das aus wie eine Leerzeile über der
+  Überschrift, und genau so wurde es am 2026-08-26 gemeldet. Dasselbe gilt für ein `<label>`
+  als erstes Element (`margin: 0.75rem 0 0.25rem`): Wo es eine Überschrift ist, gehört es
+  nach oben heraus und bleibt als `class="nur-lesbar"` stehen — ein `<h2>` beschriftet kein
+  Formularfeld, und ohne `for`/`id` verliert das Feld seinen zugänglichen Namen. Die
+  Gliederung ist auf allen Seiten dieselbe: **Überschrift, dann Bestand, dann der Kasten zum
+  Anlegen** (`splits.php`, `plans.php`).
 - **Mobile-first.** Die Handy-Ansicht ist der Hauptfall, nicht der Sonderfall.
 - **Fehler nie stillschweigend verschlucken:** Schlägt ein Speichern fehl, bleibt das Häkchen
   sichtbar unbestätigt und ein Wiederholen-Knopf erscheint.
@@ -926,6 +934,13 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       `write_resized()` ausschließlich **skaliert und nicht beschneidet**. Wer dort je einen
       Zuschnitt einbaut, nimmt der Einstellung die Grundlage: Ein bereits quadratisch
       beschnittenes Thumbnail ist nachträglich nicht mehr anders auszurichten.
+      **Und daraus die Falle, die am 2026-08-26 zuschlug: Wer ein Bild anzeigt, muss
+      `image_crop` MITLIEFERN.** Fehlt die Spalte in der Abfrage, steht jedes Bild mittig —
+      **ohne Fehlermeldung**, es sieht nach einer falsch gepflegten Einstellung aus.
+      `api/plans.php → exercise_picker` lieferte sie seit `1.1.7` nicht, während
+      beide Tauschfenster (`tausch_vorschlaege()`) sie hatten. Dieselbe Sorte wie die
+      fehlende Spalte `name_en` in Fallstrick 27 — und der Prüfgriff ist derselbe: an der
+      **Antwort** nachsehen, nicht am Markup.
     - **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
       Umbenennung ist eine Textänderung ohne Migration; wer den *Schlüssel* ändert, braucht
       ein `UPDATE`.
@@ -1515,6 +1530,32 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     sobald das Neuladen angestoßen ist; der Klick-Verteiler steigt bei deaktivierten Knöpfen
     ohnehin aus, damit greift es auch für die Dialoge. **`window.location.reload()` gehört
     dort nicht mehr direkt in eine Aktion.**
+
+    **Die dritte Hälfte, gefunden beim Durchsehen am 2026-08-26: Wer im DOM VORGREIFT, muss
+    bei Misserfolg zurücknehmen — sobald serverseitig gerenderte Zustände an der Reihenfolge
+    hängen.** `plans.js` schiebt den Plan schon vor dem Speichern an seine neue Stelle. Seit
+    die Randpfeile gesperrt sind (`1.2.18`), trägt aber jede Zeile eine Sperre, die zu ihrer
+    **alten** Stelle gehört. Bleibt die Ansicht nach einem Fehlschlag verschoben, gehört jede
+    Sperre zur falschen Zeile — bei genau zwei Plänen ist danach kein Pfeil mehr benutzbar,
+    und damit auch der zweite Versuch nicht. Zwei Auswege, und welcher richtig ist, entscheidet
+    **nicht** der Geschmack, sondern ob der Erfolgsfall neu lädt:
+
+    | Erfolgsfall | Fehlerfall |
+    |---|---|
+    | lädt neu (Pläne) | **zurücknehmen** — die verschobene Ansicht ist nur im Fehlerfall zu sehen, und dort ist „nichts bewegt" die Wahrheit |
+    | lädt nicht neu (Positionen) | **nachziehen** (`posPfeileNachziehen()`) — die Ansicht ist der Arbeitsstand und muss vorgreifen |
+
+    **Und davor die einfachere Hälfte: Solange gespeichert wird, sind die Pfeile gesperrt.**
+    Zwei schnelle Tipps schickten sonst zwei `reorder_*` gleichzeitig los; weil jeder Aufruf
+    die **ganze** Reihenfolge schreibt, gewinnt die zuletzt eingetroffene Antwort und nicht
+    die zuletzt gestellte Frage — dieselbe Falle wie bei der Übungsauswahl, nur beim
+    Schreiben. Innerhalb eines Plans wäre das Ergebnis unsichtbar: Dieser eine Weg lädt auch
+    im Erfolgsfall nicht neu, die Datenbank stünde also anders sortiert da als der
+    Bildschirm, **beide Aufrufe mit `ok`**. Gesperrt wird die **ganze** Liste und nicht nur
+    die angetippte Karte — der zweite Tipp landet sonst einfach auf dem Nachbarn. Sperren und
+    nicht in eine Warteschlange legen ist eine Entscheidung des Benutzers (2026-08-26): Ein
+    Pfeil, der sich kurz nicht drücken lässt, ist ehrlicher als einer, der Tipps sammelt, die
+    man nicht mehr sieht.
 
 29. **Eine Anzeige, die im Sekundentakt kommt und geht, sagt nichts — sie kostet nur
     Aufmerksamkeit.** Die Verbindungsleiste meldete bis `1.2.14` auch den flüchtigen

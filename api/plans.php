@@ -330,7 +330,7 @@ function aktion_uebungs_auswahl(array $eingabe): never {
     // Herausgefiltert waere es verwirrend: Man sucht eine Uebung, findet sie
     // nicht und weiss nicht, ob sie fehlt oder schon dabei ist.
     $stmt = db()->prepare(
-        'SELECT e.id, e.name_de, e.name_en, e.equipment, e.image_path,
+        'SELECT e.id, e.name_de, e.name_en, e.equipment, e.image_path, e.image_crop,
                 EXISTS (SELECT 1 FROM plan_exercises pe
                          WHERE pe.plan_id = ? AND pe.exercise_id = e.id) AS im_plan
            FROM exercises e

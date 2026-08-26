@@ -112,19 +112,21 @@ $plaene            = [];
 $positionen        = [];
 $gruppenZuPosition = [];
 $offeneEinheit     = null;
-$vorschlag         = null;
-$zuletzt           = null;
 $aktiveUebungen    = 0;
 
 if ($split !== null) {
     $plaene = plaene_im_split($gewaehlt);
 
     // Eine Vorlage hat keinen Besitzer und wird von niemandem trainiert --
-    // es gibt also weder eine offene Einheit noch eine Rotation zu zeigen.
+    // es gibt also auch keine offene Einheit.
+    //
+    // Der Rotations-VORSCHLAG stand hier bis 1.2.18 daneben (naechster_plan()
+    // und zuletzt_trainierter_plan()) und markierte den naechsten Plan in der
+    // Kette blau. Er ist ersatzlos weg: Auf dieser Seite baut man den Plan um,
+    // und welches Training als naechstes ansteht, gehoert in die
+    // Trainingsansicht -- dort steht es und wird dort auch gebraucht.
     if ($besitzerId !== null) {
         $offeneEinheit = offene_einheit($besitzerId);
-        $vorschlag     = naechster_plan($besitzerId, $gewaehlt, $plaene);
-        $zuletzt       = zuletzt_trainierter_plan($besitzerId, $gewaehlt);
     }
 
     if ($plaene !== []) {
@@ -204,13 +206,23 @@ require __DIR__ . '/lib/view_header.php';
     </div>
 <?php else: ?>
 
+<?php // "Angezeigter Split" benennt, WAS man hier waehlt -- und der gewaehlte
+      // Wert liest sich als Aussage ueber die Seite darunter, die sich mit ihm
+      // aendert. "Vorhandene Splits" waere die Beschreibung der LISTE und
+      // doppelte ausserdem die Gruppenueberschriften im Menue.
+      //
+      // "Pläne im Split" scheidet aus einem anderen Grund aus: So heisst seit
+      // 1.2.18 der Abschnitt weiter unten. Der zeigt das ERGEBNIS der Wahl;
+      // beides gleich zu benennen machte aus zwei Abschnitten einen.
+      //
+      // Die Ueberschrift steht seit 1.2.18 UEBER dem Kasten und nicht darin --
+      // dieselbe Gliederung wie auf splits.php. Das <label> bleibt trotzdem
+      // stehen, nur unsichtbar: Ein <h2> beschriftet kein Formularfeld, und
+      // ohne das for/id-Paar verloere das Auswahlfeld seinen Namen. ?>
+<h2>Angezeigter Split</h2>
+
 <form method="get" class="karte">
-    <?php // "Angezeigter Split" und nicht "Pläne im Split": Ein Label über einem
-          // Auswahlfeld benennt, WAS man waehlt -- und der gewaehlte Wert liest
-          // sich hier als Aussage ueber die Seite darunter, die sich mit ihm
-          // aendert. "Vorhandene Splits" waere die Beschreibung der LISTE und
-          // doppelte ausserdem die Gruppenueberschriften im Menue. ?>
-    <label for="split">Angezeigter Split</label>
+    <label for="split" class="nur-lesbar">Angezeigter Split</label>
     <select id="split" name="split" onchange="this.form.submit()">
         <?php $letzteGruppe = null; ?>
         <?php foreach ($waehlbar as $sp): ?>
@@ -251,58 +263,60 @@ require __DIR__ . '/lib/view_header.php';
     </div>
 <?php endif; ?>
 
+<?php // Ohne Plan gibt es keine Rotation -- dann faellt der ganze Abschnitt
+      // weg, statt eine Ueberschrift ueber die Auskunft "noch nichts da" zu
+      // setzen. Was fehlt, sagt der leere Zustand unter "Pläne", genau einmal
+      // und dort, wo man es aendert. ?>
+<?php if ($plaene !== []): ?>
+<h2>Rotation</h2>
+
 <div class="karte">
-    <h2>Rotation</h2>
-    <?php if ($plaene === []): ?>
-        <p class="matt">Noch kein Plan angelegt.</p>
-    <?php elseif ($istVorlage): ?>
-        <p class="rotation-kette">
-            <?php foreach ($plaene as $i => $p): ?>
-                <?php if ($i > 0): ?><span class="rotation-pfeil">→</span><?php endif; ?>
-                <span data-plan-name="<?= (int)$p['id'] ?>"
-                      class="rotation-glied"><?= h((string)$p['name']) ?></span>
-            <?php endforeach; ?>
-            <span class="rotation-pfeil">↺</span>
-        </p>
+    <?php // Die Kette zeigt die REIHENFOLGE und sonst nichts. Bis 1.2.18
+          // war der naechste vorgeschlagene Plan darin blau hervorgehoben,
+          // mit einem Satz darunter, welches Training als Naechstes kommt.
+          // Beides ist weg (gemeldet am 2026-08-26): Hier baut man den Plan
+          // um -- wo man in der Rotation gerade steht, beantwortet die
+          // Trainingsansicht, und zwar an der Stelle, an der man es
+          // braucht. Damit ist die Kette fuer Vorlage und eigenen Split
+          // dieselbe; nur die Erklaerung darunter unterscheidet sich. ?>
+    <p class="rotation-kette">
+        <?php foreach ($plaene as $i => $p): ?>
+            <?php if ($i > 0): ?><span class="rotation-pfeil">→</span><?php endif; ?>
+            <?php // data-plan-name traegt die Plan-ID: Nach dem Umbenennen
+                  // zieht plans.js die Kette hier nach, statt die Seite neu
+                  // zu laden. Ohne das stand oben weiter der alte Name --
+                  // gemeldet am 2026-08-19. ?>
+            <span data-plan-name="<?= (int)$p['id'] ?>"
+                  class="rotation-glied"><?= h((string)$p['name']) ?></span>
+        <?php endforeach; ?>
+        <span class="rotation-pfeil">↺</span>
+    </p>
+    <?php if ($istVorlage): ?>
         <p class="matt">
             In dieser Reihenfolge wechseln die Pläne bei jedem ab, der die
             Vorlage kopiert. Wo er darin gerade steht, ist seine Sache — auf
             einer Vorlage trainiert niemand.
         </p>
-    <?php else: ?>
-        <p class="rotation-kette">
-            <?php foreach ($plaene as $i => $p): ?>
-                <?php if ($i > 0): ?><span class="rotation-pfeil">→</span><?php endif; ?>
-                <?php // data-plan-name traegt die Plan-ID: Nach dem Umbenennen
-                      // zieht plans.js die Kette hier nach, statt die Seite neu
-                      // zu laden. Ohne das stand oben weiter der alte Name --
-                      // gemeldet am 2026-08-19. ?>
-                <span data-plan-name="<?= (int)$p['id'] ?>"
-                      class="<?= $vorschlag !== null && (int)$p['id'] === (int)$vorschlag['id'] ? 'rotation-naechster' : 'rotation-glied' ?>">
-                    <?= h((string)$p['name']) ?>
-                </span>
-            <?php endforeach; ?>
-            <span class="rotation-pfeil">↺</span>
-        </p>
-        <p class="matt">
-            <?php if ($vorschlag !== null): ?>
-                Als Nächstes wird <strong data-plan-name="<?= (int)$vorschlag['id'] ?>"><?=
-                    h((string)$vorschlag['name']) ?></strong> vorgeschlagen.
-            <?php endif; ?>
-            <?php if ($zuletzt === null): ?>
-                (Noch nichts protokolliert — die Rotation beginnt vorne.)
-            <?php endif; ?>
-        </p>
     <?php endif; ?>
-
-    <form id="plan-neu" class="zeile-eingabe" novalidate>
-        <input type="hidden" name="split_id" value="<?= (int)$gewaehlt ?>">
-        <label for="plan_name" class="nur-lesbar">Name des neuen Plans</label>
-        <input type="text" id="plan_name" name="name" placeholder="z. B. Push" required>
-        <button type="submit">Plan hinzufügen</button>
-    </form>
-    <p id="plan-neu-fehler" class="feld-fehler" role="alert" hidden></p>
 </div>
+<?php endif; ?>
+
+<?php // "Pläne im Split" und nicht bloss "Pläne": Die Seite heisst schon so
+      // (das <h1> der Kopfzeile), und zwei gleichlautende Ueberschriften
+      // untereinander lesen sich wie ein Fehler. Hier steht ausserdem genau
+      // das -- die Plaene DIESES Splits, ausgewaehlt im Kasten ganz oben. ?>
+<h2>Pläne im Split</h2>
+
+<?php if ($plaene === []): ?>
+    <div class="karte">
+        <p><strong>Noch kein Plan angelegt.</strong></p>
+        <p class="matt">
+            Ein Plan ist ein Trainingstag innerhalb des Splits — „Push“ und
+            „Pull“ sind zwei Pläne. Die Reihenfolge, in der sie hier stehen,
+            ist zugleich die, in der sie sich abwechseln.
+        </p>
+    </div>
+<?php endif; ?>
 
 <?php if ($aktiveUebungen === 0 && $plaene !== []): ?>
     <div class="karte hinweis-warnung">
@@ -317,9 +331,11 @@ require __DIR__ . '/lib/view_header.php';
         <?php
         $pid   = (int)$p['id'];
         $eintr = $positionen[$pid] ?? [];
-        // Fuer die Doppelpfeile: Im ersten Plan gibt es kein "darueber", im
-        // letzten kein "darunter". Deaktiviert statt weggelassen -- eine
-        // Knopfzeile, die je nach Plan anders breit ist, liest sich unruhig.
+        // Am Rand der Liste geht es nicht weiter -- das gilt fuer BEIDE
+        // Pfeilsorten: Der Doppelpfeil des ersten Plans hat keinen Plan
+        // darueber, der einfache Pfeil des ersten Plans hat nichts, womit er
+        // tauschen koennte. Deaktiviert statt weggelassen -- eine Knopfzeile,
+        // die je nach Plan anders breit ist, liest sich unruhig.
         $ersterPlan  = $planNr === 0;
         $letzterPlan = $planNr === count($plaene) - 1;
         ?>
@@ -330,8 +346,10 @@ require __DIR__ . '/lib/view_header.php';
                            aria-label="Planname">
                 </div>
                 <div class="gruppe-knoepfe">
-                    <button type="button" class="leise plan-hoch" aria-label="Plan nach vorn">↑</button>
-                    <button type="button" class="leise plan-runter" aria-label="Plan nach hinten">↓</button>
+                    <button type="button" class="leise plan-hoch" aria-label="Plan nach vorn"
+                            <?= $ersterPlan ? 'disabled' : '' ?>>↑</button>
+                    <button type="button" class="leise plan-runter" aria-label="Plan nach hinten"
+                            <?= $letzterPlan ? 'disabled' : '' ?>>↓</button>
                     <button type="button" class="plan-speichern">Umbenennen</button>
                     <button type="button" class="gefahr plan-loeschen">Löschen</button>
                 </div>
@@ -344,19 +362,37 @@ require __DIR__ . '/lib/view_header.php';
                 <p class="matt">Noch keine Übung in diesem Plan.</p>
             <?php else: ?>
                 <ol class="positions-liste">
-                    <?php foreach ($eintr as $z): ?>
-                        <?php // Zweizeilig: oben die Nummer, das Bild und der Name, darunter
+                    <?php foreach ($eintr as $posNr => $z): ?>
+                        <?php // Dieselbe Regel wie bei den Plaenen eine Ebene
+                              // hoeher: Die oberste Uebung kann nicht weiter
+                              // nach oben, die unterste nicht weiter nach
+                              // unten. plans.js zieht das beim Umsortieren
+                              // nach -- als einziger Weg hier laedt er die
+                              // Seite nicht neu. ?>
+                        <?php
+                        $ersteUebung  = $posNr === 0;
+                        $letzteUebung = $posNr === count($eintr) - 1;
+                        ?>
+                        <?php // Zweizeilig: oben das Bild und der Name, darunter
                               // die Knoepfe ueber die ganze Breite des <li>. Alles in einer
                               // Zeile liess dem Namen bei vier Knoepfen kaum Platz, und
                               // genau der ist hier die Hauptinformation; die Knoepfe neben
                               // dem Bild wiederum brachen am Handy um.
                               //
-                              // Das <li> traegt das Raster: obere Zeile links die Nummer,
-                              // rechts daneben .position-raster mit Bild und Text, untere
-                              // Zeile die Knoepfe ueber beide Spalten. Die Nummer ist ein
+                              // Das <li> traegt das Raster: obere Zeile das
+                              // .position-raster mit Bild und Text, untere Zeile die
+                              // Knoepfe ueber die ganze Breite. Die Nummer ist ein
                               // CSS-Zaehler (.positions-liste im Stylesheet) und nicht
                               // der Listenpunkt des Browsers -- der haengt an einer
-                              // Textgrundlinie und stand deshalb am unteren Rand. ?>
+                              // Textgrundlinie und stand deshalb am unteren Rand.
+                              //
+                              // Sie steht seit 1.2.19 als Kaestchen in der oberen linken
+                              // ECKE und nicht mehr in einer eigenen Spalte davor; das
+                              // Bild hat dadurch rund 26px mehr Breite. Dass der Zaehler
+                              // geblieben ist, ist kein Zufall: Beim Umsortieren zaehlt
+                              // der Browser neu, ohne dass plans.js eine Zahl anfassen
+                              // muesste -- und genau dieser eine Weg laedt die Seite
+                              // nicht neu (siehe posPfeileNachziehen()). ?>
                         <li class="position" data-pe="<?= (int)$z['id'] ?>">
                             <div class="position-raster">
                                 <?php if (!empty($z['image_path'])): ?>
@@ -435,9 +471,9 @@ require __DIR__ . '/lib/view_header.php';
                                             title="<?= $ersterPlan ? 'Darüber gibt es keinen Plan' : 'In den Plan darüber verschieben' ?>"
                                             <?= $gesperrt || $ersterPlan ? 'disabled' : '' ?>>⇈</button>
                                     <button type="button" class="leise pos-hoch" aria-label="Nach oben"
-                                            <?= $gesperrt ? 'disabled' : '' ?>>↑</button>
+                                            <?= $gesperrt || $ersteUebung ? 'disabled' : '' ?>>↑</button>
                                     <button type="button" class="leise pos-runter" aria-label="Nach unten"
-                                            <?= $gesperrt ? 'disabled' : '' ?>>↓</button>
+                                            <?= $gesperrt || $letzteUebung ? 'disabled' : '' ?>>↓</button>
                                     <button type="button" class="leise pos-plan-runter"
                                             aria-label="In den Plan darunter verschieben"
                                             title="<?= $letzterPlan ? 'Darunter gibt es keinen Plan' : 'In den Plan darunter verschieben' ?>"
@@ -466,6 +502,20 @@ require __DIR__ . '/lib/view_header.php';
         </li>
     <?php endforeach; ?>
 </ul>
+
+<div class="karte">
+    <?php // Der Kasten steht UNTER der Liste, wie "Split anlegen" auf
+          // splits.php: Erst der Bestand, dann das Anlegen. Bis 1.2.18 sass er
+          // im Rotationskasten mit -- die Ueberschrift darueber sagte also
+          // "Rotation" und meinte auch das Formular. ?>
+    <form id="plan-neu" class="zeile-eingabe" novalidate>
+        <input type="hidden" name="split_id" value="<?= (int)$gewaehlt ?>">
+        <label for="plan_name" class="nur-lesbar">Name des neuen Plans</label>
+        <input type="text" id="plan_name" name="name" placeholder="z. B. Push" required>
+        <button type="submit">Plan hinzufügen</button>
+    </form>
+    <p id="plan-neu-fehler" class="feld-fehler" role="alert" hidden></p>
+</div>
 
 <?php endif; ?>
 

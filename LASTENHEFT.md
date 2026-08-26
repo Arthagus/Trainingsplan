@@ -825,6 +825,11 @@ getrennt** weiter (§7.6).
   bildet. Im ersten Plan ist ⇈ deaktiviert, im letzten ⇊ (mit Begründung als Tooltip);
   deaktiviert und nicht weggelassen, damit die Knopfzeile nicht je nach Plan anders breit
   ist.
+  - **Am Rand der Liste gilt dasselbe für die einfachen Pfeile** (seit `1.2.19`): Die
+    oberste Übung eines Plans hat kein ↑, die unterste kein ↓, der erste Plan kein ↑ und
+    der letzte kein ↓. Ein Pfeil, der nichts tut, ist kein Angebot. Weil das Umsortieren
+    **innerhalb** eines Plans als einziger Vorgang der Seite ohne Neuladen auskommt, muss
+    der Browser die Sperre nach jedem Tausch selbst nachziehen.
   - **Den Zielplan bestimmt der Server** aus der Sortierung; der Client schickt nur die
     Richtung. Eine mitgeschickte Ziel-ID wäre eine weitere Prüfung, die man vergessen kann.
   - Die Übung landet **am Ende** des Zielplans: Wo sie im einen Plan stand, sagt nichts
@@ -834,6 +839,19 @@ getrennt** weiter (§7.6).
   (seit `1.2.4`). Die Seite lädt dabei bewusst *nicht* neu — Umbenennen ist der eine
   Vorgang, der die Seitenstruktur nicht ändert —, aber zwei Stellen auf einem Bildschirm
   dürfen sich nicht widersprechen.
+- **Die Rotationsvorschau zeigt die Reihenfolge und sonst nichts** (seit `1.2.18`). Bis
+  dahin hob sie den nächsten vorgeschlagenen Plan farbig hervor und nannte ihn in einem
+  Satz darunter. Auf dieser Seite baut man den Plan **um**; wo man in der Rotation gerade
+  steht, beantwortet die Trainingsansicht (§7.6) — dort wird die Auskunft gebraucht und
+  dort steht sie. Ohne Plan entfällt der Abschnitt ganz.
+- **Die Gliederung ist dieselbe wie auf `splits.php`** (seit `1.2.18`): Überschrift über
+  dem Kasten, dann der Bestand, darunter der Kasten zum Anlegen. Eine Überschrift *im*
+  Kasten bringt ihren oberen Abstand mit und sieht dort wie eine Leerzeile aus.
+- **Die Nummer einer Position sitzt in der oberen linken Ecke** (seit `1.2.19`), als
+  Kästchen mit abgerundeten Ecken auf einer Höhe mit dem deutschen Namen — dieselbe
+  Anordnung wie im Training (§7.3), nur mit vollem Rahmen: Hier steht sie frei über dem
+  Thumbnail und nicht am Rand einer Karte. Als eigene Spalte davor nahm sie dem Bild und
+  dem Text Breite weg, die am Handy fehlt.
 - **Hinzugefügt wird über eine überlagerte Auswahl**, nicht über ein Dropdown mit allen
   aktiven Übungen: Ein Knopf *Übung hinzufügen* öffnet einen Dialog, der sich nach
   **Muskelgruppe und Trainingsgerät** filtern lässt — einzeln oder kombiniert, mit denselben
