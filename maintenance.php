@@ -167,12 +167,44 @@ require __DIR__ . '/lib/view_header.php';
             Stunde sind, bleiben außen vor; sie könnten gerade erst entstehen.
             <p><button type="button" class="leise wartung" data-aktion="images_orphans">Suchen</button></p>
         </dd>
+
+        <dt>Bestandsbilder nachschneiden</dt>
+        <dd>
+            Seit <?= h(app_version()) ?> wird der einfarbige Rand beim <em>Hochladen</em>
+            abgeschnitten. Bilder, die vorher entstanden sind, behalten ihn — hier lassen
+            sie sich nachziehen. Geschnitten wird aus dem gespeicherten Bild, es wird also
+            ein zweites Mal als JPEG gespeichert; die beste Qualität hat weiterhin, wer das
+            Original neu hochlädt. Der Lauf lässt sich gefahrlos <strong>wiederholen</strong>
+            und kommt dabei zur Ruhe: Ein zweiter Durchgang zieht höchstens einzelne Bilder
+            um wenige Pixel nach — das erneute Speichern als JPEG verändert die äußerste
+            Pixelreihe minimal —, ein dritter findet nichts mehr.
+            <p><button type="button" class="leise wartung" data-aktion="images_recut_check">Prüfen</button></p>
+        </dd>
     </dl>
 
     <?php // Bleibt leer, bis gesucht wurde -- die Liste kommt aus der Antwort und
           // nicht aus dem Seitenaufbau. Der Grund ist derselbe wie beim Trennen
           // der beiden Aktionen: Wer die Seite oeffnet, soll nicht schon eine
           // Loeschliste vor sich haben. ?>
+    <?php // Zweiter Kasten, gleiche Bauweise wie der für die Waisen: Er kommt
+          // erst mit dem Ergebnis der Prüfung und nennt, was passieren würde.
+          // Der Knopf ist rot, weil der Lauf nicht umkehrbar ist -- das alte
+          // Bild ist danach weg. ?>
+    <div id="nachschnitt" hidden>
+        <p class="matt" id="nachschnitt-kopf"></p>
+        <ul class="liste-schlicht" id="nachschnitt-liste"></ul>
+        <p class="matt">
+            Die nachgeschnittenen Bilder bekommen <strong>neue Dateinamen</strong> — sonst
+            zeigten Browser die alten aus ihrem Zwischenspeicher weiter, und zwar ein Jahr
+            lang. Die alten Dateien werden danach gelöscht.
+        </p>
+        <p>
+            <button type="button" class="gefahr" id="nachschnitt-los">
+                Bilder jetzt nachschneiden
+            </button>
+        </p>
+    </div>
+
     <div id="verwaiste-bilder" hidden>
         <p class="matt" id="verwaiste-kopf"></p>
         <ul class="liste-schlicht" id="verwaiste-liste"></ul>

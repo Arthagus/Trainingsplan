@@ -1839,11 +1839,23 @@ details[open] > .summary-knopf::before { content: "−"; }
 
 .gruppen-zeile-unter label { color: var(--schrift-matt); }
 
-/* Thumbnail in der Planverwaltung. Es steht über beiden Zeilen der Position
-   und trägt deren Höhe — 72px statt der früheren 44px. */
+/* Thumbnail in der Planverwaltung.
+
+   112px seit 1.2.21, vorher 72 — und die Zahl ist keine Kosmetik, sondern der
+   Grund, warum sie überhaupt auffiel: 72px sind knapp drei Textzeilen, der
+   Textblock daneben hat aber vier (Name, englischer Name, Muskelgruppen,
+   Gerät/Ausführung). Das Bild stand also mittig in einer Zeile, die es nicht
+   ausfüllte. Der Wert stammte aus 1.0.12, als das Bild noch BEIDE Zeilen der
+   Position trug, die Knopfzeile eingeschlossen.
+
+   112px ist dieselbe Größe wie in der Übungsverwaltung (.uebung-bild) und
+   bleibt unter den 150px der Trainingsansicht — dort sucht man am Gerät nach
+   dem Bild, hier baut man den Plan. Möglich wurde sie durch 1.2.19: Seit die
+   Positionsnummer in der Ecke sitzt statt in einer eigenen Spalte, ist die
+   Breite dafür da. */
 .position-bild {
-    width: 72px;
-    height: 72px;
+    width: 112px;
+    height: 112px;
     flex: none;
     object-fit: cover;
     border-radius: var(--radius);

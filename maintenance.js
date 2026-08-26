@@ -23,14 +23,28 @@
      * Datenbank dauert, und zwei gleichzeitige Schreibvorgänge auf derselben
      * Datei sind das Letzte, was man hier gebrauchen kann.
      */
+    /**
+     * Aktionen, die über das Standard-Zeitlimit von apiFetch (12 s) hinausgehen
+     * können: Sie öffnen JEDES Übungsbild, schneiden es und schreiben es neu.
+     * Bei sechzehn Bildern sind das Sekunden, bei zweihundert Minuten — und ein
+     * Abbruch mitten im Lauf wäre hier besonders unschön, weil er einen Teil
+     * des Bestandes umbenannt zurückließe.
+     */
+    const LANGE_LAEUFE = ['images_recut_check', 'images_recut'];
+
     async function ausfuehren(koerper, knopf, neuLaden) {
         const alle = qsa('button');
         alle.forEach((b) => { b.disabled = true; });
         const alterText = knopf ? knopf.textContent : '';
         if (knopf) knopf.textContent = 'läuft …';
 
+        const optionen = { body: koerper };
+        if (LANGE_LAEUFE.includes(koerper.action)) {
+            optionen.zeitlimit = 300000;
+        }
+
         try {
-            const daten = await apiFetch(ENDPUNKT, { body: koerper });
+            const daten = await apiFetch(ENDPUNKT, optionen);
             if (neuLaden) {
                 // Die Liste und die Zahlen oben kommen serverseitig — nach einer
                 // Änderung ist Neuladen ehrlicher als Nachbauen im Browser.
@@ -74,6 +88,9 @@
             if (aktion === 'images_orphans') {
                 lauf.then((daten) => { if (daten) verwaisteZeigen(daten.dateien || []); });
             }
+            if (aktion === 'images_recut_check') {
+                lauf.then((daten) => { if (daten) nachschnittZeigen(daten.liste || []); });
+            }
         });
     });
 
@@ -114,6 +131,43 @@
         if (zahl >= 1048576) return (zahl / 1048576).toFixed(1).replace('.', ',') + ' MB';
         if (zahl >= 1024) return Math.round(zahl / 1024) + ' KB';
         return zahl + ' Bytes';
+    }
+
+    // --- Bestandsbilder nachschneiden --------------------------------------
+
+    const nachschnittKasten = qs('#nachschnitt');
+
+    /** Zeigt, welche Übungen ein neues Bild bekämen — und was sich ändert. */
+    function nachschnittZeigen(liste) {
+        if (!nachschnittKasten) return;
+
+        if (liste.length === 0) {
+            nachschnittKasten.hidden = true;
+            return;
+        }
+
+        qs('#nachschnitt-kopf', nachschnittKasten).textContent =
+            'Diese Bilder haben einen Rand, der abgeschnitten würde:';
+        qs('#nachschnitt-liste', nachschnittKasten).innerHTML = liste.map((e) =>
+            '<li>' + escapeHtml(e.name) + ' <span class="matt">'
+            + escapeHtml(e.vorher) + ' → ' + escapeHtml(e.nachher)
+            + '</span></li>').join('');
+        nachschnittKasten.hidden = false;
+    }
+
+    const nachschnittLos = qs('#nachschnitt-los');
+    if (nachschnittLos) {
+        nachschnittLos.addEventListener('click', () => {
+            const anzahl = qsa('li', qs('#nachschnitt-liste')).length;
+            if (!window.confirm(anzahl + ' Bild(er) nachschneiden?\n\n'
+                + 'Die alten Dateien werden danach gelöscht. Zurückholen lassen sie sich '
+                + 'nur aus einer Sicherung, die MIT Bildern erstellt wurde.')) {
+                return;
+            }
+            // Neu laden: Die Kachel „Bilder" oben zählt die Dateien und ihre
+            // Größe, und beides stimmt danach nicht mehr.
+            ausfuehren({ action: 'images_recut' }, nachschnittLos, true);
+        });
     }
 
     const verwaisteLoeschen = qs('#verwaiste-loeschen');

@@ -673,6 +673,20 @@ Sie sind seit `1.2.0` keine Adminsache mehr, jeder Benutzer verwaltet seine eige
   Untergruppen ein. Beide Filter bleiben beim Umschalten zwischen Aktiv/Archiviert/Alle
   erhalten und stehen mit den drei Zustandsknöpfen in **einer** Zeile.
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
+- **Der einfarbige Rand wird beim Hochladen abgeschnitten** (seit `1.2.21`), bei Vollbild
+  und Thumbnail gleichermaßen. Katalogbilder zeigen ein Motiv auf weißer Fläche, und der
+  Rand ist selten mittig — im quadratischen Rahmen sieht man dann vor allem die Leere.
+  - **Ein hochkantes Motiv wird im Thumbnail auf quadratisch aufgefüllt**, mit der
+    erkannten Randfarbe. Damit schneidet die Anzeige ihm weder Kopf noch Füße ab;
+    geschnitten wird, wenn überhaupt, nur links und rechts. Für solche Bilder ist die
+    *Bildausrichtung* danach wirkungslos — es gibt nichts mehr zu schneiden. Das
+    **Vollbild** bleibt unaufgefüllt: Es ist die Vorlage für jede spätere Ableitung, und im
+    Dialog wird es ohnehin ganz gezeigt.
+  - **Ohne einfarbigen Rand passiert nichts.** Weichen die vier Ecken farblich voneinander
+    ab (ein Foto), bleibt das Bild unverändert. Ebenso, wenn nach dem Schnitt weniger als
+    ein Fünftel der Kante übrig bliebe.
+  - **Bestehende Bilder holt ein Wartungspunkt nach** (§6.5, *Bestandsbilder
+    nachschneiden*) — oder man lädt sie erneut hoch, was die bessere Qualität ergibt.
 - **Archivieren statt Löschen:** Übungen werden nicht hart gelöscht, sondern mit
   `archived = 1` archiviert. Archivierte Übungen erscheinen nicht mehr in Dropdowns und
   Tauschvorschlägen, die `workout_log`-Historie bleibt vollständig erhalten und
@@ -901,7 +915,21 @@ getrennt** weiter (§7.6).
 - Eigene Seite `maintenance.php`, nur für Admins, nach dem Muster aus
   `Speisekarte/doku/maintenance_anleitung.md`.
 - Aktionen: `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`,
-  `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`.
+  `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`, `images_recut_check`,
+  `images_recut`.
+- **Bestandsbilder nachschneiden** (seit `1.2.21`): Holt den Randschnitt aus §6.3 für
+  Bilder nach, die vor dieser Version hochgeladen wurden. Prüfen und Ausführen sind zwei
+  Knöpfe; die Prüfung nennt jede betroffene Übung mit alter und neuer Größe.
+  - **Die nachgeschnittenen Bilder bekommen neue Dateinamen**, und `exercises.image_path`
+    wandert mit. Anders geht es nicht: `image.php` liefert Bilder mit
+    `Cache-Control: immutable` und einem Jahr Haltbarkeit aus — der Dateiname ist der
+    einzige Schlüssel, und wer dieselbe Datei überschreibt, sieht ein Jahr lang die alte.
+  - **Reihenfolge wie beim Bildwechsel:** erst die neuen Dateien schreiben, dann die
+    Datenbank, danach die alten löschen.
+  - **Wiederholbar.** Ein zweiter Durchgang zieht höchstens einzelne Bilder um wenige Pixel
+    nach, ein dritter findet nichts mehr.
+  - Zurückholen lässt sich nichts — die einzige Kopie steckt in einer Sicherung *mit
+    Bildern*.
 - **Die Seite ist nach Häufigkeit gegliedert, nicht nach Gewicht** (seit `1.2.20`): Zustand,
   Datenbankpflege, Übungsbilder, dann alles zur Sicherung. Die Pflegepunkte ändern nichts am
   Datenbestand und schaut man im Vorbeigehen an; das Einspielen einer Sicherung ist der

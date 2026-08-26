@@ -30,6 +30,12 @@
 # (bash deploy/paket_bauen.sh) und verdoppeln nur, was ohnehin im Repo steht.
 /deploy/*.tar.gz
 
+# Testbilder fuer den Upload (vom Benutzer angelegt, 2026-08-26).
+# Uebungsbilder gehoeren nicht ins Repo -- es sichert ausschliesslich
+# Quelltext, siehe CLAUDE.md unter "Git".
+/test/
+
+
 # Sicherungen der Wartungsseite, falls jemand sie hierher legt
 *.zip
 

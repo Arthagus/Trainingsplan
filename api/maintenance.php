@@ -38,6 +38,8 @@ match (to_str($eingabe['action'] ?? '')) {
     'checkpoint'    => aktion_checkpoint(),
     'images_orphans' => aktion_bilder_suchen(),
     'images_cleanup' => aktion_bilder_aufraeumen(),
+    'images_recut_check' => aktion_bilder_nachschnitt_pruefen(),
+    'images_recut'       => aktion_bilder_nachschneiden(),
     default         => json_err('Unbekannte Aktion', 400),
 };
 
@@ -213,4 +215,64 @@ function aktion_bilder_aufraeumen(): never {
         'meldung' => $ergebnis['anzahl'] . ' verwaiste Datei(en) gelöscht, '
             . bytes_lesbar($ergebnis['bytes']) . ' frei.',
     ]);
+}
+
+/**
+ * Was ein Nachschnitt der Bestandsbilder aendern wuerde -- ohne zu aendern.
+ *
+ * Getrennt vom Lauf aus demselben Grund wie beim Aufraeumen der Waisen: Erst
+ * sehen, dann entscheiden. Hier kommt dazu, dass der Lauf nicht umkehrbar ist
+ * -- das alte Bild ist danach weg, und die einzige Kopie steckt in einer
+ * Sicherung MIT Bildern.
+ */
+function aktion_bilder_nachschnitt_pruefen(): never {
+    $stand = bestandsbilder_pruefen();
+
+    if ($stand['betroffen'] === 0) {
+        json_ok([
+            'liste'   => [],
+            'meldung' => $stand['gesamt'] . ' Bild(er) geprüft — keines hat einen Rand, '
+                . 'der sich abschneiden ließe.',
+        ]);
+    }
+
+    json_ok([
+        'liste'   => $stand['liste'],
+        'meldung' => $stand['betroffen'] . ' von ' . $stand['gesamt']
+            . ' Bild(ern) haben einen Rand, der abgeschnitten werden kann.'
+            . ($stand['fehlend'] > 0
+                ? ' ' . $stand['fehlend'] . ' Datei(en) fehlen im Verzeichnis.'
+                : '')
+            . ' Es wurde noch nichts verändert.',
+    ]);
+}
+
+/**
+ * Schneidet die Bestandsbilder nach. Vergibt dabei neue Dateinamen -- warum,
+ * steht bei bestandsbilder_nachschneiden() in lib/upload.php.
+ */
+function aktion_bilder_nachschneiden(): never {
+    $ergebnis = bestandsbilder_nachschneiden();
+
+    if ($ergebnis['geaendert'] === 0 && $ergebnis['fehlgeschlagen'] === 0) {
+        json_ok(['meldung' => 'Nichts zu tun — kein Bild hat einen abschneidbaren Rand.']);
+    }
+
+    $teile = [$ergebnis['geaendert'] . ' Bild(er) nachgeschnitten'];
+    // Der Platzbedarf kann in beide Richtungen gehen -- siehe die Begruendung
+    // bei bestandsbilder_nachschneiden(). Gemeldet wird, was wirklich passiert
+    // ist, und nicht nur die angenehme Haelfte davon.
+    if ($ergebnis['bytes'] > 0) {
+        $teile[] = bytes_lesbar($ergebnis['bytes']) . ' frei geworden';
+    } elseif ($ergebnis['bytes'] < 0) {
+        $teile[] = bytes_lesbar(-$ergebnis['bytes']) . ' mehr belegt';
+    }
+    if ($ergebnis['uebersprungen'] > 0) {
+        $teile[] = $ergebnis['uebersprungen'] . ' ohne Rand übersprungen';
+    }
+    if ($ergebnis['fehlgeschlagen'] > 0) {
+        $teile[] = $ergebnis['fehlgeschlagen'] . ' fehlgeschlagen (unverändert geblieben)';
+    }
+
+    json_ok(['meldung' => implode(', ', $teile) . '.']);
 }

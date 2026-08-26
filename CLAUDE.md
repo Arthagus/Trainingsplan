@@ -90,11 +90,20 @@ APP_SECRET=beliebig php -S 127.0.0.1:8100 -t "$(pwd)"
 Danach `data/trainingsplan.db*` wieder löschen — die Datei gehört nicht in den
 Arbeitsstand, und ein liegengebliebener Testbestand verfälscht die nächste Prüfung.
 
-**Dem PHP auf diesem Rechner fehlen `zip` und `gd`** (im Container sind beide da, siehe
-`Dockerfile`). Lokal **nicht** prüfbar sind deshalb: Bild-Upload und Thumbnails (§6.3),
-Sicherungen *mit Bildern* als ZIP und deren Wiederherstellung (§6.5). Die reine
-`.db`-Sicherung läuft lokal durch. Wer hier „getestet" meldet, ohne das zu erwähnen, meldet
-zu viel.
+**`gd` und `zip` sind seit 2026-08-26 lokal da** (`zypper install php8-gd php8-zip`, PHP
+8.5.9 gegen 8.3 im Container). Damit sind Bild-Upload, Zuschnitt und Thumbnails (§6.3) sowie
+Sicherungen *mit Bildern* (§6.5) hier prüfbar — vorher waren sie es nicht, und in älteren
+Notizen steht deshalb „nicht prüfbar".
+
+**Was weiterhin fehlt: `fileinfo`.** `save_exercise_image()` bestimmt den Typ über
+`finfo_open()` aus dem **Inhalt** (§5); ohne die Erweiterung lässt sich die Funktion als
+Ganzes nicht aufrufen. Prüfen lässt sich der Weg dahinter trotzdem, indem man selbst
+dekodiert (`imagecreatefrom*`) und ab `bild_rand_schneiden()` einsteigt — genau so entstand
+der Nachweis für den Randschnitt. Wer den Torwächter mitprüfen will:
+`zypper install php8-fileinfo`.
+
+**Ein „läuft hier" bleibt ein Hinweis und kein Beweis für den Container** — andere
+PHP-Version, andere GD-Übersetzung. Wer hier „getestet" meldet, sagt dazu, wogegen.
 
 **Es gibt kein Test-Framework** — wie in beiden Vorlagen-Repos wird gelintet:
 
@@ -942,6 +951,56 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       `write_resized()` ausschließlich **skaliert und nicht beschneidet**. Wer dort je einen
       Zuschnitt einbaut, nimmt der Einstellung die Grundlage: Ein bereits quadratisch
       beschnittenes Thumbnail ist nachträglich nicht mehr anders auszurichten.
+
+      **Seit `1.2.21` wird VOR dem Skalieren doch geschnitten — aber nur der einfarbige
+      Rand** (`bild_rand_schneiden()`), und der Unterschied ist genau der obige: Weggenommen
+      wird leere Fläche, kein Motiv. Was danach quer liegt, bleibt quer, und
+      `object-position` entscheidet weiterhin, welche Seite im quadratischen Rahmen
+      stehenbleibt.
+
+      **Ein hochkantes Motiv wird auf quadratisch aufgefüllt — aber NUR im Thumbnail**
+      (`write_thumb_quadrat()`), damit die Anzeige ihm nicht Kopf und Füße abschneidet;
+      Vorgabe des Benutzers vom 2026-08-26: oben und unten nie, links und rechts gern. Für
+      solche Bilder ist `image_crop` danach wirkungslos, weil es nichts mehr zu schneiden
+      gibt — im Regelfall Querformat behält die Einstellung ihren Sinn.
+
+      **Dass die Füllung nicht ins gespeicherte Vollbild gehört, ist keine Stilfrage.** Sie
+      stand dort zuerst, und das machte den Nachschnitt der Bestandsbilder unbrauchbar: Der
+      Detektor erkennt die aufgefüllten Streifen beim nächsten Lauf zu Recht als Rand,
+      schneidet sie ab, füllt wieder auf — und weil bei jeder Runde die Pixel Zugabe
+      verlorengehen, fräse sich das ins Motiv (beobachtet: 229×229 → 227×227, bei jedem
+      Lauf). **Die allgemeine Form: Was für die Anzeige gedacht ist, gehört nicht in die
+      Vorlage, aus der man später wieder ableitet.** Das Vollbild trägt das nackte Motiv,
+      das Thumbnail den Rahmen.
+
+      **Drei Werte entscheiden, ob der Schnitt ins Motiv geht — alle drei mussten in
+      `1.2.22` nachgebessert werden**, nachdem aus dem Betrieb kam, dass Köpfe oben und
+      Hantelenden seitlich fehlten (2026-08-26):
+
+      | Wert | war | ist | warum |
+      |---|---|---|---|
+      | `BILD_RAND_TOLERANZ` | 14 | **8** | Maschinen sind sehr hell gezeichnet; bei 14 gingen 219 px Motiv als Weiß durch |
+      | Kante der Suchkopie | 200 | **1000** | Ein Kopfscheitel ist auf 200 px ein Bruchteil eines Pixels und verschwindet im Mittelwert |
+      | Zugabe beim Zurückrechnen | 1 px | **`ceil($faktor) + 1`** | Ein Pixel der Suchkopie deckt `$faktor` Originalpixel ab — so viel kann sie verstecken |
+
+      Gemessen wurde nicht „sieht besser aus", sondern der **dunkelste Pixel im
+      weggeschnittenen Rand**: vorher fiel bei 6 von 17 Bildern echte Zeichnung (bis
+      Helligkeit 35, also fast Schwarz), danach bei keinem — der schlechteste Fall liegt bei
+      240 und ist ein blasser Schatten. Wer an diesen Werten dreht, misst genauso nach; ein
+      Blick aufs Ergebnis erkennt einen fehlenden Kopfscheitel nicht.
+
+      **Und die Sicherung, die den ganzen Schnitt trägt:** Passen die vier Ecken farblich
+      nicht zusammen, wird **gar nichts** geschnitten. Ohne sie schnitte die Funktion an
+      einem Farbverlauf einen beliebigen Streifen ab. Dazu eine Notbremse gegen
+      Fehlschnitte (bleibt weniger als ein Fünftel der Kante, bleibt alles stehen) und die
+      Regel, dass jeder Zweifel das unveränderte Bild zurückgibt: Ein ungeschnittenes Bild
+      ist ein Schönheitsfehler, ein falsch geschnittenes ist Datenverlust.
+
+      **Prüfbar ist das trotz fehlendem GD**, und der Schnitt dafür ist die eigentliche
+      Bauentscheidung: `bild_inhalt_finden()` bekommt eine **Ablesefunktion** statt eines
+      Bildes, `bild_rahmen_quadrat()` rechnet nur. Beide laufen auf diesem Rechner, samt
+      Gegenprobe (siehe *Lokale Entwicklung*: Bild-Upload ist hier sonst nicht prüfbar).
+      Der GD-Teil darüber ist Umschütten und wird am Live-System nachgesehen.
       **Und daraus die Falle, die am 2026-08-26 zuschlug: Wer ein Bild anzeigt, muss
       `image_crop` MITLIEFERN.** Fehlt die Spalte in der Abfrage, steht jedes Bild mittig —
       **ohne Fehlermeldung**, es sieht nach einer falsch gepflegten Einstellung aus.
