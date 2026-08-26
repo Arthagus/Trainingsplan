@@ -120,6 +120,70 @@ require __DIR__ . '/lib/view_header.php';
     </div>
 </div>
 
+<h2>Datenbankpflege</h2>
+
+<div class="karte">
+    <dl class="platzhalter-liste">
+        <dt>Integrität prüfen</dt>
+        <dd>
+            Sucht strukturelle Schäden und Fremdschlüssel, die ins Leere zeigen.
+            Ändert nichts.
+            <p><button type="button" class="leise wartung" data-aktion="integrity">Prüfen</button></p>
+        </dd>
+
+        <dt>Kompaktieren (VACUUM)</dt>
+        <dd>
+            Schreibt die Datei neu und gibt Platz frei, den gelöschte Zeilen belegen.
+            <p><button type="button" class="leise wartung" data-aktion="vacuum">Kompaktieren</button></p>
+        </dd>
+
+        <dt>Statistiken auffrischen</dt>
+        <dd>
+            <code>PRAGMA optimize</code> — hilft dem Abfrageplaner, die richtigen Indizes
+            zu wählen.
+            <p><button type="button" class="leise wartung" data-aktion="optimize">Auffrischen</button></p>
+        </dd>
+
+        <dt>WAL zurückschreiben</dt>
+        <dd>
+            Überträgt das Write-Ahead-Log in die Hauptdatei. Sinnvoll, wenn die
+            <code>-wal</code>-Datei oben ungewöhnlich groß ist.
+            <p><button type="button" class="leise wartung" data-aktion="checkpoint">Zurückschreiben</button></p>
+        </dd>
+    </dl>
+</div>
+
+<h2>Übungsbilder</h2>
+
+<div class="karte">
+    <dl class="platzhalter-liste">
+        <dt>Verwaiste Bilder suchen</dt>
+        <dd>
+            Sucht Dateien in <code>uploads/</code>, zu denen es keine Übung mehr gibt.
+            Im Normalbetrieb entstehen keine: Beim Ersetzen, Entfernen und Löschen eines
+            Bildes räumt die Übungsverwaltung selbst auf. Übrig bleiben kann etwas nach
+            dem <strong>Einspielen einer Sicherung</strong> — die Datenbank geht dabei auf
+            einen älteren Stand zurück, die Dateien nicht. Bilder, die jünger als eine
+            Stunde sind, bleiben außen vor; sie könnten gerade erst entstehen.
+            <p><button type="button" class="leise wartung" data-aktion="images_orphans">Suchen</button></p>
+        </dd>
+    </dl>
+
+    <?php // Bleibt leer, bis gesucht wurde -- die Liste kommt aus der Antwort und
+          // nicht aus dem Seitenaufbau. Der Grund ist derselbe wie beim Trennen
+          // der beiden Aktionen: Wer die Seite oeffnet, soll nicht schon eine
+          // Loeschliste vor sich haben. ?>
+    <div id="verwaiste-bilder" hidden>
+        <p class="matt" id="verwaiste-kopf"></p>
+        <ul class="liste-schlicht" id="verwaiste-liste"></ul>
+        <p>
+            <button type="button" class="gefahr" id="verwaiste-loeschen">
+                Verwaiste Bilder löschen
+            </button>
+        </p>
+    </div>
+</div>
+
 <?php if (!zip_verfuegbar()): ?>
     <div class="karte hinweis-warnung">
         <strong>ZIP-Erweiterung fehlt.</strong>
@@ -201,39 +265,6 @@ require __DIR__ . '/lib/view_header.php';
         </div>
         <p class="feld-fehler" id="upload-fehler" role="alert" hidden></p>
     </form>
-</div>
-
-<h2>Datenbankpflege</h2>
-
-<div class="karte">
-    <dl class="platzhalter-liste">
-        <dt>Integrität prüfen</dt>
-        <dd>
-            Sucht strukturelle Schäden und Fremdschlüssel, die ins Leere zeigen.
-            Ändert nichts.
-            <button type="button" class="leise wartung" data-aktion="integrity">Prüfen</button>
-        </dd>
-
-        <dt>Kompaktieren (VACUUM)</dt>
-        <dd>
-            Schreibt die Datei neu und gibt Platz frei, den gelöschte Zeilen belegen.
-            <button type="button" class="leise wartung" data-aktion="vacuum">Kompaktieren</button>
-        </dd>
-
-        <dt>Statistiken auffrischen</dt>
-        <dd>
-            <code>PRAGMA optimize</code> — hilft dem Abfrageplaner, die richtigen Indizes
-            zu wählen.
-            <button type="button" class="leise wartung" data-aktion="optimize">Auffrischen</button>
-        </dd>
-
-        <dt>WAL zurückschreiben</dt>
-        <dd>
-            Überträgt das Write-Ahead-Log in die Hauptdatei. Sinnvoll, wenn die
-            <code>-wal</code>-Datei oben ungewöhnlich groß ist.
-            <button type="button" class="leise wartung" data-aktion="checkpoint">Zurückschreiben</button>
-        </dd>
-    </dl>
 </div>
 
 <?php require __DIR__ . '/lib/view_footer.php'; ?>

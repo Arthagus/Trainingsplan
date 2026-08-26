@@ -901,7 +901,27 @@ getrennt** weiter (§7.6).
 - Eigene Seite `maintenance.php`, nur für Admins, nach dem Muster aus
   `Speisekarte/doku/maintenance_anleitung.md`.
 - Aktionen: `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`,
-  `optimize`, `checkpoint`.
+  `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`.
+- **Die Seite ist nach Häufigkeit gegliedert, nicht nach Gewicht** (seit `1.2.20`): Zustand,
+  Datenbankpflege, Übungsbilder, dann alles zur Sicherung. Die Pflegepunkte ändern nichts am
+  Datenbestand und schaut man im Vorbeigehen an; das Einspielen einer Sicherung ist der
+  folgenreichste Vorgang der ganzen App und steht deshalb nicht zwischen ihnen.
+- **Verwaiste Übungsbilder lassen sich suchen und entfernen** (seit `1.2.20`): Dateien in
+  `uploads/`, zu denen es keine Übung mehr gibt.
+  - **Im Normalbetrieb entstehen keine.** `api/exercises.php` löscht das alte Bild samt
+    Thumbnail, sobald es ersetzt, entfernt oder die Übung endgültig gelöscht wird — und
+    zwar **erst nach** dem erfolgreichen `UPDATE`. Karteileichen entstehen an den Rändern:
+    beim Einspielen einer älteren Sicherung geht die Datenbank zurück, die Dateien nicht.
+  - **Suchen und Löschen sind zwei Knöpfe.** Erst sieht man die Liste, dann entscheidet
+    man; ein Knopf, der beides tut, lässt sich nicht zurückdrehen.
+  - **Gefunden wird nur das eigene Namensmuster** (`<32 Hex>.jpg`, `<32 Hex>_thumb.jpg`).
+    Was jemand von Hand nach `uploads/` gelegt hat, wird weder gemeldet noch angefasst.
+    Das Thumbnail gilt als benutzt, sobald das Original benutzt ist.
+  - **Dateien unter einer Stunde bleiben außen vor.** Ein Upload schreibt die Datei, bevor
+    die Übung in der Datenbank steht — genau dort würde ein gleichzeitiges Aufräumen ein
+    Bild löschen, das gerade entsteht.
+  - **Die Liste kommt nicht vom Client.** Der Löschlauf ermittelt sie selbst neu; es geht
+    kein Dateiname über die Leitung, auch nicht der aus der Anzeige von vorhin.
 - Backup als ZIP in zwei Varianten: **vollständig** (DB + Bilder) und **ohne Bilder**.
 - **Die Datenbankkopie entsteht über `VACUUM INTO`, nie als Dateikopie.** Im WAL-Modus ist
   ein `cp` der `.db` ohne die `-wal`/`-shm`-Dateien im besten Fall veraltet, im schlechteren

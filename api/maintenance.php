@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/csrf.php';
 require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/backup.php';
+require_once __DIR__ . '/../lib/upload.php';
 
 bootstrap_session();
 require_login_api();
@@ -35,6 +36,8 @@ match (to_str($eingabe['action'] ?? '')) {
     'integrity'     => aktion_integrity(),
     'optimize'      => aktion_optimize(),
     'checkpoint'    => aktion_checkpoint(),
+    'images_orphans' => aktion_bilder_suchen(),
+    'images_cleanup' => aktion_bilder_aufraeumen(),
     default         => json_err('Unbekannte Aktion', 400),
 };
 
@@ -164,5 +167,50 @@ function aktion_checkpoint(): never {
     json_ok([
         'meldung' => 'WAL zurückgeschrieben.'
             . ($vorher > 0 ? ' Vorher ' . bytes_lesbar($vorher) . '.' : ''),
+    ]);
+}
+
+/**
+ * Sucht Bilddateien ohne Uebung -- und loescht dabei NICHTS (§6.5).
+ *
+ * Getrennt vom Aufraeumen, weil beides verschiedene Fragen sind: Erst will
+ * man sehen, was da liegt, und dann entscheiden. Ein Knopf, der beides in
+ * einem tut, laesst sich nicht mehr zurueckdrehen -- die Dateien sind weg,
+ * und die einzige Kopie steckt in einer Sicherung MIT Bildern.
+ */
+function aktion_bilder_suchen(): never {
+    $treffer = verwaiste_bilder();
+
+    if ($treffer === []) {
+        json_ok([
+            'dateien' => [],
+            'meldung' => 'Keine verwaisten Bilder — jede Datei in uploads/ gehört zu einer Übung.',
+        ]);
+    }
+
+    $bytes = array_sum(array_column($treffer, 'groesse'));
+
+    json_ok([
+        'dateien' => $treffer,
+        'bytes'   => $bytes,
+        'meldung' => count($treffer) . ' verwaiste Datei(en) gefunden, zusammen '
+            . bytes_lesbar($bytes) . '. Es wurde noch nichts gelöscht.',
+    ]);
+}
+
+/**
+ * Loescht die verwaisten Bilder. Die Liste ermittelt lib/upload.php selbst --
+ * es geht KEIN Dateiname ueber die Leitung, siehe verwaiste_bilder_loeschen().
+ */
+function aktion_bilder_aufraeumen(): never {
+    $ergebnis = verwaiste_bilder_loeschen();
+
+    if ($ergebnis['anzahl'] === 0) {
+        json_ok(['meldung' => 'Nichts zu löschen — es gibt keine verwaisten Bilder.']);
+    }
+
+    json_ok([
+        'meldung' => $ergebnis['anzahl'] . ' verwaiste Datei(en) gelöscht, '
+            . bytes_lesbar($ergebnis['bytes']) . ' frei.',
     ]);
 }

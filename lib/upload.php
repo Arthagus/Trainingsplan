@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
+// Nur fuer verwaiste_bilder(): Die Frage "gehoert diese Datei noch zu einer
+// Uebung" ist ohne die Datenbank nicht zu beantworten.
+require_once __DIR__ . '/db.php';
 
 /**
  * Bild-Uploads fuer Uebungen (§5).
@@ -198,4 +201,101 @@ function upload_error_message(int $code): string {
         UPLOAD_ERR_EXTENSION                      => 'Der Upload wurde serverseitig blockiert.',
         default                                   => 'Der Upload ist fehlgeschlagen.',
     };
+}
+
+/**
+ * Bilddateien in uploads/, zu denen es keine Uebung mehr gibt (§6.5).
+ *
+ * Karteileichen entstehen nicht im Normalbetrieb -- api/exercises.php raeumt
+ * beim Ersetzen, Entfernen und Loeschen selbst auf. Sie entstehen an den
+ * Raendern: beim Einspielen einer aelteren Sicherung (die Datenbank geht
+ * zurueck, die Dateien nicht), bei einem Restore aus einer .db OHNE Bilder,
+ * oder wenn ein Container-Neustart mitten in einen Upload faellt. Selten also,
+ * aber unbemerkt -- und Bilder sind das einzige, was in diesem Projekt
+ * nennenswert Platz braucht.
+ *
+ * Drei Vorsichtsmassnahmen, jede aus eigenem Grund:
+ *
+ * - **Nur das eigene Namensmuster.** `<32 Hex>.jpg` und `<32 Hex>_thumb.jpg`
+ *   entstehen ausschliesslich in save_exercise_image(). Was anders heisst,
+ *   hat jemand von Hand dorthin gelegt; das Aufraeumen fasst es nicht an und
+ *   meldet es auch nicht als verwaist.
+ * - **Das Thumbnail haengt am Original**, nicht an einer eigenen Spalte: Beide
+ *   gelten als benutzt, sobald `exercises.image_path` die 32 Hex-Zeichen nennt.
+ *   Ohne diese Zuordnung waere JEDES Thumbnail verwaist.
+ * - **Frische Dateien bleiben tabu** ($mindestAlter, Vorgabe eine Stunde).
+ *   save_exercise_image() schreibt die Datei, BEVOR die Uebung in der Datenbank
+ *   steht. Zwischen beidem liegen Millisekunden, aber genau dort wuerde ein
+ *   gleichzeitig laufendes Aufraeumen ein Bild loeschen, das gerade entsteht.
+ *
+ * @return list<array{name:string,groesse:int,alter_tage:int}> nach Namen sortiert
+ */
+function verwaiste_bilder(int $mindestAlter = 3600): array {
+    $verzeichnis = uploads_path();
+    if (!is_dir($verzeichnis)) {
+        return [];
+    }
+
+    $benutzt = [];
+    $stmt = db()->query(
+        "SELECT image_path FROM exercises WHERE image_path IS NOT NULL AND image_path <> ''"
+    );
+    foreach ($stmt as $zeile) {
+        $name = basename((string)$zeile['image_path']);
+        if (preg_match('/^([0-9a-f]{32})\.jpg$/', $name, $treffer) === 1) {
+            $benutzt[$treffer[1]] = true;
+        }
+    }
+
+    $jetzt   = time();
+    $gefunden = [];
+    foreach ((array)glob($verzeichnis . '/*.jpg') as $datei) {
+        $name = basename((string)$datei);
+        if (preg_match('/^([0-9a-f]{32})(_thumb)?\.jpg$/', $name, $treffer) !== 1) {
+            continue;
+        }
+        if (isset($benutzt[$treffer[1]])) {
+            continue;
+        }
+
+        $alter = $jetzt - (int)@filemtime((string)$datei);
+        if ($alter < $mindestAlter) {
+            continue;
+        }
+
+        $gefunden[] = [
+            'name'       => $name,
+            'groesse'    => (int)@filesize((string)$datei),
+            'alter_tage' => intdiv(max(0, $alter), 86400),
+        ];
+    }
+
+    usort($gefunden, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+
+    return $gefunden;
+}
+
+/**
+ * Loescht, was verwaiste_bilder() findet.
+ *
+ * **Die Liste kommt NICHT vom Aufrufer.** Sie wird hier neu ermittelt, und
+ * damit kann kein Dateiname von aussen bestimmen, was geloescht wird -- auch
+ * nicht der, den die Oberflaeche eine Minute vorher angezeigt hat. Dazwischen
+ * kann eine Uebung entstanden sein, die genau dieses Bild benutzt.
+ *
+ * @return array{anzahl:int,bytes:int}
+ */
+function verwaiste_bilder_loeschen(): array {
+    $anzahl = 0;
+    $bytes  = 0;
+
+    foreach (verwaiste_bilder() as $datei) {
+        $pfad = uploads_path() . '/' . $datei['name'];
+        if (@unlink($pfad)) {
+            $anzahl++;
+            $bytes += $datei['groesse'];
+        }
+    }
+
+    return ['anzahl' => $anzahl, 'bytes' => $bytes];
 }

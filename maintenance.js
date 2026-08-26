@@ -39,8 +39,12 @@
                 return;
             }
             melden(daten.meldung || 'Erledigt.', 'gut');
+            // Zurueckgegeben fuer die Aufrufer, die mehr brauchen als die
+            // Meldung -- bisher nur die Bildsuche unten.
+            return daten;
         } catch (fehler) {
             melden(fehler.message, 'fehler');
+            return null;
         } finally {
             alle.forEach((b) => { b.disabled = false; });
             if (knopf) knopf.textContent = alterText;
@@ -65,9 +69,67 @@
                 koerper.with_images = knopf.dataset.bilder === '1';
             }
 
-            ausfuehren(koerper, knopf, aktion === 'backup');
+            const lauf = ausfuehren(koerper, knopf, aktion === 'backup');
+
+            if (aktion === 'images_orphans') {
+                lauf.then((daten) => { if (daten) verwaisteZeigen(daten.dateien || []); });
+            }
         });
     });
+
+    // --- Verwaiste Bilder --------------------------------------------------
+
+    const verwaisteKasten = qs('#verwaiste-bilder');
+
+    /**
+     * Zeigt, was die Suche gefunden hat.
+     *
+     * Der Kasten mit dem Löschen-Knopf erscheint NUR, wenn es etwas zu löschen
+     * gibt — und verschwindet wieder, sobald die Suche leer ausgeht. Ein
+     * dauerhaft sichtbarer Löschen-Knopf neben einer leeren Liste lädt zum
+     * Ausprobieren ein, und diese Aktion nimmt Dateien weg, deren einzige Kopie
+     * in einer Sicherung MIT Bildern steckt.
+     */
+    function verwaisteZeigen(dateien) {
+        if (!verwaisteKasten) return;
+
+        if (dateien.length === 0) {
+            verwaisteKasten.hidden = true;
+            return;
+        }
+
+        qs('#verwaiste-kopf', verwaisteKasten).textContent =
+            'Diese Dateien gehören zu keiner Übung:';
+        qs('#verwaiste-liste', verwaisteKasten).innerHTML = dateien.map((d) =>
+            '<li><code>' + escapeHtml(d.name) + '</code> '
+            + '<span class="matt">' + escapeHtml(bytesLesbar(d.groesse))
+            + (d.alter_tage > 0 ? ', ' + Number(d.alter_tage) + ' Tage alt' : '')
+            + '</span></li>').join('');
+        verwaisteKasten.hidden = false;
+    }
+
+    /** Ohne Nachbau der PHP-Funktion bytes_lesbar(): dieselbe Staffelung. */
+    function bytesLesbar(bytes) {
+        const zahl = Number(bytes) || 0;
+        if (zahl >= 1048576) return (zahl / 1048576).toFixed(1).replace('.', ',') + ' MB';
+        if (zahl >= 1024) return Math.round(zahl / 1024) + ' KB';
+        return zahl + ' Bytes';
+    }
+
+    const verwaisteLoeschen = qs('#verwaiste-loeschen');
+    if (verwaisteLoeschen) {
+        verwaisteLoeschen.addEventListener('click', () => {
+            const anzahl = qsa('li', qs('#verwaiste-liste')).length;
+            if (!window.confirm(anzahl + ' Datei(en) endgültig löschen?\n\n'
+                + 'Sie gehören zu keiner Übung. Zurückholen lassen sie sich nur aus '
+                + 'einer Sicherung, die MIT Bildern erstellt wurde.')) {
+                return;
+            }
+            // Neu laden: Die Kachel „Bilder" im Zustand oben zählt die Dateien,
+            // und die stimmt danach nicht mehr.
+            ausfuehren({ action: 'images_cleanup' }, verwaisteLoeschen, true);
+        });
+    }
 
     // --- Sicherungen einspielen und löschen --------------------------------
 

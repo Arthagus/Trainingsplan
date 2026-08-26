@@ -2079,7 +2079,22 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 .melde-gut    { border-left: 4px solid var(--gut);    background: #f2faf5; }
 .melde-fehler { border-left: 4px solid var(--fehler); background: #fdf3f2; }
 
-.platzhalter-liste dd button { margin-top: 0.4rem; }
+/* Der Knopf einer Pflege-Zeile steht IMMER unter dem Text, nie daneben.
+   Vorher entschied darüber die Länge des Textes: Ein Knopf ist inline-flex,
+   also floss er hinter den letzten Satz — bei „WAL zurückschreiben" blieb dort
+   Platz, bei den anderen dreien nicht, und die Liste sah aus, als folgte sie
+   keiner Regel. Gemeldet am 2026-08-26.
+
+   Gelöst wird das im MARKUP (der Knopf steht in einem eigenen <p>) und nicht
+   hier über den Layout-Modus. Der naheliegende Griff — dem <dd> eine
+   Flex-Spalte zu geben — war schon eingebaut und wieder falsch: In einem
+   Flex-Container wird JEDES Element ein eigenes Element der Spalte, also auch
+   ein <code> mitten im Satz. „Sinnvoll, wenn die -wal-Datei groß ist" stand
+   dadurch auf drei Zeilen, mit `-wal` allein in der mittleren. */
+.platzhalter-liste dd > p { margin: 0.4rem 0 0; }
+
+#verwaiste-liste { margin: 0.4rem 0; }
+#verwaiste-liste li { padding: 0.15rem 0; overflow-wrap: anywhere; }
 
 .einheit-aktionen { margin: 0.75rem 0 0; }
 
