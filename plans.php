@@ -24,40 +24,35 @@ require_login();
  * steht sie hier nicht nur zum Sortieren bereit, sondern als Vorschau.
  *
  * Was waehlbar ist, entscheidet $waehlbar weiter unten und NICHT der
- * ?split=-Parameter: Ein unbekannter oder fremder Wert faellt auf den ersten
- * erlaubten Split zurueck. Damit ist der IDOR-Schutz (§5) hier keine Pruefung,
- * die man vergessen kann, sondern die Liste selbst -- dasselbe Muster wie
- * $erlaubt in index.php.
+ * ?split=-Parameter: Ein unbekannter oder fremder Wert faellt auf den aktiven
+ * Split zurueck. Damit ist der IDOR-Schutz (§5) hier in aller Regel keine
+ * Pruefung, die man vergessen kann, sondern die Liste selbst -- dasselbe Muster
+ * wie $erlaubt in index.php.
+ *
+ * SEIT 1.2.23 FUEHRT DIE LISTE NUR NOCH DIE EIGENEN SPLITS. Vorlagen und die
+ * Splits anderer Benutzer standen bis dahin als eigene optgroup darin, obwohl
+ * sie nur ein Admin sieht und nur ueber admin_splits.php ansteuert; das
+ * Auswahlfeld war damit fuer den einen Benutzer, der es benutzt, unbrauchbar
+ * lang und fuer alle anderen unveraendert.
+ *
+ * Damit der Weg "Vorlage bearbeiten" weiter funktioniert, ist die Frage jetzt
+ * zweistufig, und der zweite Schritt ist die Pruefung, die es vorher nicht
+ * brauchte: Ein ausdrueckliches ?split= auf etwas ausserhalb der Liste wird
+ * geladen und gegen split_darf_bearbeiten() gehalten. Besteht es, kommt es als
+ * eigener Eintrag DAZU -- ein <select> muss seinen eigenen Zustand anzeigen
+ * koennen, sonst behauptet das Feld etwas anderes als die Seite darunter.
  */
 
 $benutzer = current_user();
 $userId   = (int)$benutzer['id'];
 $istAdmin = (int)$benutzer['is_admin'] === 1;
 
-// Die Splits, die dieser Benutzer bearbeiten darf, in der Reihenfolge, in der
-// sie im Auswahlfeld stehen sollen: erst die eigenen, dann -- fuer Admins --
-// der Katalog und die Splits der anderen.
+// Das Auswahlfeld: ausschliesslich die eigenen Splits. Siehe Kopfkommentar --
+// alles Fremde kommt nur ueber ein ausdrueckliches ?split= dazu, und dann
+// einzeln und geprueft.
 $waehlbar = [];
 foreach (splits_von($userId) as $sp) {
     $waehlbar[] = $sp + ['gruppe' => 'Meine Splits', 'zusatz' => ''];
-}
-if ($istAdmin) {
-    foreach (vorlagen() as $sp) {
-        $waehlbar[] = $sp + ['gruppe' => 'Vorlagen', 'zusatz' => ''];
-    }
-    foreach (db()->query(
-        'SELECT sp.id, sp.user_id, sp.name, sp.beschreibung, sp.sort_order,
-                u.name AS besitzer
-           FROM splits sp
-           JOIN users u ON u.id = sp.user_id
-          WHERE sp.user_id IS NOT NULL
-          ORDER BY u.name, sp.sort_order, sp.id'
-    ) as $sp) {
-        if ((int)$sp['user_id'] === $userId) {
-            continue;
-        }
-        $waehlbar[] = $sp + ['gruppe' => 'Andere Benutzer', 'zusatz' => (string)$sp['besitzer'] . ': '];
-    }
 }
 
 $gewaehlt = to_int_or_null($_GET['split'] ?? null);
@@ -67,6 +62,35 @@ foreach ($waehlbar as $sp) {
     if ((int)$sp['id'] === $gewaehlt) {
         $split = $sp;
         break;
+    }
+}
+
+// Ein ?split= ausserhalb der eigenen Liste: erlaubt, wenn der Aufrufer den
+// Split bearbeiten DARF -- also ein Admin auf einer Vorlage oder im Bestand
+// eines anderen. Der Weg dahin fuehrt ueber admin_splits.php ("Vorlage
+// bearbeiten") und ueber sonst nichts.
+//
+// Der Eintrag wird ANGEHAENGT und nicht bloss ausgewaehlt: Sonst stuende im
+// Auswahlfeld der erste eigene Split, waehrend die Seite darunter eine Vorlage
+// zeigt. Er steht am Ende, weil er der Ausnahmefall ist.
+if ($split === null && $gewaehlt !== null) {
+    $fremd = split_laden($gewaehlt);
+
+    if ($fremd !== null && split_darf_bearbeiten($fremd, $userId, $istAdmin)) {
+        if ($fremd['user_id'] === null) {
+            $fremd['gruppe'] = 'Vorlage';
+            $fremd['zusatz'] = '';
+        } else {
+            $stmt = db()->prepare('SELECT name FROM users WHERE id = ?');
+            $stmt->execute([(int)$fremd['user_id']]);
+            $besitzer = (string)($stmt->fetchColumn() ?: '');
+
+            $fremd['gruppe'] = 'Anderer Benutzer';
+            $fremd['zusatz'] = $besitzer === '' ? '' : $besitzer . ': ';
+        }
+
+        $waehlbar[] = $fremd;
+        $split      = $fremd;
     }
 }
 
@@ -240,6 +264,9 @@ require __DIR__ . '/lib/view_header.php';
     <noscript><button type="submit">Anzeigen</button></noscript>
 </form>
 
+<?php // Der Rueckweg gehoert dazu, seit die Vorlage nicht mehr im
+      // Auswahlfeld steht: Man kommt ueber einen Link aus dem Adminbereich
+      // hierher, und ohne diese Zeile fuehrt von hier keiner zurueck. ?>
 <?php if ($istVorlage): ?>
     <div class="karte hinweis-vorlage">
         <strong>Das ist eine Vorlage.</strong>
@@ -248,6 +275,18 @@ require __DIR__ . '/lib/view_header.php';
             bekommt eine <em>Kopie</em> — Änderungen hier wirken deshalb nur auf
             künftige Kopien und nicht auf jemanden, der sie schon gezogen hat.
         </p>
+        <p><a href="<?= h(base_path()) ?>/admin_splits.php">← Zurück zu den Vorlagen</a></p>
+    </div>
+<?php elseif ($besitzerId !== null && $besitzerId !== $userId): ?>
+    <?php // Der zweite Fall derselben Sorte: ein Admin im Bestand eines
+          // anderen. Ohne den Hinweis sieht die Seite aus wie die eigene, und
+          // der Rueckweg fehlt genauso. ?>
+    <div class="karte hinweis-vorlage">
+        <strong>Das ist der Split eines anderen Benutzers.</strong>
+        <p class="matt">
+            Was hier geändert wird, ändert sein Training — nicht deins.
+        </p>
+        <p><a href="<?= h(base_path()) ?>/admin_splits.php">← Zurück zu den Vorlagen</a></p>
     </div>
 <?php endif; ?>
 

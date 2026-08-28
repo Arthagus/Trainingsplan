@@ -348,7 +348,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/helpers.php` | `h()`, JSON-Envelope, Eingabenormalisierung, Zeitformate, zweisprachiger Übungsname |
 | `lib/csrf.php` | Token, `csrf_check()` für JSON und Formulare, `CSRF_FEHLER_CODE` — steckt in der Boilerplate **jeder** geschützten Seite |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
-| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Textausgabe `split_texte()`, **die zentrale Rechteprüfung** `split_zugriff_api()` — dazu der Vorlagenabgleich aus `1.2.11` (`vorlage_stand()`, `split_zuruecksetzen()`) und **zwei** Fingerabdrücke mit verschiedenem Zweck, siehe Fallstrick 24 |
+| `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Textausgabe `split_texte()`, **die zentrale Rechteregel** `split_darf_bearbeiten()` samt ihrem API-Zwilling `split_zugriff_api()` — dazu der Vorlagenabgleich aus `1.2.11` (`vorlage_stand()`, `split_zuruecksetzen()`), `fremde_splits()` für den Adminbereich und den Fingerabdruck `signaturen_bauen()` mit seinen **zwei Feldern** `inhalt`/`namen`, siehe Fallstrick 24 |
 | `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung — dazu `verwaiste_bilder()`/`verwaiste_bilder_loeschen()`, die einzige Stelle, die Dateien ohne Übung findet |
@@ -356,6 +356,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/view_header.php` / `view_footer.php` | Layout als Partial, inklusive Leisten-Stapel `#leisten` |
 | `lib/view_geraet_symbole.php` | SVG-Symbolvorrat + Beschriftungen, aus dem Header eingebunden |
 | `lib/view_bild_dialog.php` / `view_platzhalter.php` | Geteilte Bausteine für Übungsbilder — von `index.php` und dem Adminbereich gemeinsam benutzt |
+| `lib/view_split_karte.php` / `view_split_text_dialog.php` / `view_split_name_dialog.php` | Dasselbe für Splits: `split_liste()` samt Karte, der „Als Text"-Dialog und der zum Umbenennen — geteilt zwischen `splits.php` und `admin_splits.php` |
 
 **Die JSON-Endpunkte tragen ihren Gegenstand im Namen**, mit zwei Ausnahmen, die man
 kennen muss: `api/token.php` liefert ein frisches CSRF-Token (Fallstrick 23) und ist der
@@ -384,19 +385,62 @@ ins `UPDATE`-Statement, bevor man das erste Mal darauf schreibt (Fallstrick 22):
 `aktion_*`-Funktion lesen — sie prüfen die Eingabe und stehen damit gleich am Anfang.
 
 **`admin.php` ist der Einstieg in die Verwaltung und kann selbst nichts** (seit `1.2.2`):
-vier Kacheln zu `admin_exercises.php`, `admin_muscle_groups.php`, `admin_users.php` und
-`maintenance.php`, sonst nichts. Wer dort eine Funktion einbaut, hat eine fünfte
-Verwaltungsoberfläche neben den vieren, die es schon gibt. Der Menüpunkt *Admin* bleibt
-auch auf den Unterseiten hervorgehoben — die Liste dafür steht in `lib/view_header.php`
-und **muss mitwachsen**, wenn eine fünfte Adminseite dazukommt; sonst wirkt die Kopfzeile
-dort, als stünde man nirgends.
+fünf Kacheln, in dieser Reihenfolge — `admin_splits.php`, `admin_exercises.php`,
+`admin_muscle_groups.php`, `admin_users.php`, `maintenance.php` —, sonst nichts. **Die
+Reihenfolge ist eine Vorgabe des Benutzers** (2026-08-28) und steht als Reihenfolge des
+Arrays `$bereiche`; das Gitter füllt von links oben nach rechts unten. Wer dort eine Funktion einbaut, hat
+eine sechste Verwaltungsoberfläche neben den fünfen, die es schon gibt. Der Menüpunkt
+*Admin* bleibt auch auf den Unterseiten hervorgehoben — die Liste dafür steht in
+`lib/view_header.php` und **muss mitwachsen**, wenn eine weitere Adminseite dazukommt;
+sonst wirkt die Kopfzeile dort, als stünde man nirgends.
 
 **`splits.php` und `plans.php` sind seit `1.2.0` KEINE Adminseiten mehr** — trotz des
 Nachbarn `admin_exercises.php` und obwohl `plans.php` bis dahin `admin_plans.php` hieß.
 Jeder Benutzer verwaltet dort seine eigenen Splits und deren Pläne; was ein Admin
-zusätzlich darf (Vorlagen pflegen, fremde Splits bearbeiten), entscheidet
-`split_zugriff_api()` und **nicht** ein `require_admin()` am Seitenkopf. Wer eines
-ergänzt, sperrt die normalen Benutzer aus ihrem eigenen Bestand aus.
+zusätzlich darf, entscheidet `split_zugriff_api()` und **nicht** ein `require_admin()` am
+Seitenkopf. Wer eines ergänzt, sperrt die normalen Benutzer aus ihrem eigenen Bestand aus.
+
+**Seit `1.2.23` zeigen beide nur noch den EIGENEN Bestand, und zwar für jeden gleich** —
+ein Admin sieht dort dasselbe wie jeder andere. Der Vorlagenkatalog liegt auf
+`admin_splits.php` („Vorlagen"), und dort liegt auch der einzige verbliebene Weg zum
+Split eines anderen Benutzers. Drei Dinge, die daran hängen:
+
+- **`splits.php` hat statt der Vorlagenliste einen Kasten** *Vorlage übernehmen*:
+  Auswahlfeld, Planvorschau, *Zu mir kopieren* und *Als Text*. Wer dort eine
+  Verwaltungsfunktion ergänzt, hat die Trennung wieder aufgehoben, die der Umbau
+  hergestellt hat.
+- **Von den Splitkarten steht immer nur EINE offen** (seit `1.3.2`, beide Seiten,
+  `split_liste()`). Gerendert werden alle, die übrigen mit `[hidden]`; das Auswahlfeld im
+  Kartenkopf tauscht nur das Attribut. Kein Netzaufruf, kein Seitenaufbau, und es
+  funktioniert im Studio ohne Verbindung — die Daten stehen ohnehin schon in der Seite.
+
+  Drei Dinge, die daran hängen:
+
+  - **Das Auswahlfeld steht in JEDER Karte, jedes Mal mit derselben Liste.** Das ist
+    Absicht: Die sichtbare Karte trägt damit immer schon den richtigen Eintrag, und der
+    Wechsel ist ein bloßes Vertauschen von `[hidden]`. Ein einzelnes Feld über der Liste
+    bräuchte einen Gleichlauf zwischen Feld und Karte, und der läuft auseinander.
+  - **Die gewählte Karte wandert als `?split=` in die Adresse** (`replaceState`, nicht
+    `pushState` — der Wechsel ist keine Station für die Zurück-Taste). Ohne das stünde man
+    nach jeder Aktion wieder beim aktiven Split statt bei dem, den man gerade bearbeitet:
+    Diese Seiten laden nach jeder Änderung neu. Ein unbekannter Wert fällt auf die erste
+    Karte zurück — eine Seite ganz ohne sichtbare Karte wäre der schlechteste Ausgang, und
+    genau der entstünde nach einem Löschen.
+  - **Umbenannt wird im Dialog** (`splitUmbenennenFragen()`), nicht mehr im Kartenkopf —
+    dort sitzt jetzt das Auswahlfeld. Der Aufruf geht **nicht** über `splitAktion()`: Ein
+    zu langer Name antwortet mit 422, und der gehört im offenen Dialog gemeldet.
+    `splitAktion()` schriebe ihn an die Karte dahinter, also unter den Dialog. Bei genau
+    einem Split gibt es kein Auswahlfeld, sondern `.split-titel` — eine Liste mit einem
+    Eintrag ist dieselbe Sorte wirkungsloses Bedienelement wie ein Knopf, der nichts tut.
+- **Das Auswahlfeld in `plans.php` führt nur eigene Splits.** Ein `?split=` darüber
+  hinaus wird gegen `split_darf_bearbeiten()` geprüft und dann als **eigener Eintrag
+  angehängt** — ohne das zeigte das Feld einen anderen Split als die Seite darunter. Der
+  IDOR-Schutz ist damit **nicht mehr allein die Liste** (wie `$erlaubt` in `index.php`),
+  sondern Liste **plus** diese eine Prüfung.
+- **Die Regel steht in `split_darf_bearbeiten()`** (`lib/splits.php`) und nur dort;
+  `split_zugriff_api()` ruft sie auf und wählt bloß noch die Fehlermeldung. Zwei
+  Aufrufer beantworten dasselbe Nein verschieden — die API mit 403, die Seite mit einem
+  stillen Rückfall —, die Regel selbst darf deshalb trotzdem nur einmal dastehen.
 
 **`password.php` heißt „Konto" und trägt VIER Aufgaben** (§7.7): Passwort ändern,
 Benutzername ändern, Trainingsansicht (Expertenmodus und Satz-Vorbelegung) — und seit
@@ -1426,6 +1470,12 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     deshalb ausdrücklich **nicht** über `split_zugriff_api()`: Bearbeiten darf er sie,
     auswählen nicht.
 
+    **Seit `1.2.23` sieht man dem Ort an, welche der beiden Rollen man gerade hat:**
+    Der Katalog steht auf `admin_splits.php`, der eigene Bestand auf `splits.php`, und
+    „Zu mir kopieren" gibt es nur dort. Ein Admin, der eine Vorlage benutzen will, geht
+    denselben Weg wie jeder andere — das ist keine Bequemlichkeitsfrage, sondern die
+    sichtbare Form derselben Regel.
+
     **Es gibt keine Vererbung und kein automatisches Nachziehen.** Ändert der Admin die
     Vorlage, bleibt jede bestehende Kopie unberührt; ändert ein Benutzer seine Kopie,
     berührt das die Vorlage nicht. Das ist der Kern und gilt unverändert.
@@ -1456,12 +1506,40 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     - **Pläne werden nach REIHENFOLGE gepaart, nicht nach Namen.** Ein umbenannter Plan ist
       derselbe Plan an derselben Stelle; über die Namen zu paaren hieße, ihn zu löschen und
       neu anzulegen — und damit die Historie seiner Positionen zu kappen.
-    - **Zwei Fingerabdrücke, zwei Fragen.** `split_signaturen()` (**ohne** Namen) beantwortet
-      „ist das inhaltlich dasselbe Training" und steuert das Veröffentlichen-Angebot;
-      `split_abgleich_signaturen()` (**mit** Plannamen) beantwortet „sieht meine Kopie noch
-      aus wie die Vorlage" und steuert den Knopf. Der Name des **Splits** bleibt in beiden
-      draußen: Er gehört dem Benutzer, und ein Knopf, der nach einer eigenen Umbenennung
-      erschiene, wäre eine Falschmeldung.
+    - **Ein Fingerabdruck, zwei Felder** (`signaturen_bauen()`, seit `1.2.23`): `inhalt` ist
+      die Reihenfolge der Pläne und darin die der Übungen, `namen` sind die Plannamen.
+      **Allein `inhalt` entscheidet, ob der Knopf erscheint** — er steuert damit dasselbe
+      wie das Veröffentlichen-Angebot (`split_signaturen()` reicht ihn durch).
+
+      **Bis `1.2.22` zählten die Plannamen mit** (`split_abgleich_signaturen()`), und das
+      war zu grob: Wer seine Kopie „Tag A"/„Tag B" nennt, hat sein Training nicht geändert
+      — der Knopf erschien trotzdem und bot an, genau diese Beschriftung wieder
+      wegzunehmen. Auf Ansage des Benutzers (2026-08-28) sind die Namen jetzt eine
+      **zweite, eigene Frage**: `split_zuruecksetzen($id, $namen)` zieht sie nur auf
+      Wunsch mit, und die Oberfläche fragt vorher danach.
+
+      Drei Dinge, die daran hängen:
+
+      - **Ein `<dialog>` und kein `confirm`.** Die Frage ist zweiteilig geworden, und
+        `confirm` stellt genau eine. Zwei hintereinander wären zwei Klicks für eine
+        Entscheidung, und beim zweiten hält man die Sache schon für erledigt.
+      - **Das Kästchen erscheint nur, wenn die Namen wirklich auseinandergehen**
+        (`namen_weichen_ab` aus `vorlage_stand()`, als `data-namen-ab` am Knopf). Dieselbe
+        Regel wie beim Knopf selbst: Eine Frage ohne Folge lädt zum Ausprobieren ein. Und
+        weil es verborgen sein kann, prüft `splits.js` **beides** — verborgen *oder*
+        nicht angekreuzt heißt Nein; ein verstecktes Häkchen darf nicht zählen.
+      - **`namen` fehlt in der Nutzlast ⇒ nicht umbenennen.** Das Angleichen der
+        Beschriftung ist der Zusatzwunsch neben dem eigentlichen Zurückholen, und ein
+        nicht geäußerter Wunsch ist keiner. Das ist die **umgekehrte** Vorgabe zu `done`
+        in Fallstrick 18 — dort heißt „fehlt" ja; hier wäre das stiller Datenverlust.
+
+      **Die Folge, die man kennen muss:** Weichen *nur* die Plannamen ab, gibt es
+      überhaupt keinen Knopf — eine verbesserte Beschriftung aus der Vorlage lässt sich
+      dann nicht holen. Das ist die ausdrückliche Entscheidung des Benutzers und kein
+      Versehen.
+
+      Der Name des **Splits** bleibt in beiden Feldern draußen: Er gehört dem Benutzer, und
+      ein Knopf, der nach einer eigenen Umbenennung erschiene, wäre eine Falschmeldung.
     - **Gesperrt bei laufender Einheit** — derselbe Grund wie beim Umsortieren, nur schärfer:
       Hier könnte der Plan, auf dem gerade trainiert wird, ganz verschwinden.
     - **Die Herkunft lässt sich von Hand zuordnen** (`set_vorlage`). Ohne das bliebe die

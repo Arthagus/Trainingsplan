@@ -2130,6 +2130,22 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 
 .split-kopf { align-items: center; }
 
+/* Der Kartenkopf IST der Titel der Karte — bei mehreren Splits zugleich das
+   Feld, mit dem man zwischen ihnen wechselt (seit 1.3.2). Etwas kräftiger als
+   ein gewöhnliches Formularfeld, damit er als Überschrift gelesen wird und
+   nicht als Eingabe; die 16px aus der select-Grundregel bleiben, sonst zoomt
+   iOS beim Antippen. */
+.split-wechsel { font-weight: 600; }
+
+.split-titel {
+    font-size: 1.05rem;
+    /* Auf der Höhe des Auswahlfelds, damit eine Karte ohne Geschwister nicht
+       flacher steht als eine mit. */
+    display: flex;
+    align-items: center;
+    min-height: var(--tippziel);
+}
+
 .split-kopf .abzeichen {
     background: var(--gut);
     border-color: var(--gut);

@@ -30,6 +30,13 @@ require_admin();
 /** @var array<int, array{datei: string, titel: string, text: string}> */
 $bereiche = [
     [
+        'datei' => 'admin_splits.php',
+        'titel' => 'Vorlagen',
+        'text'  => 'Der Split-Katalog, aus dem sich jeder Benutzer bedient: '
+                 . 'anlegen, bearbeiten, aus einem Benutzer-Split '
+                 . 'veröffentlichen. Trainiert wird auf einer Vorlage nie.',
+    ],
+    [
         'datei' => 'admin_exercises.php',
         'titel' => 'Übungen',
         'text'  => 'Der Übungsbestand: anlegen, bearbeiten, Bilder hochladen, '
@@ -62,8 +69,10 @@ require __DIR__ . '/lib/view_header.php';
 ?>
 
 <p class="matt">
-    Alles, was man beim Training im Studio nicht braucht. Splits und Pläne
-    stehen weiterhin oben im Menü — die verwaltet jeder Benutzer selbst.
+    Alles, was man beim Training im Studio nicht braucht. <em>Splits</em> und
+    <em>Pläne</em> stehen weiterhin oben im Menü — dort verwaltet jeder
+    Benutzer seinen <strong>eigenen</strong> Bestand. Was für alle gilt, der
+    Vorlagenkatalog, liegt hier.
 </p>
 
 <div class="admin-gitter">

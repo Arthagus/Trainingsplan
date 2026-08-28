@@ -104,16 +104,18 @@ Fehlerquelle. Stattdessen zwei Partials `lib/view_header.php` und `lib/view_foot
 Trainingsplan/
 ├── index.php  index.js          # Handy-Ansicht: aktive Einheit / Planvorschlag
 ├── login.php  logout.php  password.php  history.php
-├── splits.php  splits.js       # Splits waehlen und kopieren -- fuer ALLE Benutzer
+├── splits.php  splits.js       # Der EIGENE Splitbestand -- fuer ALLE Benutzer
 ├── plans.php   plans.js        # Plaene eines Splits -- ebenfalls fuer alle
 ├── admin.php                   # Einstieg in die Verwaltung, nur Kacheln
+├── admin_splits.php  admin_splits.js   # Der Vorlagenkatalog, nur Admin
 ├── admin_users.php  admin_exercises.php
 ├── admin_muscle_groups.php  maintenance.php  download_backup.php
 ├── image.php                    # Bild-Ausliefer-Endpoint mit Path-Jail
 ├── api/    auth.php  session.php  log.php  swap.php  splits.php
 │           exercises.php  plans.php  users.php  muscle_groups.php
 ├── lib/    db.php  auth.php  csrf.php  helpers.php  upload.php  splits.php
-│           view_header.php  view_footer.php   (+ .htaccess: Require all denied)
+│           view_header.php  view_footer.php  view_split_karte.php
+│           view_split_text_dialog.php        (+ .htaccess: Require all denied)
 ├── assets/ style.css  app.js  sw.js  manifest.json  icon-192.png  icon-512.png
 ├── data/     trainingsplan.db          ← Volume, .htaccess gesperrt
 ├── uploads/  <zufallsname>.jpg         ← Volume, kein PHP-Handler
@@ -724,22 +726,40 @@ Rotation: „Push / Pull" sind zwei Pläne in einem Split, „Ganzkörper" die b
 nebeneinander und wechselt jederzeit zwischen ihnen; die Rotation läuft **je Split
 getrennt** weiter (§7.6).
 
-- **Die Seite heißt `splits.php` und ist für alle da**, nicht nur für Admins. Sie zeigt
-  zwei Listen: *Meine Splits* — der eigene Bestand, auf dem trainiert wird — und
-  *Vorlagen*, den Katalog.
+- **Es gibt zwei Seiten, und die Trennlinie ist der Besitz** (seit `1.2.23`):
+  `splits.php` im Hauptmenü zeigt **nur den eigenen Bestand** — für jeden gleich, ein
+  Admin sieht dort dasselbe wie jeder andere. Der Katalog und alles, was man an ihm
+  tut, liegt auf `admin_splits.php` im Adminbereich.
+
+  Bis `1.2.22` stand beides auf `splits.php`. Für einen normalen Benutzer war die
+  halbe Seite ein Katalog mit genau einem erlaubten Knopf darin; für einen Admin war
+  dieselbe Seite gleichzeitig Selbstbedienung und Verwaltung. Eine Seite, auf der zwei
+  Rollen zwei verschiedene Dinge tun, beantwortet keine der beiden Fragen gut.
 - **Eine Vorlage wird beim Auswählen kopiert, nicht verwendet.** „Zu mir kopieren" legt
   Split, Pläne und Positionen neu an; ab da gehört die Kopie dem Benutzer allein. Er
   darf darin tauschen (einmalig wie dauerhaft), Übungen entfernen, ergänzen und
   umsortieren — nichts davon wirkt auf die Vorlage oder auf andere Benutzer, und eine
   spätere Änderung des Admins an der Vorlage wirkt nicht auf die Kopie.
-- **Weicht eine Kopie von ihrer Vorlage ab, trägt ihre Karte den Knopf *Auf Vorlage
-  zurücksetzen*.** Er bringt Pläne, deren Reihenfolge, Namen und Übungen auf den Stand
+- **Weicht eine Kopie INHALTLICH von ihrer Vorlage ab, trägt ihre Karte den Knopf *Auf
+  Vorlage zurücksetzen*.** Er bringt Pläne, deren Reihenfolge und Übungen auf den Stand
   der Vorlage; der **Name des Splits bleibt der des Benutzers**. Vorher fragt die
   Oberfläche nach und nennt dabei zweierlei: dass eigene Anpassungen verlorengehen, und
   dass Übungen, die es in der Vorlage nicht mehr gibt, ihren Bezug zwischen bereits
   protokollierten Sätzen und der Planposition verlieren. Während einer laufenden Einheit
   ist der Knopf gesperrt. Daneben steht ein Auswahlfeld **Vorlage**, mit dem sich die
   Herkunft setzen und lösen lässt.
+- **Inhaltlich heißt: Anzahl und Reihenfolge der Pläne, und darin die Übungen** — ihre
+  Anzahl, ihre Reihenfolge und welche es sind. **Die Plannamen zählen ausdrücklich nicht
+  mit** (seit `1.2.23`): Wer seine Kopie „Tag A"/„Tag B" nennt, hat sein Training nicht
+  geändert, und ein Knopf, der ihm genau diese Beschriftung wieder wegnehmen will, ist
+  eine Falschmeldung. Solange nur die Namen abweichen, erscheint er deshalb **gar nicht**.
+- **Erscheint er, sind die Plannamen eine eigene Frage.** Die Rückfrage ist ein Dialog mit
+  dem Kästchen *Auch die Namen der Pläne auf die Vorlage zurücksetzen* — **unangekreuzt
+  vorbelegt**, denn die eigene Beschriftung ist die, die der Benutzer selbst gewählt hat.
+  Das Kästchen steht nur da, wenn die Namen wirklich auseinandergehen; sind sie ohnehin
+  gleich, wäre es eine Frage ohne Folge. **Ein Plan, den es in der Kopie noch nicht gibt,
+  entsteht in jedem Fall unter dem Namen der Vorlage** — es gibt keinen eigenen, den man
+  behalten könnte.
 - **Auf einer Vorlage trainiert niemand**, auch kein Admin. Sie ist Katalog, kein
   Bestand — sonst schriebe der erste dauerhafte Tausch in den Bestand aller.
 - **Jede Karte hat einen Knopf *Als Text*.** Er zeigt den Split als reinen Text in einem
@@ -774,20 +794,51 @@ getrennt** weiter (§7.6).
   - Lässt der Browser das Kopieren nicht zu, wird der Text **markiert** und ein Hinweis
     nennt `Strg+C`. Er steht sichtbar im Dialog — ein Fehlschlag darf nicht in einer
     Sackgasse enden.
-  - Der Knopf steht an **beiden** Listen, auch an einer Vorlage: Man will einen Split
-    auch besprechen können, bevor man ihn zu sich kopiert.
+  - Der Knopf steht an **jedem** Split, auch an einer Vorlage — auf `splits.php` an
+    der eigenen Karte und im Kasten *Vorlage übernehmen*, auf `admin_splits.php` an
+    der Katalogkarte. Man will einen Split auch besprechen können, bevor man ihn zu
+    sich kopiert.
 - **Wer darf was:** Jeder Benutzer legt eigene Splits an, benennt sie um, dupliziert und
-  löscht sie und bearbeitet ihre Pläne. **Vorlagen** legt und bearbeitet nur ein Admin.
-  Ein Admin darf zusätzlich die Splits anderer Benutzer bearbeiten (Nachfolger des
-  früheren Benutzer-Dropdowns).
-- **`splits.php` hat für einen Admin drei Abschnitte**, und ihre Zuschnitte sind
+  löscht sie und bearbeitet ihre Pläne — auf `splits.php`, und ein Admin dort genauso
+  wie jeder andere. **Vorlagen** legt und bearbeitet nur ein Admin, und zwar auf
+  `admin_splits.php`; ebendort darf er auch die Splits anderer Benutzer zum Bearbeiten
+  aufrufen (Nachfolger des früheren Benutzer-Dropdowns).
+- **`splits.php` zeigt drei Dinge, und alle drei gehören dem Aufrufer:**
+  1. **Meine Splits** — der eigene Bestand mit allem, was Verwaltung ausmacht:
+     trainieren, Pläne bearbeiten, umbenennen, duplizieren, löschen, dazu Herkunft und
+     *Auf Vorlage zurücksetzen*. **Sichtbar ist immer genau eine Karte** (seit `1.3.2`):
+     ohne Weiteres die des aktiven Splits, und im Kartenkopf steht statt des Namens ein
+     **Auswahlfeld**, mit dem man zwischen den eigenen Splits wechselt. Umbenannt wird
+     seither in einem überblendeten Dialog hinter *Umbenennen*. Hat jemand nur einen
+     Split, steht dort der Name und kein Auswahlfeld — es gäbe nichts zu wählen.
+  2. **Vorlage übernehmen** — ein Kasten mit **Auswahlfeld** über den Katalog, der
+     Planvorschau der gewählten Vorlage und zwei Knöpfen: *Zu mir kopieren* und
+     *Als Text*. Bewusst keine Kartenliste: Zu tun gibt es hier genau eines, und die
+     Karten boten einem normalen Benutzer ohnehin nur diesen einen Knopf. Gibt es
+     keine Vorlage, fehlt der Kasten ganz.
+  3. **Split anlegen** — ein leerer eigener Split.
+- **`admin_splits.php` („Vorlagen") hat drei Abschnitte**, und ihre Zuschnitte sind
   verschieden, weil die Handlungen es sind:
-  1. **Meine Splits** — der eigene Bestand, als Kartenliste mit allem, was Verwaltung
-     ausmacht: trainieren, Pläne bearbeiten, umbenennen, duplizieren, löschen.
-  2. **User Splits** *(nur Admin)* — ein **Pulldown** über die persönlichen Splits
+  1. **Vorlagen** — der Katalog, in derselben Darstellung wie *Meine Splits*: eine Karte
+     offen, im Kopf das Auswahlfeld über den ganzen Katalog. Daran *Umbenennen* (Dialog,
+     wie beim eigenen Split), *Vorlage bearbeiten*, *Duplizieren*, *Als Text*, *Löschen*. Darunter ein Formular **Vorlage anlegen** für einen leeren
+     Katalogeintrag.
+     - **Kein *Zu mir kopieren*.** Das ist keine Verwaltung, sondern Selbstbedienung,
+       und dafür ist `splits.php` da — eine Handlung, ein Ort. Ein Admin geht denselben
+       Weg wie jeder andere.
+     - **Duplizieren legt eine zweite Vorlage an**, keine persönliche Kopie. Es ist der
+       Weg zu einer **Variante im Katalog**: duplizieren, umbenennen, dann *Vorlage
+       bearbeiten*. Ohne ihn führte der einzige Weg über eine persönliche Kopie und ein
+       erneutes Veröffentlichen.
+     - **Duplizieren fragt nicht nach dem Namen.** Die Kopie heißt `… (Kopie)`, und beim
+       zweiten Mal `… (Kopie) (2)`. Der Grund: Beim Duplizieren weiß man noch gar nicht,
+       wie die Variante heißen soll — das ergibt sich erst beim Bearbeiten. Eine
+       Rückfrage, die man mit dem Vorschlag bestätigt, ist keine Frage, sondern ein Klick
+       mehr. Umbenannt wird danach an der Karte.
+  2. **Aus einem Benutzer-Split** — ein **Pulldown** über die persönlichen Splits
      **aller** Benutzer, die eigenen eingeschlossen, und darunter **genau ein** Knopf:
      *Als Vorlage übernehmen*. Bewusst keine Kartenliste und bewusst kein Umbenennen
-     oder Löschen — das sind fremde persönliche Splits, und die Seite soll nur einen
+     oder Löschen — das sind fremde persönliche Splits, und der Abschnitt soll nur einen
      einzigen Zweck erfüllen: aus einem davon eine Vorlage machen.
      - **Was inhaltlich schon im Katalog steht, erscheint nicht.** Verglichen wird
        allein der Inhalt — die Reihenfolge der Pläne und darin die der Übungen —,
@@ -799,27 +850,33 @@ getrennt** weiter (§7.6).
        veröffentlichen.
      - Nach dem Veröffentlichen verschwindet der Split von selbst aus dem Pulldown:
        Seine Signatur entspricht jetzt der neuen Vorlage.
-  3. **Vorlagen** — der Katalog. *Zu mir kopieren* für alle; für Admins zusätzlich
-     *Umbenennen* (der Name steht dann als Eingabefeld da, wie beim eigenen Split),
-     *Vorlage bearbeiten*, *Duplizieren* und *Löschen*.
-     - **Duplizieren legt eine zweite Vorlage an**, keine persönliche Kopie — dafür steht
-       *Zu mir kopieren* daneben. Es ist der Weg zu einer **Variante im Katalog**:
-       duplizieren, umbenennen, dann *Vorlage bearbeiten*. Ohne ihn führte der einzige
-       Weg über eine persönliche Kopie und ein erneutes Veröffentlichen.
-     - **Duplizieren fragt nicht nach dem Namen.** Die Kopie heißt `… (Kopie)`, und beim
-       zweiten Mal `… (Kopie) (2)`. Der Grund: Beim Duplizieren weiß man noch gar nicht,
-       wie die Variante heißen soll — das ergibt sich erst beim Bearbeiten. Eine
-       Rückfrage, die man mit dem Vorschlag bestätigt, ist keine Frage, sondern ein Klick
-       mehr. Umbenannt wird danach an der Karte.
+  3. **Splits anderer Benutzer** — ein Pulldown über die persönlichen Splits der
+     anderen, nach Besitzer gruppiert, und ein Knopf *Pläne bearbeiten*, der auf
+     `plans.php?split=…` führt. Er trägt den einen Fall, den ein Admin zusätzlich
+     darf, und ist seit `1.2.23` der **einzige** Weg dorthin.
+     - **Diese Liste ist ungefiltert**, anders als die darüber, und der Unterschied ist
+       die Frage: Dort geht es darum, was sich noch veröffentlichen *lässt*, hier
+       darum, was es *gibt*. Ein Split ohne Plan ist nichts zum Veröffentlichen, aber
+       sehr wohl etwas zum Bearbeiten — er ist sogar der wahrscheinlichste Grund,
+       warum jemand um Hilfe bittet. Zwei Pulldowns mit verschiedenem Inhalt sind
+       deshalb richtig; ein einziges, das mal das eine und mal das andere meint, wäre
+       keins.
 - **Veröffentlichen ist eine Kopie**, kein Verschieben: Der Benutzer behält seinen Stand
   unverändert und wird von späteren Änderungen an der Vorlage nicht berührt. Der Name im
   Katalog wird beim Veröffentlichen eigens erfragt — er ist eine öffentliche Beschriftung
   und muss nicht heißen wie der private Split.
 - Die Planverwaltung selbst heißt seit `1.2.0` **`plans.php`** (vorher `admin_plans.php`)
-  und bearbeitet **einen Split**, gewählt über das Feld *Angezeigter Split*: erst die
-  eigenen Splits, für Admins darunter die Vorlagen und die Splits der anderen. Ein
-  unbekannter oder fremder `?split=`-Wert fällt zurück — die Liste selbst ist der
-  IDOR-Schutz, wie `$erlaubt` in `index.php`.
+  und bearbeitet **einen Split**, gewählt über das Feld *Angezeigter Split*. Das Feld
+  führt seit `1.2.23` **nur die eigenen Splits** — auch für einen Admin. Ein unbekannter
+  oder fremder `?split=`-Wert fällt auf den aktiven Split zurück; die Liste selbst ist
+  der IDOR-Schutz, wie `$erlaubt` in `index.php`.
+- **Ein ausdrückliches `?split=` außerhalb dieser Liste ist erlaubt, wenn der Aufrufer
+  den Split bearbeiten darf** — also ein Admin auf einer Vorlage oder im Bestand eines
+  anderen. Beide Wege dorthin führen über `admin_splits.php`. Der Split kommt dann als
+  **eigener Eintrag zur Liste dazu** und wird ausgewählt: Ein Auswahlfeld muss seinen
+  eigenen Zustand anzeigen können, sonst stünde dort ein anderer Name als in der Seite
+  darunter. Dazu erscheint eine Hinweiskarte (*Das ist eine Vorlage* bzw. *Das ist der
+  Split eines anderen Benutzers*) mit dem Rückweg in den Adminbereich.
 - **Ohne `?split=` steht das Feld auf dem Split, der für den Aufrufer gerade aktiv ist**
   (seit `1.2.12`) — also auf dem, mit dem er trainiert, und nicht auf dem ersten seiner
   Liste. Wer über die Kopfzeile auf *Pläne* geht, hat den im Sinn. Ein ausdrückliches
@@ -1668,13 +1725,17 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
     starten → **404**, auch als Admin; als Nicht-Admin eine Übung in einer Vorlage
     hinzufügen, dort dauerhaft tauschen oder protokollieren → je **403**; eine Vorlage als
     aktiven Split wählen → **403** mit dem Hinweis „bitte zuerst Zu mir kopieren".
-13. **Splits** (§6.4): Admin legt die Vorlage *Push / Pull* mit zwei Plänen an. Benutzer B
-    kopiert sie zu sich, tauscht darin eine Übung dauerhaft und entfernt eine Position →
-    **die Vorlage bleibt unverändert**. Danach ändert der Admin die Vorlage → **Bs Kopie
-    bleibt unverändert**. B kopiert ein zweites Mal → die Kopie heißt *Push / Pull (2)*
-    und steht neben der ersten. Gegenprobe zur Rotation: In Split 1 *Push* trainieren und
-    beenden → Vorschlag *Pull*; auf Split 2 wechseln, dort *Push* trainieren → Vorschlag
-    dort *Pull*; zurück auf Split 1 → Vorschlag weiterhin **Pull**, nicht Push.
+13. **Splits** (§6.4): Admin legt auf *Admin → Vorlagen* die Vorlage *Push / Pull* mit
+    zwei Plänen an. Benutzer B übernimmt sie auf *Splits*, tauscht darin eine Übung
+    dauerhaft und entfernt eine Position → **die Vorlage bleibt unverändert**. Danach
+    ändert der Admin die Vorlage → **Bs Kopie bleibt unverändert**. B übernimmt ein
+    zweites Mal → die Kopie heißt *Push / Pull (2)* und steht neben der ersten.
+    Gegenprobe zur Trennung der Seiten: **B sieht auf *Splits* nur seine eigenen Karten**,
+    und der Admin dort ebenfalls nur seine eigenen — der Katalog steht bei beiden
+    ausschließlich als Auswahlfeld *Vorlage übernehmen*. Gegenprobe zur Rotation: In
+    Split 1 *Push* trainieren und beenden → Vorschlag *Pull*; auf Split 2 wechseln, dort
+    *Push* trainieren → Vorschlag dort *Pull*; zurück auf Split 1 → Vorschlag weiterhin
+    **Pull**, nicht Push.
 14. **Migration und Restore** (§4): Eine Sicherung von vor `1.2.0` einspielen → jeder
     Benutzer bekommt automatisch einen Split *Meine Pläne* mit seinen bisherigen Plänen in
     unveränderter Reihenfolge, Historie und Gewichte sind vollständig, und die Rotation

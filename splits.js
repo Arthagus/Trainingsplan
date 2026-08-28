@@ -1,43 +1,20 @@
 'use strict';
 
 /**
- * Workout-Splits (§6.4, §7.6).
+ * Workout-Splits (§6.4, §7.6) -- der eigene Bestand.
+ *
+ * Seit 1.2.23 liegt die Vorlagenverwaltung auf admin_splits.php; hier bleibt,
+ * was dem Aufrufer gehoert, plus der Kasten, mit dem er sich eine Vorlage
+ * kopiert.
  *
  * Die Seite laedt nach jeder Aenderung neu, statt die Liste im Browser
- * nachzufuehren -- dieselbe Entscheidung wie in plans.js. Was sich hier
- * aendert, wirkt an mehreren Stellen zugleich (Rotationsvorschau, aktiver
- * Split, Plan-Namen), und eine zweite Fassung dieser Zusammenhaenge im JS
- * waere genau die Dublette, die spaeter abweicht.
+ * nachzufuehren -- dieselbe Entscheidung wie in plans.js, ausgeschrieben bei
+ * splitAktion() in assets/app.js.
  */
 
 (() => {
-    const ENDPUNKT = 'api/splits.php';
-
-    /** Schickt eine Aktion und laedt neu; Fehler landen an der Zeile. */
-    async function senden(zeile, nutzlast, knopf) {
-        const fehlerFeld = zeile ? qs('.zeilen-fehler', zeile) : null;
-        if (fehlerFeld) {
-            fehlerFeld.hidden = true;
-            fehlerFeld.textContent = '';
-        }
-        if (knopf) knopf.disabled = true;
-
-        try {
-            await apiFetch(ENDPUNKT, { body: nutzlast });
-            window.location.reload();
-        } catch (fehler) {
-            if (knopf) knopf.disabled = false;
-            // Die Sperre bei laufendem Training und der 403 auf eine Vorlage
-            // erklaeren sich in einem ganzen Satz -- deshalb an der Zeile und
-            // nicht als fluechtige Meldung.
-            if (fehlerFeld) {
-                fehlerFeld.textContent = fehler.message;
-                fehlerFeld.hidden = false;
-            } else {
-                meldung(fehler.message, 'fehler');
-            }
-        }
-    }
+    // Zwischen den Karten umschalten (§6.4, seit 1.3.2).
+    splitWechselVerdrahten();
 
     // --- Neuen Split anlegen ------------------------------------------------
     const neu = qs('#split-neu');
@@ -50,15 +27,10 @@
             fehler.textContent = '';
 
             const feld = qs('input[name="name"]', neu);
-            const vorlage = qs('#split_vorlage');
 
             try {
-                await apiFetch(ENDPUNKT, {
-                    body: {
-                        action: 'create',
-                        name: feld.value,
-                        vorlage: vorlage ? vorlage.checked : false,
-                    },
+                await apiFetch('api/splits.php', {
+                    body: { action: 'create', name: feld.value },
                 });
                 window.location.reload();
             } catch (f) {
@@ -69,54 +41,45 @@
         });
     }
 
-    // --- User Splits: aus einem fremden oder eigenen Split eine Vorlage -----
+    // --- Vorlage uebernehmen (§6.4) -----------------------------------------
     //
-    // Ein Pulldown statt einer Kartenliste, und das ist der Unterschied in der
-    // Sache: Hier wird nichts verwaltet, hier wird genau eine Handlung
-    // ausgeloest. Loeschen und Umbenennen gibt es bewusst nicht -- das sind die
-    // persoenlichen Splits anderer Leute.
-    const kandidat = qs('#kandidat');
-    if (kandidat) {
-        const vorschau = qs('#kandidat-plaene');
-        const knopf    = qs('#kandidat-veroeffentlichen');
-        const kasten   = qs('#kandidaten');
-        const fehler   = qs('.zeilen-fehler', kasten);
+    // Ein Auswahlfeld statt einer Kartenliste, und das ist der Unterschied in
+    // der Sache: Hier wird nichts verwaltet, hier wird genau eine Handlung
+    // ausgeloest. Bearbeiten, umbenennen und loeschen einer Vorlage liegen auf
+    // admin_splits.php -- das ist der Katalog fuer alle, nicht der eigene
+    // Bestand.
+    const wahl = qs('#vorlage-wahl');
+    if (wahl) {
+        const vorschau = qs('#vorlage-plaene');
+        const kasten   = qs('#vorlage-uebernehmen');
+        const kopieren = qs('#vorlage-kopieren');
+        const alsText  = qs('#vorlage-text');
 
         const zeigen = () => {
-            const opt = kandidat.selectedOptions[0];
+            const opt = wahl.selectedOptions[0];
             vorschau.textContent = opt ? (opt.dataset.plaene || 'Noch kein Plan darin.') : '';
         };
-        kandidat.addEventListener('change', zeigen);
+        wahl.addEventListener('change', zeigen);
         zeigen();
 
-        knopf.addEventListener('click', async () => {
-            const opt = kandidat.selectedOptions[0];
+        kopieren.addEventListener('click', () => {
+            const opt = wahl.selectedOptions[0];
             if (!opt) return;
 
-            // Rueckfrage, weil das Ergebnis fuer ALLE sichtbar wird -- und weil
-            // der Name im Katalog anders lauten soll als der private. Der
-            // Vorschlag ist deshalb der Splitname OHNE den Benutzer davor.
-            const wunsch = window.prompt(
-                'Als Vorlage für alle veröffentlichen. Unter welchem Namen?\n\n'
-                + 'Es entsteht eine Kopie — der Split des Benutzers bleibt unverändert '
-                + 'und wird von späteren Änderungen an der Vorlage nicht berührt.',
+            // Keine Rueckfrage: Kopieren legt etwas Neues an und nimmt
+            // niemandem etwas weg. Wer sich vertut, loescht die Kopie an ihrer
+            // Karte wieder.
+            splitAktion(kasten, { action: 'copy', id: Number(opt.value) }, kopieren);
+        });
+
+        alsText.addEventListener('click', () => {
+            const opt = wahl.selectedOptions[0];
+            if (!opt) return;
+
+            splitTextZeigen(
+                qs('.split-text-inhalt[data-id="' + Number(opt.value) + '"]', kasten),
                 opt.dataset.name || ''
             );
-            if (wunsch === null) return;
-
-            fehler.hidden = true;
-            fehler.textContent = '';
-            knopf.disabled = true;
-            try {
-                await apiFetch(ENDPUNKT, {
-                    body: { action: 'publish', id: Number(opt.value), name: wunsch },
-                });
-                window.location.reload();
-            } catch (f) {
-                knopf.disabled = false;
-                fehler.textContent = f.message;
-                fehler.hidden = false;
-            }
         });
     }
 
@@ -126,85 +89,37 @@
         if (!zeile) return;
 
         const id = Number(zeile.dataset.id);
-        const name = qs('.split-name', zeile)?.value
-            ?? qs('strong', zeile)?.textContent.trim()
-            ?? '';
+        // data-name und nicht mehr ein Eingabefeld: Im Kartenkopf sitzt seit
+        // 1.3.2 das Auswahlfeld, der Name steht am <li>.
+        const name = zeile.dataset.name || '';
 
         const alsText = e.target.closest('.split-text');
         if (alsText) {
-            textZeigen(zeile, name);
+            splitTextZeigen(qs('.split-text-inhalt', zeile), name);
             return;
         }
 
         const aktivieren = e.target.closest('.split-aktivieren');
         if (aktivieren) {
-            senden(zeile, { action: 'activate', id }, aktivieren);
+            splitAktion(zeile, { action: 'activate', id }, aktivieren);
             return;
         }
 
         const speichern = e.target.closest('.split-speichern');
         if (speichern) {
-            senden(zeile, { action: 'rename', id, name }, speichern);
-            return;
-        }
-
-        const kopieren = e.target.closest('.split-kopieren');
-        if (kopieren) {
-            senden(zeile, { action: 'copy', id }, kopieren);
+            splitUmbenennenFragen(zeile, 'Split umbenennen');
             return;
         }
 
         const duplizieren = e.target.closest('.split-duplizieren');
         if (duplizieren) {
-            senden(zeile, { action: 'copy', id }, duplizieren);
-            return;
-        }
-
-        const vorlageDuplizieren = e.target.closest('.vorlage-duplizieren');
-        if (vorlageDuplizieren) {
-            // Eine zweite VORLAGE, nicht eine persoenliche Kopie -- deshalb
-            // 'publish' und nicht 'copy'.
-            //
-            // OHNE Rueckfrage nach dem Namen: Beim Duplizieren weiss man noch
-            // nicht, wie die Variante heissen soll, das ergibt sich erst beim
-            // Bearbeiten. Der Server haengt "(Kopie)" an; umbenannt wird
-            // danach am Namensfeld der Karte. Eine Rueckfrage, die man mit dem
-            // Vorschlag bestaetigt, ist keine Frage, sondern ein Klick mehr.
-            senden(zeile, { action: 'publish', id }, vorlageDuplizieren);
+            splitAktion(zeile, { action: 'copy', id }, duplizieren);
             return;
         }
 
         const zuruecksetzen = e.target.closest('.split-zuruecksetzen');
         if (zuruecksetzen) {
-            const vorlage = qs('.split-vorlage', zeile);
-            const wahl    = vorlage ? vorlage.options[vorlage.selectedIndex] : null;
-
-            // Die Vorschau kommt von der VORLAGENKARTE und nicht von der
-            // eigenen: Gefragt ist, wie der Split danach aussieht, nicht wie
-            // er jetzt aussieht. Beide Karten stehen auf derselben Seite.
-            const vorlageId = vorlage ? Number(vorlage.value) : 0;
-            const quelle    = vorlageId ? qs('.split[data-id="' + vorlageId + '"]') : null;
-            const plaene    = quelle ? (qs('.split-plaene', quelle)?.textContent.trim() ?? '') : '';
-
-            // Die Rueckfrage nennt BEIDE Folgen, und die zweite ist die, die
-            // man nicht erwartet: Eigene Anpassungen sind weg -- damit rechnet
-            // man --, aber eine Uebung, die es in der Vorlage nicht mehr gibt,
-            // verliert ausserdem den Bezug ihrer bereits protokollierten
-            // Saetze zur Planposition (ON DELETE SET NULL). Die Saetze selbst
-            // bleiben im Verlauf stehen, nur ihre Position ist danach leer.
-            if (!window.confirm(
-                'Den Split „' + name + '“ auf die Vorlage '
-                + (wahl ? '„' + wahl.textContent.trim() + '“ ' : '')
-                + 'zurücksetzen?\n\n'
-                + (plaene ? 'Danach: ' + plaene + '\n\n' : '')
-                + 'Eigene Änderungen an Plänen und Übungen dieses Splits gehen dabei '
-                + 'verloren. Bereits protokollierte Einheiten bleiben im Verlauf '
-                + 'stehen; bei Übungen, die aus der Vorlage verschwunden sind, '
-                + 'fehlt danach die Zuordnung zur Planposition.'
-            )) {
-                return;
-            }
-            senden(zeile, { action: 'reset', id }, zuruecksetzen);
+            resetFragen(zeile, name, zuruecksetzen);
             return;
         }
 
@@ -217,9 +132,71 @@
             )) {
                 return;
             }
-            senden(zeile, { action: 'delete', id }, loeschen);
+            splitAktion(zeile, { action: 'delete', id }, loeschen);
         }
     });
+
+    // --- Rückfrage vor dem Zurücksetzen (§6.4) ------------------------------
+    //
+    // Ein Dialog statt window.confirm, seit die Frage zweiteilig ist (1.2.23):
+    // "Zuruecksetzen?" und "auch die Plannamen?". Zwei confirm hintereinander
+    // waeren zwei Klicks fuer eine Entscheidung, und beim zweiten haelt man
+    // die Sache schon fuer erledigt.
+
+    /** Merkt sich, worauf ein "Zurücksetzen" im Dialog wirken soll. */
+    let resetZiel = null;
+
+    /**
+     * Öffnet die Rückfrage für eine Karte.
+     *
+     * Die Vorschau beschreibt, wie der Split DANACH aussieht, gehört also zur
+     * Vorlage. Bis 1.2.22 stand die als Karte auf derselben Seite und wurde
+     * dort abgelesen; seit sie das nicht mehr tut, trägt die <option> des
+     * Herkunftsfelds den Wert (data-plaene, server-gerendert wie zuvor).
+     */
+    function resetFragen(zeile, name, knopf) {
+        const dialog = qs('#reset-dialog');
+        if (!dialog) return;
+
+        const feld    = qs('.split-vorlage', zeile);
+        const wahlOpt = feld ? feld.options[feld.selectedIndex] : null;
+        const plaene  = wahlOpt ? (wahlOpt.dataset.plaene || '') : '';
+
+        resetZiel = { zeile, knopf, id: Number(zeile.dataset.id) };
+
+        qs('#reset-titel').textContent = 'Den Split „' + name + '“ auf die Vorlage '
+            + (wahlOpt ? '„' + wahlOpt.textContent.trim() + '“ ' : '')
+            + 'zurücksetzen?';
+        qs('#reset-danach').textContent = plaene ? 'Danach: ' + plaene : '';
+        qs('#reset-danach').hidden = plaene === '';
+
+        // Das Kästchen nur, wenn die Plannamen wirklich auseinandergehen --
+        // sonst stünde dort eine Frage ohne Folge. Jedes Mal frisch
+        // unangekreuzt: Die eigene Beschriftung ist die, die der Benutzer
+        // gewählt hat, und der Knopf heißt nicht "alles angleichen".
+        const namenAb = knopf.dataset.namenAb === '1';
+        qs('#reset-namen-zeile').hidden = !namenAb;
+        qs('#reset-namen').checked = false;
+
+        dialog.showModal();
+    }
+
+    const resetDialog = qs('#reset-dialog');
+    if (resetDialog) {
+        qs('#reset-abbrechen').addEventListener('click', () => resetDialog.close());
+
+        qs('#reset-los').addEventListener('click', () => {
+            if (resetZiel === null) return;
+
+            // Das Kästchen kann ausgeblendet sein -- dann ist die Antwort
+            // "nein", und zwar unabhängig davon, was zuletzt darin stand.
+            const namen = !qs('#reset-namen-zeile').hidden && qs('#reset-namen').checked;
+
+            const { zeile, knopf, id } = resetZiel;
+            resetDialog.close();
+            splitAktion(zeile, { action: 'reset', id, namen }, knopf);
+        });
+    }
 
     // --- Herkunft zuordnen (§6.4) -------------------------------------------
     //
@@ -239,55 +216,10 @@
         const zeile = feld.closest('.split[data-id]');
         if (!zeile) return;
 
-        senden(zeile, {
+        splitAktion(zeile, {
             action: 'set_vorlage',
             id: Number(zeile.dataset.id),
             vorlage_id: Number(feld.value),
         }, null);
     });
-
-    // --- Split als Text -----------------------------------------------------
-
-    /**
-     * Zeigt den Text der Karte im Dialog.
-     *
-     * Der Text kommt aus der Karte selbst (<pre class="split-text-inhalt">),
-     * nicht aus einem Netzaufruf: Das Schreiben in die Zwischenablage muss in
-     * derselben Benutzeraktion stattfinden wie der Klick, und ein await auf
-     * einen fetch bricht diesen Zusammenhang in strengeren Browsern.
-     */
-    function textZeigen(zeile, name) {
-        const dialog = qs('#text-dialog');
-        const quelle = qs('.split-text-inhalt', zeile);
-        if (!dialog || !quelle) return;
-
-        qs('#text-titel').textContent = name ? 'Split „' + name + '“ als Text' : 'Split als Text';
-        qs('#text-inhalt').value = quelle.textContent;
-        qs('#text-hinweis').textContent = '';
-        dialog.showModal();
-    }
-
-    const textDialog = qs('#text-dialog');
-    if (textDialog) {
-        const feld    = qs('#text-inhalt');
-        const hinweis = qs('#text-hinweis');
-
-        qs('#text-schliessen').addEventListener('click', () => textDialog.close());
-
-        qs('#text-kopieren').addEventListener('click', async () => {
-            // Zwei Wege, und der zweite wird wirklich gebraucht:
-            // navigator.clipboard gibt es nur im sicheren Kontext, und selbst
-            // dort kann die Berechtigung fehlen. Dann bleibt das Markieren --
-            // der Text steht ja sichtbar da, es fehlt nur noch Strg+C.
-            try {
-                await navigator.clipboard.writeText(feld.value);
-                hinweis.textContent = 'Kopiert.';
-            } catch (fehler) {
-                feld.focus();
-                feld.select();
-                hinweis.textContent = 'Der Browser lässt das Kopieren nicht zu — '
-                    + 'der Text ist markiert, bitte mit Strg+C bzw. ⌘+C kopieren.';
-            }
-        });
-    }
 })();

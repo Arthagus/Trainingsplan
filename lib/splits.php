@@ -250,48 +250,37 @@ function split_texte(array $splitIds): array {
  * @return array<int, string> split_id => Signatur
  */
 function split_signaturen(array $splitIds): array {
-    return signaturen_bauen($splitIds, false);
+    return array_map(
+        static fn(array $sig): string => $sig['inhalt'],
+        signaturen_bauen($splitIds)
+    );
 }
 
 /**
- * Fingerabdruck EINSCHLIESSLICH der Plannamen -- fuer den Vorlagenabgleich.
+ * Der gemeinsame Bau -- EINE Abfrage, zwei getrennte Fingerabdruecke je Split.
  *
- * Zwei Fingerabdruecke, zwei Fragen, und sie duerfen nicht vermischt werden:
+ *   'inhalt'  Die Reihenfolge der Plaene und darin die der Uebungen, ohne
+ *             jeden Namen. Beantwortet "ist das dasselbe Training?".
+ *   'namen'   Nur die Plannamen in ihrer Reihenfolge. Beantwortet "heissen
+ *             die Plaene noch wie in der Vorlage?".
  *
- *   split_signaturen()          "Ist das inhaltlich dasselbe Training?"
- *                               Steuert, was sich noch veroeffentlichen laesst
- *                               (benutzer_splits_ohne_vorlage()). Namen sind
- *                               dort bewusst DRAUSSEN: Wer eine Vorlage kopiert
- *                               und umbenennt, hat kein neues Training.
+ * ZWEI FELDER UND NICHT ZWEI FUNKTIONEN, weil beide aus derselben Abfrage
+ * fallen: Getrennt gebaut liefen sie beim naechsten Eingriff auseinander, und
+ * dann meldete der eine Abgleich "gleich", waehrend der andere "verschieden"
+ * sagt.
  *
- *   split_abgleich_signaturen() "Sieht meine Kopie noch aus wie die Vorlage?"
- *                               Steuert den Knopf "Auf Vorlage zurücksetzen".
- *                               Hier zaehlen die Plannamen MIT -- benennt der
- *                               Admin "Tag A" in "Push" um, ist das ein
- *                               Unterschied, den man uebernehmen koennen soll.
- *
- * Der Name des SPLITS bleibt in beiden draussen: Er gehoert dem Benutzer, der
- * ihn jederzeit aendern darf, und ein Knopf, der nur wegen einer eigenen
- * Umbenennung erscheint, waere eine Falschmeldung.
- *
- * @param int[] $splitIds
- * @return array<int, string> split_id => Fingerabdruck
- */
-function split_abgleich_signaturen(array $splitIds): array {
-    return signaturen_bauen($splitIds, true);
-}
-
-/**
- * Der gemeinsame Bau beider Fingerabdruecke.
- *
- * EINE Abfrage und eine Schleife fuer beide: Zwei getrennte Fassungen liefen
- * beim naechsten Eingriff auseinander, und dann meldete der eine Abgleich
- * "gleich", waehrend der andere "verschieden" sagt.
+ * **Bis `1.2.22` gab es stattdessen einen Fingerabdruck MIT Plannamen**
+ * (`split_abgleich_signaturen()`), und der steuerte den Knopf "Auf Vorlage
+ * zurücksetzen". Das war zu grob: Wer seine Kopie "Tag A"/"Tag B" nennt, hat
+ * sein Training nicht geaendert -- der Knopf erschien trotzdem und bot an,
+ * genau diese Beschriftung wieder wegzunehmen. Auf Ansage des Benutzers
+ * (2026-08-28) zaehlt jetzt allein der Inhalt; die Namen sind eine eigene,
+ * zweite Frage und werden beim Zuruecksetzen EINZELN erfragt.
  *
  * @param int[] $splitIds
- * @return array<int, string>
+ * @return array<int, array{inhalt:string, namen:string}>
  */
-function signaturen_bauen(array $splitIds, bool $mitNamen): array {
+function signaturen_bauen(array $splitIds): array {
     $ids = array_values(array_unique(array_map('intval', $splitIds)));
     if ($ids === []) {
         return [];
@@ -325,14 +314,18 @@ function signaturen_bauen(array $splitIds, bool $mitNamen): array {
     foreach ($ids as $sid) {
         $plaene = $segmente[$sid] ?? [];
         $teile  = [];
+        $wie    = [];
         foreach ($plaene as $pid => $uebungen) {
-            // rawurlencode und nicht der nackte Name: Ein Plan, der '|' oder
-            // '#' im Namen traegt, koennte sonst die Trennzeichen faelschen
-            // und zwei verschiedene Splits gleich aussehen lassen.
-            $teile[] = ($mitNamen ? rawurlencode($namen[$sid][$pid] ?? '') . '#' : '')
-                . implode(',', $uebungen);
+            $teile[] = implode(',', $uebungen);
+            // rawurlencode und nicht der nackte Name: Ein Plan, der '|' im
+            // Namen traegt, koennte sonst das Trennzeichen faelschen und zwei
+            // verschiedene Benennungen gleich aussehen lassen.
+            $wie[] = rawurlencode($namen[$sid][$pid] ?? '');
         }
-        $ergebnis[$sid] = implode('|', $teile);
+        $ergebnis[$sid] = [
+            'inhalt' => implode('|', $teile),
+            'namen'  => implode('|', $wie),
+        ];
     }
 
     return $ergebnis;
@@ -388,6 +381,36 @@ function benutzer_splits_ohne_vorlage(): array {
     }
 
     return $ergebnis;
+}
+
+/**
+ * Die persoenlichen Splits ANDERER Benutzer, samt Besitzername.
+ *
+ * Fuer den einen Fall, den §6.4 einem Admin zusaetzlich erlaubt: den Split
+ * eines anderen bearbeiten. Bis 1.2.22 entstand diese Liste in plans.php und
+ * stand dort als optgroup im Auswahlfeld; seit das Feld nur noch die eigenen
+ * Splits fuehrt (1.2.23), gehoert sie dorthin, wo Adminarbeit stattfindet.
+ *
+ * ABSICHTLICH UNGEFILTERT -- anders als benutzer_splits_ohne_vorlage(): Dort
+ * geht es darum, was sich noch veroeffentlichen laesst, hier darum, was es
+ * gibt. Ein Split ohne Plan ist nichts zum Veroeffentlichen, aber sehr wohl
+ * etwas zum Bearbeiten; er ist sogar der wahrscheinlichste Grund, warum jemand
+ * um Hilfe bittet.
+ *
+ * @return array<int, array> Split-Zeilen samt 'besitzer'
+ */
+function fremde_splits(int $ohneUserId): array {
+    $stmt = db()->prepare(
+        'SELECT sp.id, sp.user_id, sp.name, sp.beschreibung, sp.sort_order,
+                u.name AS besitzer
+           FROM splits sp
+           JOIN users u ON u.id = sp.user_id
+          WHERE sp.user_id IS NOT NULL AND sp.user_id <> ?
+          ORDER BY u.name COLLATE NOCASE, sp.sort_order, sp.id'
+    );
+    $stmt->execute([$ohneUserId]);
+
+    return $stmt->fetchAll();
 }
 
 /**
@@ -656,7 +679,8 @@ function split_kopieren(
  * erscheint nicht.
  *
  * @param int[] $splitIds
- * @return array<int, array{vorlage_id:int, vorlage_name:string, weicht_ab:bool}>
+ * @return array<int, array{vorlage_id:int, vorlage_name:string, weicht_ab:bool,
+ *                       namen_weichen_ab:bool}>
  */
 function vorlage_stand(array $splitIds): array {
     $ids = array_values(array_unique(array_map('intval', $splitIds)));
@@ -681,20 +705,32 @@ function vorlage_stand(array $splitIds): array {
 
     // Beide Seiten in EINEM Aufruf: Der Fingerabdruck kostet eine Abfrage,
     // und die Splitseite zeigt bis zu einem Dutzend Karten.
-    $signaturen = split_abgleich_signaturen(array_merge(
+    $signaturen = signaturen_bauen(array_merge(
         array_column($zeilen, 'id'),
         array_column($zeilen, 'vorlage_id')
     ));
+
+    $leer = ['inhalt' => '', 'namen' => ''];
 
     $ergebnis = [];
     foreach ($zeilen as $z) {
         $id  = (int)$z['id'];
         $vid = (int)$z['vorlage_id'];
 
+        $meine   = $signaturen[$id]  ?? $leer;
+        $vorlage = $signaturen[$vid] ?? $leer;
+
         $ergebnis[$id] = [
             'vorlage_id'   => $vid,
             'vorlage_name' => (string)$z['vorlage_name'],
-            'weicht_ab'    => ($signaturen[$id] ?? '') !== ($signaturen[$vid] ?? ''),
+            // ALLEIN der Inhalt entscheidet, ob der Knopf erscheint. Eine
+            // eigene Beschriftung ist kein Grund, das Zuruecksetzen
+            // anzubieten -- siehe signaturen_bauen().
+            'weicht_ab'        => $meine['inhalt'] !== $vorlage['inhalt'],
+            // Die zweite Frage, und sie steuert keinen Knopf, sondern nur das
+            // Kaestchen in der Rueckfrage: Heissen die Plaene noch wie in der
+            // Vorlage? Sind sie gleich, gaebe es nichts anzukreuzen.
+            'namen_weichen_ab' => $meine['namen'] !== $vorlage['namen'],
         ];
     }
 
@@ -755,12 +791,25 @@ function split_vorlage_setzen(int $splitId, ?int $vorlageId): void {
  * geloescht -- und dessen Protokollzeilen verlieren ihren Bezug. Das ist
  * unvermeidbar und steht deshalb in der Rueckfrage der Oberflaeche.
  *
- * Der NAME DES SPLITS bleibt unberuehrt: Er gehoert dem Benutzer. Plannamen,
- * Reihenfolge, Uebungen und die Beschreibung kommen von der Vorlage.
+ * Der NAME DES SPLITS bleibt unberuehrt: Er gehoert dem Benutzer. Reihenfolge,
+ * Uebungen und die Beschreibung kommen von der Vorlage.
  *
- * @return array{plaene: string[], hinzugefuegt: int, entfernt: int, verschoben: int}
+ * DIE PLANNAMEN SIND SEIT 1.2.23 EINE EIGENE FRAGE ($namen), und sie wird in
+ * der Oberflaeche gestellt statt hier entschieden. Der Grund ist derselbe, aus
+ * dem sie aus dem Fingerabdruck geflogen sind (signaturen_bauen()): "Tag A"
+ * statt "Push" ist eine Beschriftung und kein anderes Training. Wer sein
+ * Training zurueckholt, will seine Beschriftung deshalb nicht zwangslaeufig
+ * mit verlieren -- und wer sie doch angleichen will, kreuzt es an.
+ *
+ * $namen = false betrifft nur GEPAARTE Plaene. Ein Plan, den es in der Kopie
+ * noch gar nicht gibt, entsteht zwangslaeufig unter dem Namen der Vorlage: Es
+ * gibt keinen eigenen, den man behalten koennte.
+ *
+ * @param bool $namen Auch die Plannamen auf die Vorlage ziehen?
+ * @return array{plaene: string[], hinzugefuegt: int, entfernt: int,
+ *               verschoben: int, umbenannt: int}
  */
-function split_zuruecksetzen(int $splitId): array {
+function split_zuruecksetzen(int $splitId, bool $namen = false): array {
     $split = split_laden($splitId);
     if ($split === null || $split['user_id'] === null) {
         throw new RuntimeException('Diesen Split gibt es nicht.');
@@ -785,6 +834,12 @@ function split_zuruecksetzen(int $splitId): array {
     $hinzugefuegt = 0;
     $entfernt     = 0;
     $verschoben   = 0;
+    $umbenannt    = 0;
+
+    // Die Namen, unter denen die Plaene HINTERHER dastehen -- fuer die
+    // Rueckmeldung. Bei $namen = false ist das nicht die Liste der Vorlage,
+    // und die Antwort soll sagen, was wirklich da steht.
+    $endNamen = [];
 
     db()->beginTransaction();
     try {
@@ -806,18 +861,40 @@ function split_zuruecksetzen(int $splitId): array {
             'INSERT INTO plans (user_id, split_id, name, sort_order, created_at)
              VALUES (?, ?, ?, ?, ?)'
         );
+        // Zwei Statements statt eines mit Fallunterscheidung im SQL: Die
+        // Sortierung kommt IMMER von der Vorlage, der Name nur auf Wunsch.
         $planSchreiben = db()->prepare(
             'UPDATE plans SET name = ?, sort_order = ? WHERE id = ?'
         );
+        $planSortieren = db()->prepare(
+            'UPDATE plans SET sort_order = ? WHERE id = ?'
+        );
+
+        // Die vorhandenen Namen, nach Position -- gebraucht, wenn sie bleiben
+        // sollen und trotzdem in der Antwort stehen.
+        $altNamen = array_column($ist, 'name');
 
         foreach ($ziel as $i => $z) {
-            if (isset($planIds[$i])) {
-                $planSchreiben->execute([$z['name'], $z['sort_order'], $planIds[$i]]);
-            } else {
+            if (!isset($planIds[$i])) {
+                // Ein Plan, den es in der Kopie noch nicht gibt: Er entsteht
+                // zwangslaeufig unter dem Namen der Vorlage.
                 $planAnlegen->execute([
                     $userId, $splitId, $z['name'], $z['sort_order'], $zeit,
                 ]);
-                $planIds[$i] = (int)db()->lastInsertId();
+                $planIds[$i]  = (int)db()->lastInsertId();
+                $endNamen[$i] = (string)$z['name'];
+                continue;
+            }
+
+            if ($namen) {
+                $planSchreiben->execute([$z['name'], $z['sort_order'], $planIds[$i]]);
+                if ((string)($altNamen[$i] ?? '') !== (string)$z['name']) {
+                    $umbenannt++;
+                }
+                $endNamen[$i] = (string)$z['name'];
+            } else {
+                $planSortieren->execute([$z['sort_order'], $planIds[$i]]);
+                $endNamen[$i] = (string)($altNamen[$i] ?? $z['name']);
             }
         }
 
@@ -908,10 +985,11 @@ function split_zuruecksetzen(int $splitId): array {
     }
 
     return [
-        'plaene'       => array_column($ziel, 'name'),
+        'plaene'       => array_values($endNamen),
         'hinzugefuegt' => $hinzugefuegt,
         'entfernt'     => $entfernt,
         'verschoben'   => $verschoben,
+        'umbenannt'    => $umbenannt,
     ];
 }
 
@@ -968,6 +1046,32 @@ function split_name_pruefen(mixed $wert): string {
 }
 
 /**
+ * Darf dieser Benutzer den Split BEARBEITEN?
+ *
+ * Die Regel in einem Satz: Der Eigentuemer darf, ein Admin darf alles, und
+ * eine Vorlage darf nur ein Admin anfassen.
+ *
+ * Als Praedikat und nicht nur als Pruefung, weil zwei Aufrufer dieselbe Frage
+ * verschieden beantworten muessen: split_zugriff_api() bricht mit einem 403 ab,
+ * plans.php dagegen faellt still auf den aktiven Split zurueck -- eine Seite
+ * schickt keinen JSON-Fehler. Die Regel steht deshalb HIER und wird dort nicht
+ * abgeschrieben; zwei Fassungen davon liefen beim naechsten Sonderfall
+ * auseinander, und die eine, die man vergisst, ist immer die, die aufmacht.
+ *
+ * $istAdmin kommt als Parameter und nicht aus is_admin(): Die Funktion soll
+ * ueber einen Split entscheiden und nicht nebenbei die Sitzung befragen.
+ *
+ * @param array<string,mixed> $split Zeile aus splits (user_id wird gelesen)
+ */
+function split_darf_bearbeiten(array $split, int $userId, bool $istAdmin): bool {
+    if ($split['user_id'] === null) {
+        return $istAdmin;
+    }
+
+    return (int)$split['user_id'] === $userId || $istAdmin;
+}
+
+/**
  * Laedt einen Split und stellt sicher, dass der Angemeldete ihn BEARBEITEN darf.
  *
  * EINE Funktion, und das ist der Kern der Rechtepruefung seit 1.2.0: Bis dahin
@@ -976,8 +1080,10 @@ function split_name_pruefen(mixed $wert): string {
  * damit braucht JEDE Aktion eine Pruefung. Zehn einzeln geschriebene waeren
  * neun Gelegenheiten, eine zu vergessen.
  *
- * Die Regel in einem Satz: Der Eigentuemer darf, ein Admin darf alles, und
- * eine Vorlage darf nur ein Admin anfassen.
+ * Die Regel selbst steht in split_darf_bearbeiten(); hier steht nur, WIE das
+ * Nein aussieht. Die beiden Meldungen bleiben getrennt, weil sie Verschiedenes
+ * sagen: "gibt es nur fuer Admins" ist etwas anderes als "gehoert jemand
+ * anderem".
  */
 function split_zugriff_api(int $splitId): array {
     $split = split_laden($splitId);
@@ -985,15 +1091,10 @@ function split_zugriff_api(int $splitId): array {
         json_err('Diesen Split gibt es nicht.', 404);
     }
 
-    if ($split['user_id'] === null) {
-        if (!is_admin()) {
-            json_err('Vorlagen bearbeitet nur ein Administrator.', 403);
-        }
-        return $split;
-    }
-
-    if ((int)$split['user_id'] !== current_user_id() && !is_admin()) {
-        json_err('Kein Zugriff auf diesen Split.', 403);
+    if (!split_darf_bearbeiten($split, current_user_id(), is_admin())) {
+        json_err($split['user_id'] === null
+            ? 'Vorlagen bearbeitet nur ein Administrator.'
+            : 'Kein Zugriff auf diesen Split.', 403);
     }
 
     return $split;

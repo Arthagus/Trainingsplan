@@ -146,12 +146,12 @@ function nav_item(
               //
               // $aktiv ist der Dateiname der laufenden Seite -- deshalb bekommt
               // "Admin" die Hervorhebung auch dann, wenn man sich gerade auf
-              // einer der vier Unterseiten befindet. Ohne das wirkte die
+              // einer der fuenf Unterseiten befindet. Ohne das wirkte die
               // Kopfzeile dort, als stuende man nirgends. ?>
         <?php if ($user !== null && (int)$user['is_admin'] === 1): ?>
             <?php $imAdmin = in_array($aktiv, [
                 'admin.php', 'admin_exercises.php', 'admin_muscle_groups.php',
-                'admin_users.php', 'maintenance.php',
+                'admin_splits.php', 'admin_users.php', 'maintenance.php',
             ], true); ?>
             <?= nav_item('admin.php', 'Admin', $imAdmin ? 'admin.php' : $aktiv, $base) ?>
         <?php endif; ?>

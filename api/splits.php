@@ -305,6 +305,11 @@ function aktion_vorlage_zuordnen(array $eingabe): never {
  * Fortschrittsanzeige "x/n" zaehlt ueber den Plan, und der veraenderte sich
  * hier mitten in der Einheit. Hier waere es sogar schlimmer -- der Plan, auf
  * dem gerade trainiert wird, koennte ganz verschwinden.
+ *
+ * 'namen' entscheidet, ob auch die PLANNAMEN von der Vorlage kommen (seit
+ * 1.2.23). FEHLT ES, WIRD NICHT UMBENANNT: Das Angleichen der Beschriftung ist
+ * der zusaetzliche Wunsch neben dem eigentlichen Zurueckholen, und ein nicht
+ * geaeusserter Wunsch ist keiner. Die Oberflaeche fragt ausdruecklich danach.
  */
 function aktion_zuruecksetzen(array $eingabe): never {
     $id = to_int_or_null($eingabe['id'] ?? null);
@@ -312,11 +317,13 @@ function aktion_zuruecksetzen(array $eingabe): never {
         json_err('Kein Split angegeben.', 422);
     }
 
+    $namen = (bool)($eingabe['namen'] ?? false);
+
     eigener_split_api($id);
     nicht_waehrend_training();
 
     try {
-        $ergebnis = split_zuruecksetzen($id);
+        $ergebnis = split_zuruecksetzen($id, $namen);
     } catch (Throwable $e) {
         json_err($e->getMessage(), 409);
     }

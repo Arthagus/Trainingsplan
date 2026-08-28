@@ -1060,6 +1060,230 @@ function bildGrossZeigen(titel, thumbSrc, beschreibung) {
 }
 
 /**
+ * Eine Aktion an api/splits.php schicken und die Seite neu laden (§6.4).
+ *
+ * Geteilt zwischen splits.php und admin_splits.php: Beide Seiten bedienen
+ * denselben Endpunkt, beide laden nach jeder Änderung neu, und beide zeigen
+ * Fehler an der Zeile, zu der sie gehören. Zweimal geschrieben wäre es
+ * zweimal zu pflegen.
+ *
+ * Neu laden statt die Liste im Browser nachzuführen ist dieselbe Entscheidung
+ * wie in plans.js: Was sich hier ändert, wirkt an mehreren Stellen zugleich
+ * (Rotationsvorschau, aktiver Split, Plan-Namen, der Knopf „Auf Vorlage
+ * zurücksetzen"), und eine zweite Fassung dieser Zusammenhänge im JS wäre die
+ * Dublette, die später abweicht.
+ *
+ * @param {Element|null} zeile    Träger mit .zeilen-fehler; null = keine Zeile
+ * @param {object}       nutzlast Body für apiFetch
+ * @param {Element|null} knopf    wird für die Dauer des Aufrufs gesperrt
+ */
+async function splitAktion(zeile, nutzlast, knopf) {
+    const fehlerFeld = zeile ? qs('.zeilen-fehler', zeile) : null;
+    if (fehlerFeld) {
+        fehlerFeld.hidden = true;
+        fehlerFeld.textContent = '';
+    }
+    if (knopf) knopf.disabled = true;
+
+    try {
+        await apiFetch('api/splits.php', { body: nutzlast });
+        window.location.reload();
+    } catch (fehler) {
+        if (knopf) knopf.disabled = false;
+        // Die Sperre bei laufendem Training und der 403 auf eine Vorlage
+        // erklaeren sich in einem ganzen Satz -- deshalb an der Zeile und
+        // nicht als fluechtige Meldung.
+        if (fehlerFeld) {
+            fehlerFeld.textContent = fehler.message;
+            fehlerFeld.hidden = false;
+        } else {
+            meldung(fehler.message, 'fehler');
+        }
+    }
+}
+
+/**
+ * Zeigt einen Split als reinen Text im Dialog (§6.4).
+ *
+ * Der Text kommt aus einem <pre class="split-text-inhalt"> in der Seite und
+ * nicht aus einem Netzaufruf: Das Schreiben in die Zwischenablage muss in
+ * derselben Benutzeraktion stattfinden wie der Klick, und ein await auf einen
+ * fetch bricht diesen Zusammenhang in strengeren Browsern (iOS Safari).
+ * Nebenbei arbeitet der Knopf damit auch ohne Netz.
+ *
+ * Übergeben wird die QUELLE und nicht die Karte: Auf splits.php hängt der Text
+ * seit 1.2.23 auch am Kasten „Vorlage übernehmen", und der ist keine Karte.
+ *
+ * Die Seite muss dazu lib/view_split_text_dialog.php eingebunden haben. Fehlt
+ * der Dialog, passiert nichts -- dasselbe Verhalten wie bei bildGrossZeigen().
+ *
+ * @param {Element|null} quelle Das <pre> mit dem Text
+ * @param {string}       name   Splitname für die Überschrift, darf leer sein
+ */
+let textDialogVerdrahtet = false;
+
+function splitTextZeigen(quelle, name) {
+    const dialog = qs('#text-dialog');
+    if (!dialog || !quelle) return;
+
+    if (!textDialogVerdrahtet) {
+        textDialogVerdrahtet = true;
+        const feld    = qs('#text-inhalt');
+        const hinweis = qs('#text-hinweis');
+
+        qs('#text-schliessen').addEventListener('click', () => dialog.close());
+
+        qs('#text-kopieren').addEventListener('click', async () => {
+            // Zwei Wege, und der zweite wird wirklich gebraucht:
+            // navigator.clipboard gibt es nur im sicheren Kontext, und selbst
+            // dort kann die Berechtigung fehlen. Dann bleibt das Markieren --
+            // der Text steht ja sichtbar da, es fehlt nur noch Strg+C.
+            try {
+                await navigator.clipboard.writeText(feld.value);
+                hinweis.textContent = 'Kopiert.';
+            } catch (fehler) {
+                feld.focus();
+                feld.select();
+                hinweis.textContent = 'Der Browser lässt das Kopieren nicht zu — '
+                    + 'der Text ist markiert, bitte mit Strg+C bzw. ⌘+C kopieren.';
+            }
+        });
+    }
+
+    qs('#text-titel').textContent = name ? 'Split „' + name + '“ als Text' : 'Split als Text';
+    qs('#text-inhalt').value = quelle.textContent;
+    qs('#text-hinweis').textContent = '';
+    dialog.showModal();
+}
+
+/**
+ * Zwischen den Splitkarten einer Liste umschalten (§6.4, seit 1.3.2).
+ *
+ * Gerendert sind alle, sichtbar ist eine (lib/view_split_karte.php). Der
+ * Wechsel tauscht deshalb nur [hidden] -- kein Netzaufruf, kein Seitenaufbau,
+ * und er funktioniert im Studio auch ohne Verbindung.
+ *
+ * Die gewählte Karte wandert als ?split= in die Adresse, und zwar über
+ * replaceState: Jede Aktion auf diesen Seiten lädt anschließend neu
+ * (splitAktion), und ohne den Parameter stünde man danach wieder bei der
+ * aktiven statt bei der, die man gerade bearbeitet hat. Kein pushState — das
+ * Umschalten ist keine Station, zu der die Zurück-Taste führen soll.
+ *
+ * Geteilt zwischen splits.php und admin_splits.php: dieselbe Liste, dieselbe
+ * Frage, und beide Seiten binden denselben Kartenbaustein ein.
+ */
+function splitWechselVerdrahten() {
+    const liste = qs('.split-liste');
+    if (!liste) return;
+
+    liste.addEventListener('change', (e) => {
+        const feld = e.target.closest('.split-wechsel');
+        if (!feld) return;
+
+        const ziel = Number(feld.value);
+
+        // Über die ganze Liste und nicht nur über die beiden betroffenen
+        // Karten: Steht aus irgendeinem Grund mehr als eine offen, räumt das
+        // auf, statt den Zustand fortzuschreiben.
+        for (const karte of qsa('.split[data-id]', liste)) {
+            karte.hidden = Number(karte.dataset.id) !== ziel;
+        }
+
+        try {
+            const adresse = new URL(window.location.href);
+            adresse.searchParams.set('split', String(ziel));
+            window.history.replaceState(null, '', adresse);
+        } catch (fehler) {
+            // Ohne Adressleiste ist der Wechsel trotzdem passiert -- er
+            // überlebt dann nur das nächste Neuladen nicht. Kein Grund, dem
+            // Benutzer etwas zu melden.
+        }
+    });
+}
+
+/**
+ * Fragt nach einem neuen Namen für einen Split oder eine Vorlage (§6.4).
+ *
+ * Seit 1.3.2 steht der Name nicht mehr als Eingabefeld im Kartenkopf — dort
+ * sitzt das Auswahlfeld —, also muss "Umbenennen" selbst nach ihm fragen.
+ *
+ * Der Aufruf geht NICHT über splitAktion(): Ein zu langer oder leerer Name
+ * antwortet mit 422 und gehört im offenen Dialog gemeldet, direkt unter dem
+ * Feld, in dem er steht. splitAktion() schriebe ihn an die Karte dahinter —
+ * unter den Dialog, wo ihn niemand sieht.
+ *
+ * Die Seite muss lib/view_split_name_dialog.php eingebunden haben. Fehlt der
+ * Dialog, passiert nichts — dasselbe Verhalten wie bei bildGrossZeigen().
+ *
+ * @param {Element} zeile   Die Karte (.split[data-id])
+ * @param {string}  titel   Überschrift, z. B. "Split umbenennen"
+ */
+let nameDialogVerdrahtet = false;
+let nameZiel = null;
+
+function splitUmbenennenFragen(zeile, titel) {
+    const dialog = qs('#name-dialog');
+    if (!dialog) return;
+
+    const feld   = qs('#name-feld');
+    const fehler = qs('#name-fehler');
+
+    if (!nameDialogVerdrahtet) {
+        nameDialogVerdrahtet = true;
+
+        qs('#name-abbrechen').addEventListener('click', () => dialog.close());
+
+        const speichern = async () => {
+            if (nameZiel === null) return;
+
+            fehler.hidden = true;
+            fehler.textContent = '';
+            const knopf = qs('#name-speichern');
+            knopf.disabled = true;
+
+            try {
+                await apiFetch('api/splits.php', {
+                    body: { action: 'rename', id: nameZiel, name: feld.value },
+                });
+                window.location.reload();
+            } catch (f) {
+                knopf.disabled = false;
+                fehler.textContent = f.fields?.name || f.message;
+                fehler.hidden = false;
+                feld.focus();
+            }
+        };
+
+        qs('#name-speichern').addEventListener('click', speichern);
+
+        // Enter im Feld speichert. Es ist kein <form> — ein Formular im Dialog
+        // brächte method="dialog" und eigenes Absendeverhalten mit, und hier
+        // geht ohnehin nichts über den Browser raus.
+        feld.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                speichern();
+            }
+        });
+    }
+
+    nameZiel = Number(zeile.dataset.id);
+
+    qs('#name-titel').textContent = titel;
+    // data-name und nicht der Text des Auswahlfelds: Der trägt bei einer
+    // Karte ohne Geschwister gar keine <option>, und h() hat den Namen dort
+    // ohnehin schon einmal durchlaufen.
+    feld.value = zeile.dataset.name || '';
+    fehler.hidden = true;
+    fehler.textContent = '';
+    qs('#name-speichern').disabled = false;
+
+    dialog.showModal();
+    feld.focus();
+    feld.select();
+}
+
+/**
  * Das Abzeichen eines Trainingsgeräts — das Gegenstück zu geraet_abzeichen()
  * aus lib/geraete.php.
  *
