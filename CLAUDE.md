@@ -150,6 +150,22 @@ zwar mit den IDs, die ein Schreibaufruf zurückgeben muss. `DOMDocument` + `DOMX
 dafür; ein Abzug dieser Formulare ist zugleich die Sicherung, aus der man einen fehlerhaften
 Schreiblauf feldgenau zurücknimmt (siehe Fallstrick 22).
 
+**Für Splits und Pläne gibt es keine Formulare zum Auslesen, sondern Datenattribute** —
+und die Namen sind nicht zu raten. Wer per `curl` an eine ID kommen will:
+
+| Was | Wo es steht |
+|---|---|
+| Splitkarte | `<li class="karte split …" data-id="…" data-name="…">`, dazu `hidden` an allen bis auf die offene |
+| Welcher Split offen steht | die einzige Karte **ohne** `hidden` |
+| Umschaltfeld | `<select class="split-wechsel">`, je Karte eines — fehlt bei nur einem Split |
+| Plan | `<li class="karte plan" data-id="…">` |
+| **Planposition** | `class="position" data-pe="…"` — **`data-pe`, nicht `data-id`** |
+
+Die letzte Zeile ist die, die Zeit kostet: `plan_exercise_id` ist der Schlüssel für
+`api/plans.php` und `api/log.php` (Fallstrick 4), heißt im Markup aber anders als überall
+sonst. Und ein `grep -o '…data-id="[0-9]*"' | grep -o '[0-9]*$'` liefert **leer**, weil die
+Zeile auf ein Anführungszeichen endet — `tr -dc 0-9` ist der verlässliche Weg.
+
 Lokal geht auch der direkte Blick über `sqlite3 data/trainingsplan.db` — gegen die **Live**-
 Instanz bleibt nur der Weg über die Seite.
 
@@ -308,6 +324,12 @@ beantwortet dieser Bestand systematisch falsch, weil es nichts zu verwechseln gi
 - **Greift der IDOR-Schutz?** Ohne zweiten Benutzer gibt es keinen fremden Bestand, an
   dem er sich zeigen könnte. Der Zweite gehört **ohne** Adminrecht angelegt: Ein Admin
   darf vieles absichtlich, und dann prüft man die Ausnahme statt der Regel.
+- **Gibt es das Umschaltfeld überhaupt?** Seit `1.3.2` rendert `split_karte()` bei einem
+  einzigen Split **kein** `<select class="split-wechsel">`, sondern `.split-titel` — eine
+  Auswahl mit einem Eintrag wäre ein wirkungsloses Bedienelement. Wer mit einem Split
+  prüft, bekommt das Pulldown also nie zu sehen und hält seine Abwesenheit womöglich für
+  den Fehler. Für alles rund um das Umschalten und `?split=` braucht es **mindestens
+  zwei**.
 
 ```php
 $p->prepare("INSERT INTO users (name,password_hash,is_admin,must_change_password,created_at)
@@ -1585,6 +1607,20 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     eingespielt, stehen dort wieder Pläne ohne `split_id`, und nur `user_id` sagt dann noch,
     wem sie gehören. Ohne sie wären solche Pläne unrettbar unsichtbar.
 
+    **Tot heißt nicht weglassbar: Die Spalte ist `NOT NULL`** (`schema.sql`). Wer einen Plan
+    von Hand anlegt — Prüfbestand, Reparaturskript —, muss sie füllen, und **bei einem
+    VORLAGEN-Plan gibt es niemanden, dem er gehört**. Einzutragen ist dort der Handelnde,
+    so wie `split_kopieren()` es tut:
+
+    ```php
+    // $uid ist null, wenn eine Vorlage entsteht -- die Spalte will trotzdem einen Wert
+    $p->prepare("INSERT INTO plans (user_id,split_id,name,sort_order,created_at)
+                 VALUES (?,?,?,?,?)")->execute([$uid ?? $adminId, $sid, $name, $i, $n]);
+    ```
+
+    Ohne das bricht der Insert mit `NOT NULL constraint failed: plans.user_id` ab, und man
+    sucht den Fehler in der Vorlagenlogik, wo keiner ist. Am 2026-08-29 genau so passiert.
+
     **Genau deshalb steht die Datenmigration in `apply_migrations()`** (`splits_nachziehen()`
     in `lib/db.php`) und nicht in einem Einmalskript: `backup_wiederherstellen()` ruft nach
     dem Einspielen `db()` auf und damit `init_schema()`. Eine Altsicherung wird auf diesem
@@ -1918,33 +1954,73 @@ verlangt, vorher prüfen, dass nichts davon im Index steht:
 git diff --cached --name-only | grep -iE '\.(db|zip|tar\.gz)$|^uploads/[^.]|^\.env$|settings\.local'
 ```
 
-**Der Push braucht einen ssh-agent — und ohne ihn hängt er, statt zu scheitern.**
-`~/.ssh/github_rezeption` ist bei GitHub hinterlegt **und passphrasegeschützt**. Ist ein
-Agent erreichbar (`SSH_AUTH_SOCK` gesetzt, Schlüssel geladen), läuft `git push origin main`
-durch; ist keiner da, will `ssh` die Passphrase abfragen und findet kein Terminal.
+**Jeder Push kostet den Benutzer eine Eingabe — er tippt die Passphrase in ein Fenster, das
+nur er sieht.** `~/.ssh/github_rezeption` ist bei GitHub hinterlegt und
+**passphrasegeschützt** (nachgemessen am 2026-08-29: `ciphername aes256-ctr`, `kdfname
+bcrypt`); der Schlüssel ist seit Projektbeginn derselbe. Ein `ssh-agent` läuft hier
+**nicht**, und eine Brieftasche wird dafür **nicht** benutzt — der Benutzer gibt das
+Passwort ausdrücklich immer von Hand ein.
 
-**Die Meldung führt dabei zweimal in die Irre**, und am 2026-08-26 bin ich auf beides
-hereingefallen:
+Die Kette dahinter, die man kennen muss:
 
-- **Ohne Terminal hängt der Aufruf**, bis das Zeitlimit zuschlägt — kein Fehler, keine
-  Ausgabe. Mit `-o BatchMode=yes` kommt stattdessen ein schlichtes
-  `git@github.com: Permission denied (publickey)`, das nach falschem oder entzogenem
-  Schlüssel aussieht. Beides sagt nichts über die eigentliche Ursache.
-- **`ssh-keygen -y -f <key>` beweist NICHT, dass der Schlüssel unverschlüsselt ist.** Genau
-  daraus habe ich zuerst geschlossen, es liege an der Sandbox, und diese falsche Erklärung
-  stand einen halben Tag hier. Der Beleg steht an einer anderen Stelle:
+`ssh` will die Passphrase von `/dev/tty` lesen → das scheitert ohne Terminal → weil
+**`DISPLAY` gesetzt ist**, fällt `ssh` auf einen grafischen Askpass zurück → `ksshaskpass`
+öffnet einen Dialog in der Desktop-Sitzung → **der Benutzer tippt** → Exit 0.
+
+**Daraus die wichtigste Regel dieses Abschnitts: Ein Push ist nie unbeaufsichtigt.** Wer ihn
+absetzt, sagt es vorher dazu — „gleich kommt ein Passwortfenster" —, statt den Benutzer
+raten zu lassen, warum die Sitzung steht. Und wer ihn absetzt, während niemand am Rechner
+sitzt, wartet ins Leere.
+
+**Am 2026-08-29 habe ich genau das falsch gedeutet:** Der Push lief ohne Agent durch, ich
+sah `kwalletd6` in der Prozessliste und schrieb hier, die Brieftasche liefere die
+Passphrase still. In Wahrheit hatte der Benutzer sie zweimal eingetippt — beim Push und
+noch einmal bei meinem Prüfaufruf. **Eine Handlung des Benutzers für Automatik zu halten
+ist die teuerste Verwechslung an dieser Stelle**, weil danach jede Erklärung stimmig
+aussieht und trotzdem falsch ist.
+
+**Die zweite Falle steckt in der Meldung: `read_passphrase: can't open /dev/tty` ist KEIN
+Befund.** Diese Zeile steht auch im geglückten Fall — sie sagt nur, dass der Weg über das
+Terminal nicht ging, und *danach* kommt der Askpass. Bis `1.3.2` stand hier das Gegenteil.
+Entschieden wird an den **letzten** Zeilen:
 
 ```bash
-GIT_SSH_COMMAND="ssh -v" git push origin main < /dev/null 2>&1 | tail -3
+timeout 40 ssh -v -T git@github.com < /dev/null 2>&1 | tail -5
 ```
 
-`read_passphrase: can't open /dev/tty` heißt: Passphrase, kein Agent. `Server accepts key`
-gefolgt von `signing using …` und `we did not send a packet` heißt dagegen wirklich, dass
-die **Sandbox** ans Schlüsselmaterial nicht heranlässt — dann hilft
-`dangerouslyDisableSandbox`.
+| Was am Ende steht | Was es heißt |
+|---|---|
+| `Authenticated to github.com … using "publickey"` | alles in Ordnung — der Benutzer hat getippt |
+| `Permission denied (publickey)` **nach** `Server accepts key` | die Passphrase kam nicht — kein `DISPLAY`, niemand am Rechner, oder `BatchMode` verbietet den Askpass |
+| `Server accepts key`, dann `signing using …` und `we did not send a packet` | die **Sandbox** lässt ans Schlüsselmaterial nicht heran — hier hilft `dangerouslyDisableSandbox` |
 
-**Der verlässliche Weg**, wenn in dieser Sitzung mehrfach gepusht werden soll: einen Agenten
-an einem festen Pfad starten und den Schlüssel einmal entsperren —
+**`-o BatchMode=yes` taugt zum Prüfen deshalb NICHT:** Es schaltet den Askpass ab und
+erzeugt genau das `Permission denied`, das nach entzogenem Schlüssel aussieht — der Fehler
+entsteht dann erst durch die Messung. Und **`ssh-keygen -y -f <key>` beweist nicht, dass ein
+Schlüssel unverschlüsselt ist**; wer das wirklich wissen will, liest `kdfname` aus dem Kopf
+der Datei (`none` = offen, `bcrypt` = verschlüsselt).
+
+**Die Fehlerform ist das HÄNGEN, nicht der Fehler — deshalb gehört jeder dieser Aufrufe in
+ein `timeout`:**
+
+```bash
+timeout 60 git push origin main < /dev/null
+```
+
+Ein abgewürgter Push ist ungefährlich: Git aktualisiert die Referenz auf dem Server erst
+ganz am Ende, ein Abbruch lässt also einfach alles beim Alten. Ohne `timeout` steht die
+Sitzung dagegen minutenlang, und der nächste Reflex ist, den Aufruf zu wiederholen — was
+das Warten verdoppelt, statt etwas zu klären. `< /dev/null` gehört dazu, damit `ssh` gar
+nicht erst auf eine Eingabe wartet, die nie kommt.
+
+**Hängt es, wartet fast immer der Dialog.** Er steht auf dem Bildschirm des Benutzers, und
+von hier aus ist das von einem toten Aufruf nicht zu unterscheiden. Also **fragen statt
+diagnostizieren**: „Steht bei dir gerade ein Passwortfenster offen?" Das erledigt den
+häufigsten Fall in Sekunden; die Tabelle oben braucht man erst, wenn er verneint.
+
+**Wer das Tippen auf EINMAL pro Sitzung senken will, nimmt einen Agenten** — sinnvoll, wenn
+mehrfach gepusht wird. Entsperren muss ihn ebenfalls der Benutzer (`ssh-add` fragt nach der
+Passphrase), im Terminal mit vorangestelltem `!`:
 
 ```bash
 eval "$(ssh-agent -a /run/user/1000/ssh-agent.sock)" && ssh-add ~/.ssh/github_rezeption
