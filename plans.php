@@ -159,11 +159,16 @@ if ($split !== null) {
 
         $stmt = db()->prepare(
             "SELECT pe.id, pe.plan_id, pe.sort_order, e.id AS exercise_id,
-                    e.name_de, e.name_en, e.focus, e.equipment, e.archived,
+                    e.name_de, e.name_en, e.focus, e.equipment, e.erfassung,
+                    e.archived,
                     e.image_path, e.image_crop, e.description
                FROM plan_exercises pe
                JOIN exercises e ON e.id = pe.exercise_id
-              WHERE pe.plan_id IN ($platzhalter)
+              -- Nur der PLAN. Eine Position, die jemand einmalig zu einer
+              -- Einheit dazugenommen hat (§7.6), gehoert hier nicht her: Sie
+              -- liesse sich sonst umsortieren und dauerhaft machen, ohne dass
+              -- irgendwo staende, dass sie nur fuer einen Tag gedacht war.
+              WHERE pe.plan_id IN ($platzhalter) AND pe.session_id IS NULL
               ORDER BY pe.sort_order, pe.id"
         );
         $stmt->execute($planIds);
@@ -483,6 +488,7 @@ require __DIR__ . '/lib/view_header.php';
 
                                     <p class="schwerpunkt-zeile">
                                         <?= geraet_abzeichen($z['equipment'] ?? null) ?>
+                                        <?= erfassung_abzeichen($z['erfassung'] ?? null) ?>
                                         <?php if (!empty($z['focus'])): ?>
                                             <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
                                         <?php endif; ?>
@@ -586,50 +592,7 @@ require __DIR__ . '/lib/view_header.php';
     <p><button type="button" id="tausch-schliessen" class="leise">Abbrechen</button></p>
 </dialog>
 
-<?php // Die Uebungsauswahl (§6.4). Inline und kein Partial wie der Bilddialog:
-      // Sie wird nur hier gebraucht, und ein Partial fuer eine Seite ist ein
-      // Umweg ohne Nutzen. Die Treffer rendert vorschlagMarkup() aus
-      // assets/app.js -- dieselbe Darstellung wie beim Tausch. ?>
-<dialog id="waehlen-dialog">
-    <h2 id="waehlen-titel">Übung hinzufügen</h2>
-
-    <?php // Beide Filter wirken gemeinsam, deshalb stehen sie nebeneinander:
-          // "Kurzhantel" UND "Bizeps" ist der eigentliche Zweck der Maske. ?>
-    <div class="waehlen-filter">
-        <span>
-            <label for="waehlen-gruppe" class="nur-lesbar">Muskelgruppe</label>
-            <select id="waehlen-gruppe">
-                <option value="">alle Muskelgruppen</option>
-                <?php foreach ($hauptGruppen as $hg): ?>
-                    <option value="<?= (int)$hg['id'] ?>"><?= h((string)$hg['name_de']) ?></option>
-                    <?php // Kein <optgroup>: Dessen Beschriftung waere nicht waehlbar,
-                          // die Hauptgruppe muss aber als Filter taugen. Deshalb das
-                          // vorangestellte "–" als Einrueckung -- wie in der
-                          // Uebungsverwaltung. ?>
-                    <?php foreach ($unterGruppen[(int)$hg['id']] ?? [] as $ug): ?>
-                        <option value="<?= (int)$ug['id'] ?>">– <?= h((string)$ug['name_de']) ?></option>
-                    <?php endforeach; ?>
-                <?php endforeach; ?>
-            </select>
-        </span>
-        <span>
-            <label for="waehlen-geraet" class="nur-lesbar">Trainingsgerät</label>
-            <select id="waehlen-geraet">
-                <option value="">alle Trainingsgeräte</option>
-                <?php foreach (GERAETE as $code => $label): ?>
-                    <option value="<?= h($code) ?>"><?= h($label) ?></option>
-                <?php endforeach; ?>
-                <?php // Kein "ohne Gerät" — dieselbe Begründung wie in der
-                      // Übungsverwaltung: Das Feld ist Pflicht, der Eintrag träfe
-                      // nichts mehr. ?>
-            </select>
-        </span>
-    </div>
-
-    <div id="waehlen-liste"></div>
-    <p id="waehlen-fehler" class="feld-fehler" role="alert" hidden></p>
-    <p><button type="button" id="waehlen-schliessen" class="leise">Schließen</button></p>
-</dialog>
+<?php require __DIR__ . '/lib/view_uebung_waehlen_dialog.php'; ?>
 
 <?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
 

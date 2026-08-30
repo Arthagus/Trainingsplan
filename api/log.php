@@ -25,6 +25,13 @@ const GEWICHT_MAX = 1000.0;
 const WDH_MAX     = 200;
 const SAETZE_MAX  = 20;
 
+// Grenzen fuer Ausdauer (§7.4). 100 km und 6 Stunden sind so gewaehlt, dass
+// niemand sie im Studio je erreicht -- sie fangen den Vertipper ab (500000
+// statt 5000) und nicht den Ultramarathon. Die Zeit steht in Sekunden, weil
+// genau so gespeichert wird; mm:ss ist reine Ein- und Ausgabe.
+const DISTANZ_MAX = 100000;
+const DAUER_MAX   = 21600;
+
 $eingabe = read_json_body();
 
 // Es gibt bewusst KEIN "update": Ein Wert wird geaendert, indem man das
@@ -49,10 +56,21 @@ match (to_str($eingabe['action'] ?? '')) {
  */
 function position_laden(int $peId): array {
     $stmt = db()->prepare(
-        'SELECT pe.id, pe.plan_id, pe.exercise_id, sp.user_id
+        // e.erfassung entscheidet ueber das ganze Feldpaar dieser Anfrage --
+        // und sie kommt AUS DER DATENBANK und nie aus der Nutzlast. Sonst
+        // schriebe ein manipulierter Aufruf Meter in eine Kraftuebung.
+        //
+        // Gelesen wird die Erfassungsart der PLANUEBUNG, nicht die der
+        // moeglicherweise eingetauschten. Das ist zulaessig, weil beide
+        // zwangslaeufig uebereinstimmen: Sowohl api/swap.php als auch
+        // api/plans.php lassen einen Tausch nur innerhalb derselben
+        // Erfassungsart zu (§7.5). Faellt diese Regel je, gehoert hier ein
+        // COALESCE ueber exercise_swaps her.
+        'SELECT pe.id, pe.plan_id, pe.exercise_id, sp.user_id, e.erfassung
            FROM plan_exercises pe
            JOIN plans  p  ON p.id  = pe.plan_id
            JOIN splits sp ON sp.id = p.split_id
+           JOIN exercises e ON e.id = pe.exercise_id
           WHERE pe.id = ?'
     );
     $stmt->execute([$peId]);
@@ -105,6 +123,49 @@ function gewicht_pruefen(array $eingabe): ?float {
 }
 
 /**
+ * Das Gegenstueck zu gewicht_pruefen() fuer den einfachen Modus einer
+ * Ausdaueruebung: die zwei Felder der Karte.
+ *
+ * Beide duerfen leer sein, aus demselben Grund wie das Gewicht: "Erledigt"
+ * funktioniert auch ohne Angabe. Anders als beim Intervall wird hier NICHT
+ * verlangt, dass mindestens eines gefuellt ist -- ein Haekchen ohne Werte ist
+ * eine gueltige Aussage ("gemacht, nichts notiert"), waehrend eine leere
+ * Intervallzeile nur Platz braucht.
+ *
+ * @return array{distanz_m:?int,dauer_s:?int}
+ */
+function ausdauer_pruefen(array $eingabe): array {
+    $rohM = $eingabe['distanz'] ?? null;
+    $rohZ = $eingabe['dauer'] ?? null;
+
+    $meter = ($rohM === null || $rohM === '') ? null : to_int_or_null($rohM);
+    if ($rohM !== null && $rohM !== '' && $meter === null) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'distanz' => 'Distanz in ganzen Metern angeben.',
+        ]);
+    }
+    if ($meter !== null && ($meter < 1 || $meter > DISTANZ_MAX)) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'distanz' => 'Zwischen 1 und ' . DISTANZ_MAX . ' m.',
+        ]);
+    }
+
+    $sek = ($rohZ === null || $rohZ === '') ? null : dauer_aus_eingabe($rohZ);
+    if ($rohZ !== null && $rohZ !== '' && $sek === null) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'dauer' => 'Zeit als mm:ss angeben, z. B. 24:30.',
+        ]);
+    }
+    if ($sek !== null && ($sek < 1 || $sek > DAUER_MAX)) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'dauer' => 'Zwischen 0:01 und ' . dauer_mmss(DAUER_MAX) . '.',
+        ]);
+    }
+
+    return ['distanz_m' => $meter, 'dauer_s' => $sek];
+}
+
+/**
  * Prueft die Satzliste des Expertenmodus (§7.4).
  *
  * DIE GANZE LISTE IST DIE NUTZLAST, nicht der einzelne Satz. Das ist die
@@ -123,7 +184,7 @@ function gewicht_pruefen(array $eingabe): ?float {
  *
  * @return list<array{satz_nr:int, reps:?int, weight:?float}>|null
  */
-function saetze_pruefen(array $eingabe): ?array {
+function saetze_pruefen(array $eingabe, string $erfassung): ?array {
     $roh = $eingabe['sets'] ?? null;
 
     if ($roh === null) {
@@ -152,6 +213,31 @@ function saetze_pruefen(array $eingabe): ?array {
             ]);
         }
 
+        // Welches Feldpaar gilt, entscheidet allein die Erfassungsart aus der
+        // Datenbank. Die Felder der jeweils anderen Art werden VERWORFEN und
+        // nicht etwa mitgespeichert: Eine Zeile mit Gewicht UND Distanz waere
+        // von keiner Anzeige mehr sinnvoll darstellbar, und welcher der beiden
+        // Werte dann gilt, koennte niemand mehr beantworten.
+        if (ist_ausdauer($erfassung)) {
+            $meter = satz_distanz_pruefen($eintrag['distanz'] ?? null, $nr);
+            $dauer = satz_dauer_pruefen($eintrag['dauer'] ?? null, $nr);
+
+            if ($meter === null && $dauer === null) {
+                json_err('Bitte die Eingabe prüfen.', 422, [
+                    'sets' => 'Intervall ' . $nr . ': Distanz oder Zeit angeben.',
+                ]);
+            }
+
+            $saetze[] = [
+                'satz_nr'   => $nr,
+                'reps'      => null,
+                'weight'    => null,
+                'distanz_m' => $meter,
+                'dauer_s'   => $dauer,
+            ];
+            continue;
+        }
+
         $reps   = satz_wdh_pruefen($eintrag['reps'] ?? null, $nr);
         $gewicht = satz_gewicht_pruefen($eintrag['weight'] ?? null, $nr);
 
@@ -166,10 +252,69 @@ function saetze_pruefen(array $eingabe): ?array {
         // satz_nr wird hier vergeben und nicht vom Client uebernommen: Die
         // Reihenfolge der Liste IST die Reihenfolge der Saetze, und damit kann
         // es keine Luecken und keine doppelten Nummern geben.
-        $saetze[] = ['satz_nr' => $nr, 'reps' => $reps, 'weight' => $gewicht];
+        $saetze[] = [
+            'satz_nr'   => $nr,
+            'reps'      => $reps,
+            'weight'    => $gewicht,
+            'distanz_m' => null,
+            'dauer_s'   => null,
+        ];
     }
 
     return $saetze;
+}
+
+/**
+ * Die Distanz eines Intervalls in Metern: leer erlaubt (nur Zeit gelaufen),
+ * sonst 1 bis DISTANZ_MAX.
+ *
+ * Ganze Meter und keine Kommastelle: Kein Geraet im Studio zeigt Zentimeter,
+ * und ein Dezimalfeld laedt dazu ein, Kilometer einzutragen.
+ */
+function satz_distanz_pruefen(mixed $roh, int $nr): ?int {
+    if ($roh === null || $roh === '') {
+        return null;
+    }
+
+    $meter = to_int_or_null($roh);
+    if ($meter === null) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'sets' => 'Intervall ' . $nr . ': Distanz in ganzen Metern angeben.',
+        ]);
+    }
+    if ($meter < 1 || $meter > DISTANZ_MAX) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'sets' => 'Intervall ' . $nr . ': zwischen 1 und ' . DISTANZ_MAX . ' m.',
+        ]);
+    }
+
+    return $meter;
+}
+
+/**
+ * Die Zeit eines Intervalls: leer erlaubt (nur Distanz), sonst mm:ss bis
+ * DAUER_MAX. Geparst wird in dauer_aus_eingabe() (lib/helpers.php), damit
+ * Server und Browser dieselben Eingaben annehmen.
+ */
+function satz_dauer_pruefen(mixed $roh, int $nr): ?int {
+    if ($roh === null || $roh === '') {
+        return null;
+    }
+
+    $sek = dauer_aus_eingabe($roh);
+    if ($sek === null) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'sets' => 'Intervall ' . $nr . ': Zeit als mm:ss angeben, z. B. 24:30.',
+        ]);
+    }
+    if ($sek < 1 || $sek > DAUER_MAX) {
+        json_err('Bitte die Eingabe prüfen.', 422, [
+            'sets' => 'Intervall ' . $nr . ': zwischen 0:01 und '
+                . dauer_mmss(DAUER_MAX) . '.',
+        ]);
+    }
+
+    return $sek;
 }
 
 /**
@@ -243,6 +388,27 @@ function leitgewicht(array $saetze): ?float {
 }
 
 /**
+ * Die Leitwerte einer Intervallfolge -- das Gegenstueck zu leitgewicht().
+ *
+ * SUMME und nicht Maximum, und darin liegt der ganze Unterschied: Zwei
+ * Intervalle zu 1000 m sind 2000 gelaufene Meter, zwei Saetze zu 40 kg sind
+ * keine 80 kg. Der Bestwert einer Ausdaueruebung ist die weiteste Strecke
+ * einer EINHEIT, nicht das laengste Einzelintervall.
+ *
+ * Gerechnet wird in lib/training.php (saetze_distanz(), saetze_dauer()) --
+ * dieselben Funktionen, die der Verlauf benutzt. Zwei Summen an zwei Stellen
+ * liefen irgendwann auseinander.
+ *
+ * @return array{distanz_m:?int,dauer_s:?int}
+ */
+function leitwerte(array $saetze): array {
+    return [
+        'distanz_m' => saetze_distanz($saetze),
+        'dauer_s'   => saetze_dauer($saetze),
+    ];
+}
+
+/**
  * Eine als ERLEDIGT markierte Position ist festgeschrieben (§7.4).
  *
  * Geaendert wird ueber Haekchen entfernen, korrigieren, neu abhaken -- derselbe
@@ -266,6 +432,7 @@ function abgeschlossene_position_schuetzen(
     int $peId,
     ?array $saetze,
     ?float $gewicht,
+    array $ausdauer,
     bool $erledigt
 ): void {
     $offen = offene_einheit(current_user_id());
@@ -274,7 +441,7 @@ function abgeschlossene_position_schuetzen(
     }
 
     $stmt = db()->prepare(
-        'SELECT id, weight, done FROM workout_log
+        'SELECT id, weight, distanz_m, dauer_s, done FROM workout_log
           WHERE session_id = ? AND plan_exercise_id = ?'
     );
     $stmt->execute([$offen['id'], $peId]);
@@ -287,8 +454,18 @@ function abgeschlossene_position_schuetzen(
     $logId   = (int)$zeile['id'];
     $bestand = saetze_zu_logs([$logId])[$logId] ?? [];
 
-    if (saetze_gleich($bestand, $saetze ?? [])
-        && zahl_gleich(to_decimal_or_null($zeile['weight']), $gewicht)) {
+    // Alle Leitwerte muessen uebereinstimmen, nicht nur das Gewicht: Sonst
+    // ginge eine geaenderte Distanz an einer abgehakten Ausdauerposition
+    // stillschweigend durch -- die Sperre haette dort schlicht kein Auge fuer
+    // die Werte, um die es geht.
+    $gleich = saetze_gleich($bestand, $saetze ?? [])
+        && zahl_gleich(to_decimal_or_null($zeile['weight']), $gewicht)
+        && ($zeile['distanz_m'] === null ? null : (int)$zeile['distanz_m'])
+            === $ausdauer['distanz_m']
+        && ($zeile['dauer_s'] === null ? null : (int)$zeile['dauer_s'])
+            === $ausdauer['dauer_s'];
+
+    if ($gleich) {
         return;
     }
 
@@ -300,7 +477,16 @@ function abgeschlossene_position_schuetzen(
 }
 
 /**
- * Vergleicht zwei Satzfolgen inhaltlich -- Anzahl, Wiederholungen, Gewicht.
+ * Vergleicht zwei Satzfolgen inhaltlich -- Anzahl und ALLE vier Wertfelder.
+ *
+ * Alle vier und nicht nur die der aktuellen Erfassungsart: Diese Funktion
+ * traegt die Idempotenz-Ausnahme in abgeschlossene_position_schuetzen(), und
+ * eine Ausnahme, die zu grosszuegig vergleicht, laesst eine echte Aenderung an
+ * einer festgeschriebenen Position durchgehen. Was die Erfassungsart nicht
+ * betrifft, ist auf beiden Seiten ohnehin null -- der Vergleich kostet nichts.
+ *
+ * Ganzzahlen mit ===, Gewichte ueber zahl_gleich(): Meter und Sekunden sind
+ * exakt, Fliesskommagewichte nicht.
  */
 function saetze_gleich(array $a, array $b): bool {
     if (count($a) !== count($b)) {
@@ -313,6 +499,12 @@ function saetze_gleich(array $a, array $b): bool {
             return false;
         }
         if (!zahl_gleich($satz['weight'] ?? null, $andere['weight'] ?? null)) {
+            return false;
+        }
+        if (($satz['distanz_m'] ?? null) !== ($andere['distanz_m'] ?? null)) {
+            return false;
+        }
+        if (($satz['dauer_s'] ?? null) !== ($andere['dauer_s'] ?? null)) {
             return false;
         }
     }
@@ -358,16 +550,32 @@ function aktion_abhaken(array $eingabe): never {
 
     $position = position_laden($peId);
 
+    // Die Erfassungsart steht in der Datenbank und entscheidet, welches
+    // Feldpaar diese Anfrage ueberhaupt tragen darf (§7.4). Sie aus der
+    // Nutzlast zu nehmen waere die naheliegende Abkuerzung und zugleich eine
+    // Luecke: Ein Aufruf koennte damit Meter in eine Kraftuebung schreiben.
+    $ausdauerUebung = ist_ausdauer($position['erfassung'] ?? null);
+
     // Geprueft wird VOR der Transaktion. json_err() beendet die Anfrage
     // sofort; innerhalb einer offenen Transaktion haenge die Entscheidung
     // ueber das Rollback sonst daran, wann PHP die Verbindung abraeumt.
-    $saetze = saetze_pruefen($eingabe);
+    $saetze = saetze_pruefen($eingabe, $ausdauerUebung ? 'ausdauer' : 'kraft');
 
-    // Mit Satzliste bestimmt der schwerste Satz das Gewicht der Position, ohne
-    // sie das gesendete Feld. Die Nutzlast beschreibt die Zeile jeweils
-    // vollstaendig -- deshalb kann Leitgewicht und Satzliste nichts
+    // Mit Satzliste bestimmen die Saetze die Leitwerte der Position, ohne sie
+    // die gesendeten Felder. Die Nutzlast beschreibt die Zeile jeweils
+    // vollstaendig -- deshalb koennen Leitwert und Satzliste nichts
     // auseinanderbringen.
-    $gewicht = $saetze === null ? gewicht_pruefen($eingabe) : leitgewicht($saetze);
+    //
+    // Je Erfassungsart wird nur das eigene Feldpaar gelesen; das andere bleibt
+    // null und landet auch so in der Datenbank. Eine Zeile mit Gewicht UND
+    // Distanz gibt es dadurch nicht, egal was die Nutzlast mitbringt.
+    if ($ausdauerUebung) {
+        $gewicht  = null;
+        $ausdauer = $saetze === null ? ausdauer_pruefen($eingabe) : leitwerte($saetze);
+    } else {
+        $gewicht  = $saetze === null ? gewicht_pruefen($eingabe) : leitgewicht($saetze);
+        $ausdauer = ['distanz_m' => null, 'dauer_s' => null];
+    }
 
     // "Erledigt" ist ein eigener Zustand, nicht die blosse Existenz der Zeile.
     //
@@ -378,7 +586,7 @@ function aktion_abhaken(array $eingabe): never {
 
     // Ebenfalls vor der Transaktion, aus demselben Grund wie die Pruefungen
     // darueber: json_err() beendet die Anfrage sofort.
-    abgeschlossene_position_schuetzen($peId, $saetze, $gewicht, $erledigt);
+    abgeschlossene_position_schuetzen($peId, $saetze, $gewicht, $ausdauer, $erledigt);
 
     $userId = current_user_id();
     $planId = (int)$position['plan_id'];
@@ -400,8 +608,8 @@ function aktion_abhaken(array $eingabe): never {
 
     $sessionId = db_transaction(
         static function () use (
-            $userId, $planId, $peId, $planUebungId, $gewicht, $saetze, $erledigt,
-            $sessionIdOffen
+            $userId, $planId, $peId, $planUebungId, $gewicht, $ausdauer, $saetze,
+            $erledigt, $sessionIdOffen
         ): int {
             $sessionId = $sessionIdOffen;
             $uebungId  = angezeigte_uebung($peId, $planUebungId, $sessionId);
@@ -411,16 +619,19 @@ function aktion_abhaken(array $eingabe): never {
             $stmt = db()->prepare(
                 'INSERT INTO workout_log
                      (session_id, plan_exercise_id, user_id, exercise_id, plan_id,
-                      weight, done, performed_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                      weight, distanz_m, dauer_s, done, performed_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT (session_id, plan_exercise_id) DO UPDATE SET
                      exercise_id  = excluded.exercise_id,
                      weight       = excluded.weight,
+                     distanz_m    = excluded.distanz_m,
+                     dauer_s      = excluded.dauer_s,
                      done         = excluded.done,
                      performed_at = excluded.performed_at'
             );
             $stmt->execute([
                 $sessionId, $peId, $userId, $uebungId, $planId, $gewicht,
+                $ausdauer['distanz_m'], $ausdauer['dauer_s'],
                 $erledigt ? 1 : 0, now(),
             ]);
 
@@ -468,11 +679,15 @@ function saetze_schreiben(int $sessionId, int $peId, ?array $saetze): void {
     }
 
     $einfuegen = db()->prepare(
-        'INSERT INTO workout_sets (workout_log_id, satz_nr, reps, weight)
-         VALUES (?, ?, ?, ?)'
+        'INSERT INTO workout_sets
+             (workout_log_id, satz_nr, reps, weight, distanz_m, dauer_s)
+         VALUES (?, ?, ?, ?, ?, ?)'
     );
     foreach ($saetze as $s) {
-        $einfuegen->execute([$logId, $s['satz_nr'], $s['reps'], $s['weight']]);
+        $einfuegen->execute([
+            $logId, $s['satz_nr'], $s['reps'], $s['weight'],
+            $s['distanz_m'], $s['dauer_s'],
+        ]);
     }
 }
 
@@ -527,8 +742,15 @@ function aktion_abwaehlen(array $eingabe): never {
  * irgendwo noch ein Haekchen fehlt.
  */
 function fortschritt(int $sessionId, int $planId): array {
-    $stmt = db()->prepare('SELECT COUNT(*) FROM plan_exercises WHERE plan_id = ?');
-    $stmt->execute([$planId]);
+    // Dasselbe Fenster wie plan_positionen(): der Plan plus die Positionen, die
+    // nur zu dieser Einheit gehoeren (§7.6). Beide Zaehlungen MUESSEN dieselbe
+    // Menge sehen -- steht unten eine Karte mehr, als "n" kennt, laeuft "x/n"
+    // ueber das Ziel hinaus, und genau davor warnt Fallstrick 2.
+    $stmt = db()->prepare(
+        'SELECT COUNT(*) FROM plan_exercises
+          WHERE plan_id = ? AND (session_id IS NULL OR session_id = ?)'
+    );
+    $stmt->execute([$planId, $sessionId]);
     $n = (int)$stmt->fetchColumn();
 
     $stmt = db()->prepare(

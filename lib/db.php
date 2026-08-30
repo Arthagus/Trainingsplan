@@ -266,6 +266,61 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec('ALTER TABLE splits ADD COLUMN vorlage_id INTEGER');
     }
 
+    // 2026-08-30: Erfassungsart je Uebung (§4, §6.3). Rein additiv.
+    //
+    // 'kraft' als Vorgabe ist hier -- anders als beim Geraet -- kein geratener
+    // Wert, sondern der einzig moegliche: Vor 1.4.0 gab es nur eine Art zu
+    // protokollieren, jede Bestandsuebung IST also Kraft. Ein "Erfassung
+    // fehlt" waere eine Luecke, die es nie gegeben hat.
+    //
+    // Ohne CHECK-Constraint, weil ALTER TABLE in SQLite keines nachtragen kann
+    // -- dieselbe Lage wie bei users.expert_mode. Gebunden wird der Wert in
+    // api/exercises.php gegen die Codeliste ERFASSUNG in lib/geraete.php.
+    if (!column_exists($pdo, 'exercises', 'erfassung')) {
+        $pdo->exec("ALTER TABLE exercises ADD COLUMN erfassung TEXT NOT NULL DEFAULT 'kraft'");
+    }
+
+    // 2026-08-30: Distanz und Zeit fuer Ausdaueruebungen (§4, §7.4).
+    //
+    // Vier Spalten, zwei Ebenen, und beide Ebenen werden gebraucht -- genau wie
+    // bei weight: In workout_sets steht das einzelne Intervall, in workout_log
+    // der Leitwert der Position, den der Verlauf liest. Im einfachen Modus gibt
+    // es ueberhaupt keine workout_sets-Zeilen; ohne die zwei Spalten an
+    // workout_log waere dort nichts zu speichern.
+    //
+    // Alle vier nullbar und rein additiv: Jede bestehende Zeile bekommt NULL
+    // und bleibt eine Kraftzeile. Kein Index -- es gibt keine Abfrage, die auf
+    // diesen Spalten filtert; der Verlauf faehrt weiter ueber
+    // idx_workout_log_last_value.
+    if (!column_exists($pdo, 'workout_sets', 'distanz_m')) {
+        $pdo->exec('ALTER TABLE workout_sets ADD COLUMN distanz_m INTEGER');
+    }
+    if (!column_exists($pdo, 'workout_sets', 'dauer_s')) {
+        $pdo->exec('ALTER TABLE workout_sets ADD COLUMN dauer_s INTEGER');
+    }
+    if (!column_exists($pdo, 'workout_log', 'distanz_m')) {
+        $pdo->exec('ALTER TABLE workout_log ADD COLUMN distanz_m INTEGER');
+    }
+    if (!column_exists($pdo, 'workout_log', 'dauer_s')) {
+        $pdo->exec('ALTER TABLE workout_log ADD COLUMN dauer_s INTEGER');
+    }
+
+    // 2026-08-30: Eine Planposition, die nur zu EINER Einheit gehoert (§7.6).
+    //
+    // Rein additiv: Jede bestehende Zeile bekommt NULL und ist damit weiterhin
+    // eine gewoehnliche Planposition. Das ist der Regelfall und bleibt es --
+    // gesetzt wird die Spalte nur von "Übung hinzufügen -> Nur diese Einheit".
+    //
+    // ALTER TABLE ADD COLUMN kann in SQLite keinen Fremdschluessel nachtragen
+    // (dieselbe Lage wie bei muscle_groups.parent_id und splits.vorlage_id).
+    // Auf einer Bestandsdatenbank greift das ON DELETE CASCADE aus schema.sql
+    // hier also NICHT. Aufgefangen wird das in api/session.php: Der Loeschpfad
+    // einer Einheit raeumt ihre Positionen ausdruecklich mit weg, statt sich
+    // auf die Kaskade zu verlassen.
+    if (!column_exists($pdo, 'plan_exercises', 'session_id')) {
+        $pdo->exec('ALTER TABLE plan_exercises ADD COLUMN session_id INTEGER');
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die

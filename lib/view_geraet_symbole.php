@@ -118,6 +118,46 @@ require_once __DIR__ . '/geraete.php';
         <path d="M12 14l-3.5 6M12 14l3.5 6"></path>
     </symbol>
 
+    <?php // --- Die drei Ausdauergeraete (1.4.0) ------------------------------
+          // Alle drei sind Standgeraete und werden von der Seite gezeigt: eine
+          // waagerechte Grundlinie, darueber das Kennzeichen, an dem man sie im
+          // Studio auseinanderhaelt -- Konsole am Band, Schwungrad plus Griffe
+          // am Crosstrainer, Schiene plus Sitz am Ruderer. ?>
+
+    <?php // Laufflaeche mit Standfuss, Saeule und Konsole. ?>
+    <symbol id="geraet-laufband" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 20h13.5"></path>
+        <path d="M4.6 16.6h10.3"></path>
+        <path d="M4.6 16.6L3 20M14.9 16.6L16.5 20"></path>
+        <path d="M14.9 16.6V4.5"></path>
+        <path d="M11.4 4.5h7.2"></path>
+    </symbol>
+
+    <?php // Schwungrad, Pedalarm und die zwei beweglichen Griffe. ?>
+    <symbol id="geraet-crosstrainer" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="5.4" cy="15.8" r="3.3"></circle>
+        <path d="M17.6 19.5V4.5"></path>
+        <path d="M5.4 15.8h9.4"></path>
+        <path d="M12.4 18.4h4.2"></path>
+        <path d="M17.6 6.6l-4.3 3.2M17.6 6.6l3.4 2.6"></path>
+    </symbol>
+
+    <?php // Schwungrad vorn, Zugseil zum Griff, Sitz auf der Schiene. ?>
+    <symbol id="geraet-rudergeraet" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="5" cy="8.5" r="3.2"></circle>
+        <path d="M8.2 8.5h6.3"></path>
+        <path d="M14.5 6.7v3.6"></path>
+        <path d="M3 16.5h18"></path>
+        <rect x="10" y="12.2" width="5.5" height="2.8" rx="1"></rect>
+        <path d="M4.5 16.5v3.5M19.5 16.5v3.5"></path>
+    </symbol>
+
 </defs></svg>
 
 <?php // Die Beschriftungen fuer das JS. Kein <script> mit Zuweisung, sondern

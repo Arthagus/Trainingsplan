@@ -303,8 +303,18 @@ button.gefahr { background: var(--fehler); }
    <use href="#geraet-…"> greift — sichtbar sein darf er nicht. */
 .symbol-vorrat { display: none; }
 
+/* Die Erfassungsart, aber nur wo sie von der Regel abweicht: Ein Abzeichen an
+   jeder der hundert Kraftübungen trüge keine Information. Ohne eigenes Symbol,
+   weil das Geräte-Abzeichen daneben schon eines hat und zwei Piktogramme in
+   einer Zeile sich als ein einziges lesen. Farbe wie ein Hinweis und nicht wie
+   eine Warnung — es ist eine Eigenschaft, kein Mangel. */
+.erfassung-ausdauer {
+    border-color: var(--gut);
+    color: var(--gut);
+}
+
 /* Symbol UND Text: Ein Piktogramm allein spart Platz, verlangt aber, dass man
-   sieben Zeichen auswendig kennt. inline-flex statt inline-block, damit das
+   zehn Zeichen auswendig kennt. inline-flex statt inline-block, damit das
    Symbol auf der Textmitte sitzt und nicht auf der Grundlinie. */
 .geraet {
     display: inline-flex;
@@ -1424,6 +1434,45 @@ button.sperr-knopf {
     #uebungen[data-experte="1"] .position-aktionen { display: flex; }
 }
 
+/* Die zwei Werte einer Ausdauerposition im einfachen Modus (1.4.0).
+
+   Eine EIGENE Zeile über der Aktionszeile und nicht deren mittlere Spalte:
+   Dort steht bei Kraft genau ein schmales Feld. Zwei davon plus „Tauschen"
+   plus „Erledigt" ergäben rund 400 px und brächen bei 390 px um — dann stünde
+   das zweite Feld allein in einer Zeile, und zwar unter statt neben dem
+   ersten. */
+.wert-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.6rem;
+}
+
+/* Fünf Ziffern (99999 m) statt der vier, die ein Gewicht braucht. */
+.wert-zeile .distanz { width: 5.5rem; }
+
+/* „mm:ss" ist fünf Zeichen, aber der Doppelpunkt ist schmal. */
+.wert-zeile .dauer { width: 5rem; text-align: right; }
+
+/* Die Pace steht unter den Werten, aus denen sie entsteht. Sie ist IMMER da —
+   auch als „—" —, damit die Karte beim Tippen nicht wächst und schrumpft
+   (Fallstrick 19a). Tabellenziffern, weil sich beim Tippen nur einzelne
+   Stellen ändern und die Zeile sonst zappelt. */
+.pace-zeile {
+    margin: 0 0 0.6rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Im Expertenmodus entfällt die mittlere Spalte der Aktionszeile, weil das
+   Gewicht in den Sätzen steht. Bei Ausdauer gilt dasselbe aus dem Grund
+   darüber: Die Werte stehen in der eigenen Zeile. Bliebe es beim Raster, hinge
+   das Häkchen am Ende der zweiten von drei Spalten und damit in der Mitte
+   statt rechts. */
+@media (min-width: 24rem) {
+    #uebungen .karte-ausdauer .position-aktionen { display: flex; }
+}
+
 /* Das Häkchen ist die Hauptaktion der Seite — entsprechend groß, und es
    nimmt den Rest der Zeile ein, damit es am rechten Rand steht. */
 .erledigt-wahl {
@@ -1556,6 +1605,20 @@ button.sperr-knopf {
     font-variant-numeric: tabular-nums;
 }
 
+/* Eine Intervallzeile (Ausdauer, 1.4.0) ist deutlich schmaler als die
+   Satzzeile darüber — der Stepper entfällt, es bleiben zwei Textfelder:
+
+     Nummer 20 + Feld 88 + „in" 16 + Feld 80 + Löschen 44 + Abstände 16 = 264
+
+   Das passt ab 330 px und damit auf jedem Gerät, das die Kraftzeile trägt. Die
+   beiden Media Queries unten greifen trotzdem mit; sie blenden nur
+   Beschriftungen aus, und was dort für „×" gilt, gilt hier für „in". */
+.zeile-ausdauer .satz-distanz { width: 4rem; }
+
+.zeile-ausdauer .satz-dauer { width: 3.8rem; text-align: right; }
+
+.satz-in { color: var(--schrift-matt); font-size: 0.9rem; }
+
 /* Abgehakt heißt festgeschrieben (§7.4). Die Knöpfe sind dann `disabled` und
    damit über `button:disabled` schon blass; die Eingabefelder brauchen einen
    eigenen Hinweis, sonst sähen sie weiter aus wie Eingabefelder und man tippt
@@ -1573,6 +1636,7 @@ button.sperr-knopf {
    Anordnung hervorginge. Spart rund 41 px, macht 274 — passt ab 340 px. */
 @media (max-width: 25rem) {
     .satz-mal,
+    .satz-in,
     .satz-zeile .wert-einheit { display: none; }
 }
 
@@ -2006,6 +2070,23 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 
    Ab 40rem ist die Breite da, dort stehen sie wieder nebeneinander — sonst wird
    jede Zeile der Tabelle ohne Grund doppelt so hoch. */
+/* Die Pace-Zelle traegt zwei Angaben untereinander (km/h ueber min/km) --
+   dasselbe Muster wie Datum und Uhrzeit darunter, und aus demselben Grund: Als
+   zwei Spalten waeren es sechs, und bei fuenf ist die Breite hier schon einmal
+   knapp geworden. Anders als beim Datum bleiben sie AUCH auf breiten Schirmen
+   untereinander: "10,9 km/h 5:30 /km" in einer Zeile liest sich wie eine
+   einzige krumme Angabe. */
+.pace-spalte { font-variant-numeric: tabular-nums; }
+
+.pace-kmh, .pace-jekm { display: block; white-space: nowrap; }
+
+.pace-jekm { color: var(--schrift-matt); }
+
+/* In der Einheiten-Ansicht steht die Pace dagegen in EINER Zeile: Dort ist sie
+   eine Zelle unter vielen, und die Zeilen der Tabelle sollen gleich hoch
+   bleiben. Das Format kommt aus pace_text(). */
+.pace-zelle { white-space: nowrap; }
+
 .datum-spalte {
     font-variant-numeric: tabular-nums;
 }

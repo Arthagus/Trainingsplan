@@ -123,6 +123,7 @@ if ($gruppeFilter !== null) {
 
 $stmt = db()->prepare(
     'SELECT e.id, e.name_de, e.name_en, e.description, e.focus, e.equipment,
+            e.erfassung,
             e.image_path, e.image_crop, e.archived, e.archived_at, e.created_at,
             (SELECT COUNT(*) FROM workout_log wl WHERE wl.exercise_id = e.id) AS log_anzahl
        FROM exercises e' . $listeWoSql . '
@@ -160,6 +161,11 @@ foreach (db()->query(
        JOIN plans  p  ON p.id  = pe.plan_id
        JOIN splits sp ON sp.id = p.split_id
        LEFT JOIN users u ON u.id = sp.user_id
+      -- Nur der PLAN (§7.6): Eine Position aus einer einzelnen Einheit ist
+      -- keine Planzugehoerigkeit. Der Loeschschutz in api/exercises.php zaehlt
+      -- sie trotzdem mit -- dort geht es um den Fremdschluessel, nicht um die
+      -- Frage "in welchen Plaenen steht die Uebung".
+      WHERE pe.session_id IS NULL
       ORDER BY sp.user_id IS NOT NULL, u.name, sp.name, p.name'
 ) as $r) {
     $planReferenzen[(int)$r['exercise_id']][] = $r;
@@ -171,12 +177,24 @@ foreach (db()->query(
  * Kein Dropdown: Bei Mehrfachauswahl ist die Checkbox-Liste die passende
  * Bedienform, und alle verfuegbaren Gruppen sind auf einen Blick sichtbar (§6.3).
  *
+ * Bei einer AUSDAUER-Uebung ist der ganze Block ausgeblendet UND `disabled`
+ * (§6.3) -- und beides wird gebraucht: `hidden` nimmt ihn aus dem Blick,
+ * `disabled` aus dem Formular. `new FormData(formular)` in admin_exercises.js
+ * sammelt naemlich auch unsichtbare Felder ein; ohne das `disabled` reiste eine
+ * versehentlich angehakte Gruppe mit, die niemand mehr sehen kann.
+ *
+ * Gerendert wird der Zustand SERVERSEITIG und nicht erst im Browser: Sonst
+ * blitzte der Block beim Bearbeiten einer Ausdaueruebung kurz auf, bevor das
+ * Skript ihn wegnimmt.
+ *
  * @param array $alle     Alle Muskelgruppen in ihrer Sortierreihenfolge
  * @param int[] $gewaehlt IDs der angehakten Gruppen
  * @param int   $primaer  ID der primaeren Gruppe (0 = keine)
  * @param string $prefix  Macht die Feld-IDs je Formular eindeutig
+ * @param bool  $aus      Ausdaueruebung: Block ausgeblendet und deaktiviert
  */
-function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $primaer, string $prefix): void {
+function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $primaer,
+                         string $prefix, bool $aus = false): void {
     /** Eine wählbare Zeile: Radiobutton (primär) und Checkbox (sekundär). */
     $zeile = static function (array $g, bool $istUnter, bool $istLetzte = false)
         use ($gewaehlt, $primaer, $prefix): void {
@@ -211,7 +229,8 @@ function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $prima
         <?php
     };
     ?>
-    <fieldset class="gruppen-wahl" data-gruppen-wahl>
+    <fieldset class="gruppen-wahl" data-gruppen-wahl
+              <?= $aus ? 'hidden disabled' : '' ?>>
         <legend>Muskelgruppen</legend>
         <p class="matt">
             <strong>Primär</strong> ist die Gruppe, wegen der man die Übung macht.
@@ -266,7 +285,7 @@ function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $prima
  *
  * Anders als bei den Muskelgruppen ein Dropdown und kein Faecher aus Radios:
  * Dort gibt es eine Mehrfachauswahl mit zwei Rollen und einer Hierarchie, hier
- * genau einen Wert aus sieben. Die leere erste Option ist der Grund, warum das
+ * genau einen Wert aus zehn. Die leere erste Option ist der Grund, warum das
  * Feld ueberhaupt required sein kann.
  *
  * @param string  $prefix   Macht die Feld-ID je Formular eindeutig
@@ -290,6 +309,56 @@ function geraet_auswahl(string $prefix, ?string $gewaehlt): void {
         anderes Gerät ausweichen können.
     </p>
     <p class="feld-fehler" data-fehler-fuer="equipment" hidden></p>
+    <?php
+}
+
+/**
+ * Die Auswahl der Trainingsart -- was fuer eine Uebung protokolliert wird.
+ *
+ * **In der Oberflaeche heisst das Feld "Trainingsart"** (Ansage des Benutzers,
+ * 2026-08-30), im Datenmodell weiterhin `exercises.erfassung`. Dieselbe
+ * Trennung wie bei GERAETE: Der Schluessel steht in der Datenbank, die
+ * Beschriftung nur im Code -- eine Umbenennung ist damit eine Textaenderung und
+ * keine Migration.
+ *
+ * KEINE leere erste Option, anders als beim Geraet daneben: Dort gibt es
+ * Bestandsuebungen ohne Wert, die ueber das Pflichtfeld nachgepflegt werden --
+ * hier gibt es die nicht, die Spalte ist NOT NULL mit Vorgabe 'kraft'. Eine
+ * Option "— bitte wählen —", die niemals ausgewaehlt sein kann, waere ein
+ * Bedienelement ohne Funktion. Serverseitig bleibt das Feld trotzdem Pflicht
+ * (api/exercises.php, Begruendung dort).
+ *
+ * Ein Dropdown und keine zwei Radios, obwohl es nur zwei Werte sind: Die
+ * Beschriftungen sind lang ("Ausdauer — Distanz und Zeit"), und zwei
+ * mehrzeilige Radios nebeneinander sprengen am Handy die Zeile. Beim
+ * Bildzuschnitt darunter liegt der Fall genau andersherum -- drei kurze Werte,
+ * die man nebeneinander sehen will, waehrend man auf das Bild schaut.
+ *
+ * @param string  $prefix   Macht die Feld-ID je Formular eindeutig
+ * @param ?string $gewaehlt Der bisherige Wert (null bei einer neuen Uebung)
+ */
+function erfassung_auswahl(string $prefix, ?string $gewaehlt): void {
+    $gewaehlt = $gewaehlt === null || trim($gewaehlt) === ''
+        ? ERFASSUNG_VORGABE
+        : trim($gewaehlt);
+    ?>
+    <label for="<?= h($prefix) ?>_erfassung">Trainingsart</label>
+    <select id="<?= h($prefix) ?>_erfassung" name="erfassung" required>
+        <?php foreach (ERFASSUNG as $code => $label): ?>
+            <option value="<?= h($code) ?>" <?= $gewaehlt === $code ? 'selected' : '' ?>>
+                <?= h($label) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <p class="matt">
+        Womit die Übung protokolliert wird. <em>Ausdauer</em> ersetzt
+        Wiederholungen und Gewicht durch Distanz und Zeit, weist im Verlauf die
+        Pace aus und braucht <strong>keine Muskelgruppe</strong> — die Auswahl
+        darunter entfällt dann. Das hängt an der Übung und nicht am Gerät:
+        Laufen ist Laufen, ob im Freien oder auf dem Band. Getauscht wird nur
+        innerhalb derselben Trainingsart.
+    </p>
+    <p class="feld-fehler" data-fehler-fuer="erfassung" hidden></p>
     <?php
 }
 
@@ -381,9 +450,18 @@ require __DIR__ . '/lib/view_header.php';
         <label for="neu_name_en">Name (englisch, optional)</label>
         <input type="text" id="neu_name_en" name="name_en">
 
-        <?php gruppen_auswahl($hauptGruppen, $unterGruppen, [], 0, 'neu'); ?>
-
+        <?php // Geraet und Trainingsart stehen VOR den Muskelgruppen (Ansage des
+              // Benutzers, 2026-08-30), und das ist keine Frage des Geschmacks: Die
+              // Trainingsart entscheidet, ob der Muskelgruppen-Block ueberhaupt
+              // erscheint. Stuende sie darunter, blendete eine Auswahl den Kasten
+              // ueber sich aus -- der ganze Rest des Formulars spraenge dabei nach
+              // oben. Wer eine weitere Angabe ergaenzt, die einen Block darunter
+              // steuert, sortiert sie genauso ein. ?>
         <?php geraet_auswahl('neu', null); ?>
+
+        <?php erfassung_auswahl('neu', null); ?>
+
+        <?php gruppen_auswahl($hauptGruppen, $unterGruppen, [], 0, 'neu'); ?>
 
         <label for="neu_focus">Ausführung (optional)</label>
         <input type="text" id="neu_focus" name="focus" maxlength="60"
@@ -542,6 +620,11 @@ require __DIR__ . '/lib/view_header.php';
                               // sekundaeren -- so sortiert die Abfrage), die Ausfuehrung
                               // in einer eigenen Zeile darunter. Gleiche Anordnung wie
                               // in der Handy-Ansicht. ?>
+                        <?php // Bei Ausdauer ist "keine Gruppe" der Normalfall und kein
+                              // Mangel -- die Zeile bliebe sonst dauerhaft rot. Der
+                              // Hinweis gilt weiterhin fuer Kraftuebungen, wo eine
+                              // fehlende Zuordnung die Uebung aus dem Tausch nimmt. ?>
+                        <?php if (!($gruppen === [] && ist_ausdauer($u['erfassung'] ?? null))): ?>
                         <p class="gruppen-anzeige">
                             <?php if ($gruppen === []): ?>
                                 <span class="feld-fehler">keine Muskelgruppe zugeordnet</span>
@@ -553,6 +636,7 @@ require __DIR__ . '/lib/view_header.php';
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </p>
+                        <?php endif; ?>
                         <?php if ($archiviert): ?>
                             <p class="matt">
                                 Archiviert am <?= h(format_datetime($u['archived_at'])) ?>
@@ -590,6 +674,9 @@ require __DIR__ . '/lib/view_header.php';
                           // waere genau die Sorte Luecke, die niemand nachpflegt. ?>
                     <p class="schwerpunkt-zeile">
                         <?= geraet_abzeichen($u['equipment'] ?? null) ?>
+                        <?php // Nur bei Ausdauer, sonst leer -- an hundert
+                              // Kraftuebungen traegt das Abzeichen nichts bei. ?>
+                        <?= erfassung_abzeichen($u['erfassung'] ?? null) ?>
                         <?php if (!empty($u['focus'])): ?>
                             <span class="schwerpunkt"><?= h((string)$u['focus']) ?></span>
                         <?php endif; ?>
@@ -640,11 +727,19 @@ require __DIR__ . '/lib/view_header.php';
                     <input type="text" id="e<?= $id ?>_name_en" name="name_en"
                            value="<?= h((string)($u['name_en'] ?? '')) ?>">
 
-                    <?php gruppen_auswahl($hauptGruppen, $unterGruppen, $gewaehlteIds, $primaerId, 'e' . $id); ?>
-
                     <?php // Auch hier Pflicht -- und genau das ist der Weg, auf dem die
                           // Uebungen aus der Zeit vor diesem Feld ihr Geraet bekommen. ?>
                     <?php geraet_auswahl('e' . $id, $u['equipment'] ?? null); ?>
+
+                    <?php erfassung_auswahl('e' . $id, $u['erfassung'] ?? null); ?>
+
+                    <?php // Bei einer Ausdaueruebung steht der Block von vornherein
+                          // ausgeblendet da -- serverseitig, damit er beim Aufklappen
+                          // nicht erst kurz aufblitzt. ?>
+                    <?php gruppen_auswahl(
+                        $hauptGruppen, $unterGruppen, $gewaehlteIds, $primaerId, 'e' . $id,
+                        ist_ausdauer($u['erfassung'] ?? null)
+                    ); ?>
 
                     <label for="e<?= $id ?>_focus">Ausführung (optional)</label>
                     <input type="text" id="e<?= $id ?>_focus" name="focus" maxlength="60"

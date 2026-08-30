@@ -56,15 +56,24 @@ $mehrereSplits = count(splits_von($userId)) > 1;
  * `saetzeText()` (PHP + JS) muss gleich bleiben, und `saetze_zusammenfassung()`
  * baut darauf auf. Hier entsteht Markup, dort ein reiner String.
  *
- * @param array $saetze Saetze der Position, in Reihenfolge
+ * @param array  $saetze    Saetze der Position, in Reihenfolge
+ * @param string $erfassung 'kraft' oder 'ausdauer' -- eine Einheit darf beides
+ *                          enthalten, die Entscheidung faellt also je ZEILE
  */
-function satz_gitter(array $saetze): string {
+function satz_gitter(array $saetze, string $erfassung): string {
     if ($saetze === []) {
         return '<span class="matt">—</span>';
     }
 
     $teile = [];
     foreach ($saetze as $s) {
+        if (ist_ausdauer($erfassung)) {
+            $m = $s['distanz_m'] === null ? '—' : $s['distanz_m'] . ' m';
+            $t = $s['dauer_s']   === null ? '—' : dauer_mmss($s['dauer_s']);
+            $teile[] = '<span>' . h($m . '/' . $t) . '</span>';
+            continue;
+        }
+
         $wdh = $s['reps']   === null ? '?' : (string)$s['reps'];
         $kg  = $s['weight'] === null ? '—' : format_decimal($s['weight']);
         $teile[] = '<span>' . h($wdh . '×' . $kg) . '</span>';
@@ -176,6 +185,18 @@ require __DIR__ . '/lib/view_header.php';
                 // die Saetze aller Positionen dieser Einheit auf einmal.
                 $saetze = saetze_zu_logs(array_column($eintraege, 'log_id'));
                 $mitSaetzen = $saetze !== [];
+
+                // Ein Plan darf Kraft und Ausdauer mischen. Sobald EINE
+                // Ausdauerposition dabei ist, bekommt die Zahlenspalte einen
+                // gemeinsamen Kopf -- "1RM" waere dort fuer die halbe Tabelle
+                // schlicht falsch.
+                $mitAusdauer = false;
+                foreach ($eintraege as $pruef) {
+                    if (ist_ausdauer($pruef['erfassung'] ?? null)) {
+                        $mitAusdauer = true;
+                        break;
+                    }
+                }
                 ?>
                 <li class="karte einheit-karte" data-session="<?= (int)$e['id'] ?>">
                     <details>
@@ -231,7 +252,16 @@ require __DIR__ . '/lib/view_header.php';
                                               // beim Gewicht. Eine Spalte "1RM", die ueber eine
                                               // ganze Einheit hinweg nur Striche zeigt, waere
                                               // schlechter als die Zahl, die es gibt. ?>
-                                        <th class="spalte-zahl"><?= $mitSaetzen ? '1RM' : 'Gewicht' ?></th>
+                                        <?php // Sobald eine Ausdauerposition dabei ist, kann
+                                              // die Spalte nicht mehr "1RM" oder "Gewicht"
+                                              // heissen -- dort steht dann eine Pace. Ein
+                                              // gemeinsamer Kopf ist ehrlicher als einer, der
+                                              // fuer die halbe Tabelle falsch ist; eine SECHSTE
+                                              // Spalte nur fuer die Pace waere bei einer reinen
+                                              // Kraft-Einheit dauerhaft leer. ?>
+                                        <th class="spalte-zahl"><?=
+                                            $mitAusdauer ? 'Kennzahl' : ($mitSaetzen ? '1RM' : 'Gewicht')
+                                        ?></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -249,14 +279,31 @@ require __DIR__ . '/lib/view_header.php';
                                                 ) ?></span>
                                             <?php endif; ?>
                                         </td>
+                                        <?php $zeileAusdauer = ist_ausdauer($z['erfassung'] ?? null); ?>
                                         <?php if ($mitSaetzen): ?>
                                             <td class="satz-spalte">
-                                                <?= satz_gitter($zeilenSaetze) ?>
+                                                <?= satz_gitter(
+                                                    $zeilenSaetze,
+                                                    $zeileAusdauer ? 'ausdauer' : 'kraft'
+                                                ) ?>
                                             </td>
                                         <?php endif; ?>
-                                        <?php $e1rm = $mitSaetzen ? saetze_e1rm($zeilenSaetze) : null; ?>
+                                        <?php $e1rm = $mitSaetzen && !$zeileAusdauer
+                                            ? saetze_e1rm($zeilenSaetze)
+                                            : null; ?>
                                         <td class="spalte-zahl">
-                                            <?php if ($mitSaetzen): ?>
+                                            <?php if ($zeileAusdauer): ?>
+                                                <?php // Die Pace steht ueber die GANZE Position,
+                                                      // nicht je Intervall -- gefragt ist, wie
+                                                      // schnell man an dem Tag war. Gerechnet
+                                                      // wird aus den Leitwerten der Zeile, also
+                                                      // aus denselben Summen, die auch der
+                                                      // Uebungsverlauf benutzt. ?>
+                                                <span class="pace-zelle"><?= h(pace_text(
+                                                    $z['distanz_m'] === null ? null : (int)$z['distanz_m'],
+                                                    $z['dauer_s']   === null ? null : (int)$z['dauer_s']
+                                                )) ?></span>
+                                            <?php elseif ($mitSaetzen): ?>
                                                 <?= $e1rm === null
                                                     ? '<span class="matt">—</span>'
                                                     : h(format_decimal(round($e1rm, 1))) . ' kg' ?>
@@ -306,23 +353,37 @@ require __DIR__ . '/lib/view_header.php';
 
     <?php if ($uebungen === []): ?>
         <div class="karte">
-            <p><strong>Noch kein Gewicht protokolliert.</strong></p>
+            <p><strong>Noch nichts protokolliert.</strong></p>
             <p class="matt">
-                Sobald du beim Abhaken ein Gewicht einträgst, entsteht hier ein Verlauf.
-                Übungen ohne Gewichtsangabe erscheinen nicht — für sie gäbe es nichts
-                zu zeigen.
+                Sobald du beim Abhaken ein Gewicht einträgst — bei Ausdauerübungen
+                eine Distanz oder eine Zeit —, entsteht hier ein Verlauf. Übungen
+                ganz ohne Werte erscheinen nicht: für sie gäbe es nichts zu zeigen.
             </p>
         </div>
     <?php else: ?>
         <ul class="liste-schlicht">
             <?php foreach ($uebungen as $u): ?>
                 <?php
-                $verlauf = gewichts_verlauf($userId, (int)$u['exercise_id']);
-                $letzter = $verlauf === [] ? null : (float)end($verlauf)['weight'];
-                $erster  = $verlauf === [] ? null : (float)$verlauf[0]['weight'];
+                $ausdauer = ist_ausdauer($u['erfassung'] ?? null);
+                $verlauf  = gewichts_verlauf(
+                    $userId,
+                    (int)$u['exercise_id'],
+                    $ausdauer ? 'ausdauer' : 'kraft'
+                );
+
+                // Die Leitzahl der Kopfzeile: bei Kraft das Gewicht, bei
+                // Ausdauer die Distanz. Beides ist die Zahl, an der man den
+                // Fortschritt dieser Uebung abliest -- und beides traegt die
+                // Kurve daneben.
+                $feld    = $ausdauer ? 'distanz_m' : 'weight';
+                $letzter = $verlauf === [] || end($verlauf)[$feld] === null
+                    ? null : (float)end($verlauf)[$feld];
+                $erster  = $verlauf === [] || $verlauf[0][$feld] === null
+                    ? null : (float)$verlauf[0][$feld];
                 $diff    = ($letzter !== null && $erster !== null) ? $letzter - $erster : 0.0;
 
-                // Volumen und geschaetztes 1RM je Punkt. Ein Aufruf fuer den
+                // Volumen und geschaetztes 1RM je Punkt -- bei Ausdauer
+                // stattdessen Geschwindigkeit und Dauer. Ein Aufruf fuer den
                 // ganzen Verlauf; gerechnet wird in PHP und nicht in SQL -- die
                 // Datenmenge ist winzig, und die Formel gehoert dorthin, wo man
                 // sie lesen kann.
@@ -330,6 +391,17 @@ require __DIR__ . '/lib/view_header.php';
                 foreach ($verlauf as $i => $p) {
                     $s = $saetzeJeLog[(int)$p['log_id']] ?? [];
                     $verlauf[$i]['saetze']  = $s;
+
+                    if ($ausdauer) {
+                        $m = $p['distanz_m'] === null ? null : (int)$p['distanz_m'];
+                        $t = $p['dauer_s']   === null ? null : (int)$p['dauer_s'];
+                        // null und nicht 0, wo sich nichts rechnen laesst: Eine 0
+                        // riss in die Kurve einen Einbruch, den es nie gab (§7.8).
+                        $verlauf[$i]['tempo'] = tempo_kmh($m, $t);
+                        $verlauf[$i]['zeit']  = $t;
+                        continue;
+                    }
+
                     $verlauf[$i]['volumen'] = saetze_volumen($s);
                     $verlauf[$i]['e1rm']    = saetze_e1rm($s);
                 }
@@ -344,9 +416,14 @@ require __DIR__ . '/lib/view_header.php';
                             <span class="einheit-plan"><?= uebung_name_kurz(
                                 (string)$u['name_de'], $u['name_en']
                             ) ?></span>
-                            <span class="verlauf-kurve-halter"><?php verlauf_kurve($verlauf); ?></span>
+                            <?php // Dieselbe Kurve, anderes Feld: verlauf_kurve() nimmt
+                                  // den Spaltennamen als Parameter und musste dafuer nicht
+                                  // angefasst werden. ?>
+                            <span class="verlauf-kurve-halter"><?php
+                                verlauf_kurve($verlauf, $ausdauer ? 'distanz_m' : 'weight');
+                            ?></span>
                             <span class="matt einheit-eckdaten">
-                                <?= h(format_decimal($letzter)) ?> kg
+                                <?= h(format_decimal($letzter)) ?><?= $ausdauer ? ' m' : ' kg' ?>
                                 <?php if (abs($diff) >= 0.01): ?>
                                     <span class="<?= $diff > 0 ? 'diff-plus' : 'diff-minus' ?>">
                                         <?= $diff > 0 ? '+' : '−' ?><?= h(format_decimal(abs($diff))) ?>
@@ -360,7 +437,24 @@ require __DIR__ . '/lib/view_header.php';
                               // Bereichs. Die Zusammenfassungszeile bleibt der
                               // Gewichtskurve vorbehalten: Drei Kurven nebeneinander
                               // machen den <summary> am Handy unlesbar. ?>
-                        <?php if ($hatSaetze): ?>
+                        <?php if ($ausdauer): ?>
+                            <?php // Genau der Platz, an dem bei Kraft Volumen und 1RM
+                                  // stehen. Geschwindigkeit ist die Kennzahl, an der man
+                                  // Fortschritt sieht, wenn die Strecke gleich bleibt --
+                                  // dieselbe Rolle, die das Volumen bei Kraft hat. ?>
+                            <p class="kurven-zeile">
+                                <span class="kurve-titel">Geschwindigkeit</span>
+                                <span class="verlauf-kurve-halter">
+                                    <?php verlauf_kurve($verlauf, 'tempo'); ?>
+                                </span>
+                            </p>
+                            <p class="kurven-zeile">
+                                <span class="kurve-titel">Dauer</span>
+                                <span class="verlauf-kurve-halter">
+                                    <?php verlauf_kurve($verlauf, 'zeit'); ?>
+                                </span>
+                            </p>
+                        <?php elseif ($hatSaetze): ?>
                             <p class="kurven-zeile">
                                 <span class="kurve-titel">Volumen</span>
                                 <span class="verlauf-kurve-halter">
@@ -384,17 +478,29 @@ require __DIR__ . '/lib/view_header.php';
                               // Der rollende Kasten bleibt als Netz — bei sehr vielen
                               // Sätzen oder sehr schmalen Geräten greift er weiterhin,
                               // und dann ist Rollen besser als eine zerdrückte Spalte. ?>
+                        <?php // Bei Ausdauer sind es Datum, Intervalle, Distanz, Zeit und
+                              // Pace -- ebenfalls fuenf. Die Pace steht als EINE Spalte mit
+                              // zwei Zeilen darin (km/h ueber min/km), nach dem Muster von
+                              // Datum und Uhrzeit daneben. Als sechste Spalte spraengte sie
+                              // die Breite, die hier schon einmal knapp geworden ist. ?>
                         <div class="<?= $hatSaetze ? 'tabelle-rollt' : '' ?>">
                         <table class="verlauf-tabelle">
                             <thead>
                                 <tr>
                                     <th>Datum</th>
-                                    <?php if ($hatSaetze): ?>
+                                    <?php if ($ausdauer): ?>
+                                        <?php if ($hatSaetze): ?><th>Intervalle</th><?php endif; ?>
+                                        <th class="spalte-zahl">Distanz</th>
+                                        <th class="spalte-zahl">Zeit</th>
+                                        <th class="spalte-zahl">Pace</th>
+                                    <?php elseif ($hatSaetze): ?>
                                         <th>Sätze</th>
                                         <th class="spalte-zahl">Volumen</th>
                                         <th class="spalte-zahl">1RM</th>
+                                        <th class="spalte-zahl">Gewicht</th>
+                                    <?php else: ?>
+                                        <th class="spalte-zahl">Gewicht</th>
                                     <?php endif; ?>
-                                    <th class="spalte-zahl">Gewicht</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -407,24 +513,59 @@ require __DIR__ . '/lib/view_header.php';
                                         <span class="datum-tag"><?= h(format_datum_kurz($v['performed_at'])) ?></span>
                                         <span class="datum-zeit"><?= h(format_zeit($v['performed_at'])) ?></span>
                                     </td>
-                                    <?php if ($hatSaetze): ?>
-                                        <td class="satz-spalte">
-                                            <?= satz_gitter($v['saetze']) ?>
+                                    <?php if ($ausdauer): ?>
+                                        <?php
+                                        $vm = $v['distanz_m'] === null ? null : (int)$v['distanz_m'];
+                                        $vt = $v['dauer_s']   === null ? null : (int)$v['dauer_s'];
+                                        $vjeKm = sekunden_je_km($vm, $vt);
+                                        ?>
+                                        <?php if ($hatSaetze): ?>
+                                            <td class="satz-spalte">
+                                                <?= satz_gitter($v['saetze'], 'ausdauer') ?>
+                                            </td>
+                                        <?php endif; ?>
+                                        <td class="spalte-zahl">
+                                            <?= $vm === null
+                                                ? '<span class="matt">—</span>'
+                                                : h((string)$vm) . ' m' ?>
                                         </td>
                                         <td class="spalte-zahl">
-                                            <?= $v['volumen'] === null
+                                            <?= $vt === null
                                                 ? '<span class="matt">—</span>'
-                                                : h(format_decimal(round($v['volumen']))) . ' kg' ?>
+                                                : h(dauer_mmss($vt)) ?>
                                         </td>
+                                        <td class="spalte-zahl pace-spalte">
+                                            <?php if ($v['tempo'] === null || $vjeKm === null): ?>
+                                                <span class="matt">—</span>
+                                            <?php else: ?>
+                                                <span class="pace-kmh"><?=
+                                                    h(format_decimal(round($v['tempo'], 1)))
+                                                ?> km/h</span>
+                                                <span class="pace-jekm"><?=
+                                                    h(dauer_mmss($vjeKm))
+                                                ?> /km</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php else: ?>
+                                        <?php if ($hatSaetze): ?>
+                                            <td class="satz-spalte">
+                                                <?= satz_gitter($v['saetze'], 'kraft') ?>
+                                            </td>
+                                            <td class="spalte-zahl">
+                                                <?= $v['volumen'] === null
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(format_decimal(round($v['volumen']))) . ' kg' ?>
+                                            </td>
+                                            <td class="spalte-zahl">
+                                                <?= $v['e1rm'] === null
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(format_decimal(round($v['e1rm'], 1))) . ' kg' ?>
+                                            </td>
+                                        <?php endif; ?>
                                         <td class="spalte-zahl">
-                                            <?= $v['e1rm'] === null
-                                                ? '<span class="matt">—</span>'
-                                                : h(format_decimal(round($v['e1rm'], 1))) . ' kg' ?>
+                                            <?= h(format_decimal((float)$v['weight'])) ?> kg
                                         </td>
                                     <?php endif; ?>
-                                    <td class="spalte-zahl">
-                                        <?= h(format_decimal((float)$v['weight'])) ?> kg
-                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
@@ -432,7 +573,14 @@ require __DIR__ . '/lib/view_header.php';
                         </div>
 
                         <p class="matt">
-                            Bestwert <?= h(format_decimal((float)$u['bestwert'])) ?> kg
+                            <?php // Bestwert heisst bei Ausdauer die WEITESTE Strecke einer
+                                  // Einheit -- die Entsprechung zum schwersten Gewicht. Eine
+                                  // beste Pace waere die naheliegende Alternative und
+                                  // irrefuehrend: Sie ist auf 400 m fast immer besser als
+                                  // auf 10 km. ?>
+                            Bestwert <?= $ausdauer
+                                ? h((string)(int)($u['bestdistanz'] ?? 0)) . ' m'
+                                : h(format_decimal((float)$u['bestwert'])) . ' kg' ?>
                         </p>
 
                         <?php // Der Vorbehalt gehört sichtbar an die Zahl und nicht in
@@ -442,7 +590,22 @@ require __DIR__ . '/lib/view_header.php';
                         <?php // Drei Absätze statt eines Blocks: Es sind drei Spalten und
                               // drei Begriffe, und untereinander findet man den gesuchten,
                               // ohne einen Fließtext zu lesen. ?>
-                        <?php if ($hatSaetze): ?>
+                        <?php if ($ausdauer): ?>
+                            <p class="matt">
+                                <strong>Pace</strong> ist die Durchschnittsgeschwindigkeit
+                                der ganzen Einheit und darunter dieselbe Angabe als Zeit
+                                je Kilometer. Beides steht da, weil beides eine andere
+                                Frage beantwortet: km/h steht am Gerät, min/km ist die
+                                Zahl, in der man beim Laufen denkt.
+                            </p>
+                            <p class="matt">
+                                <strong>Distanz</strong> und <strong>Zeit</strong> sind bei
+                                mehreren Intervallen die <em>Summe</em> über die Einheit —
+                                zwei Intervalle zu 1000 m sind 2000 gelaufene Meter. Die
+                                Pace bezieht sich deshalb auch auf die ganze Einheit und
+                                nicht auf das schnellste Intervall.
+                            </p>
+                        <?php elseif ($hatSaetze): ?>
                             <p class="matt">
                                 <strong>Volumen</strong> ist die Summe aus Wiederholungen
                                 mal Gewicht über alle Sätze einer Einheit — es steigt

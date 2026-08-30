@@ -82,6 +82,18 @@ function aktion_loeschen(array $eingabe): never {
     $stmt->execute([$id]);
     $eintraege = (int)$stmt->fetchColumn();
 
+    // Die Positionen, die nur zu DIESER Einheit gehoerten, gehen mit (§7.6).
+    // Ausdruecklich und nicht ueber die Kaskade: Auf einer Bestandsdatenbank
+    // traegt plan_exercises.session_id keinen Fremdschluessel -- SQLite kann
+    // ueber ALTER TABLE keinen nachtragen -, und die Zeilen blieben sonst als
+    // Waisen stehen. Sichtbar waeren sie nirgends mehr, aber sie waeren da.
+    //
+    // VOR dem Loeschen der Einheit: Danach ist die session_id weg, und es gaebe
+    // nichts mehr, woran man sie erkennt. Dass dabei workout_log.plan_exercise_id
+    // kurz auf NULL faellt, ist ohne Folge -- diese Zeilen verschwinden im
+    // naechsten Schritt mit der Einheit.
+    db()->prepare('DELETE FROM plan_exercises WHERE session_id = ?')->execute([$id]);
+
     db()->prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?')
         ->execute([$id, current_user_id()]);
 

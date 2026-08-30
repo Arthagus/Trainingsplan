@@ -318,7 +318,8 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - **`equipment`** ist das Trainingsgerät — das *Womit* neben dem *Was* (Muskelgruppen) und
   dem *Wie* (`focus`). Es trägt einen Schlüssel aus einer **festen Codeliste** in
   `lib/geraete.php`: `maschine`, `multipresse`, `kabel` (Kabelzug), `langhantel`,
-  `kurzhantel`, `kettlebell`, `koerper` (Körpergewicht). Der Schlüssel steht in der
+  `kurzhantel`, `kettlebell`, `koerper` (Körpergewicht) — seit `1.4.0` dazu `laufband`,
+  `crosstrainer`, `rudergeraet`. Der Schlüssel steht in der
   Datenbank, die Beschriftung nur im Code — eine Umbenennung ist deshalb eine
   Textänderung und keine Migration. Keine eigene Tabelle — die Menge ist klein und
   geschlossen —, und bewusst **kein `CHECK`-Constraint**, weil SQLite es nur über einen
@@ -335,11 +336,48 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 
   Nicht als eigener Typ vorgesehen, weil es in `focus` gehört: SZ-Stange und Trap-Bar sind
   Langhantel, Klimmzugstange und Dip-Barren sind Körpergewicht.
+- **`erfassung`** (seit `1.4.0`) sagt, **wie** protokolliert wird: `kraft` (Wiederholungen
+  und Gewicht) oder `ausdauer` (Distanz in Metern und Zeit). Wieder eine Codeliste in
+  `lib/geraete.php`, wieder ohne `CHECK`, geprüft in `api/exercises.php`. Die Spalte ist
+  `NOT NULL DEFAULT 'kraft'` — anders als beim Gerät ist der Vorgabewert hier nicht geraten,
+  sondern der einzig mögliche: Vor `1.4.0` gab es nur eine Art zu protokollieren, jede
+  Bestandsübung *ist* Kraft.
+
+  **Sie hängt an der Übung und nicht am Gerät.** Der naheliegende Weg wäre, sie aus
+  `equipment` abzuleiten — Laufband heißt Ausdauer. Das ist falsch herum: Die Übung ist die
+  Tätigkeit und bestimmt, was gemessen wird; das Gerät sagt nur, wo sie stattfindet. Laufen
+  ist Laufen, ob im Freien oder auf dem Band. Drei Folgen: Eine spätere Ausdauerform ohne
+  eigenes Gerät (Seilspringen, Laufen im Freien) braucht keinen erfundenen Gerätetyp; die
+  Regel „das Gerät ist kein Kriterium des Tauschs" bleibt wörtlich wahr, weil der Tausch
+  nach der Erfassungsart filtert und nicht nach dem Gerät; und keine spätere Zeile in einer
+  Codeliste kann rückwirkend die Bedeutung bereits protokollierter Werte kippen — eine
+  abgeleitete Erfassungsart täte genau das, sobald jemand ein Gerät umträgt.
+
+  **Getauscht wird nur innerhalb derselben Erfassungsart** (§7.5). Das ist kein Widerspruch
+  zum Absatz über das Gerät darüber, sondern eine Frage anderer Art: Beim Gerät geht es um
+  den Ausweg bei besetzter Maschine, hier darum, ob die bereits sichtbaren Felder überhaupt
+  noch passen.
 - Die Muskelgruppen hängen **nicht** als Fremdschlüssel an der Übung, sondern an der
   Zuordnungstabelle `exercise_muscle_groups` (n:m, siehe unten).
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
   Dropdowns und Tauschvorschlägen, bleiben aber für die Historie referenzierbar und sind im
   Admin jederzeit einsehbar (§6.3).
+
+**plan_exercises** — die Positionen eines Plans
+- `id`, `plan_id` (FK, CASCADE), `exercise_id` (FK, RESTRICT), `session_id` (FK, nullable),
+  `sort_order`
+- **`session_id` ist die Ausnahme** (seit `1.4.2`, §7.6): `NULL` heißt „gehört zum Plan" —
+  der Regelfall und der Zustand jeder Zeile vor `1.4.2`. Ist sie gesetzt, gehört die
+  Position **nur zu dieser einen Einheit** und ist überall sonst unsichtbar.
+- **Warum das keine eigene Tabelle ist:** `workout_log` hängt über `plan_exercise_id` an
+  genau dieser `id`. Eine Übung, die nur heute dazukommt, braucht deshalb eine echte
+  Planposition — sonst wäre ihr Protokolleintrag nicht zuzuordnen, „x/n" nicht zählbar und
+  die Tauschsperre ohne Anker.
+- **Und warum die Zeile nach der Einheit stehen bleibt:** Löschen setzt
+  `workout_log.plan_exercise_id` über `ON DELETE SET NULL` auf `NULL` — der Verlauf verlöre
+  die Zuordnung, lautlos. Sie bleibt und wird ausgeblendet, wo der *Plan* gemeint ist.
+  Erst wenn die **Einheit** gelöscht wird, geht sie mit; ihr Protokolleintrag verschwindet
+  dann ohnehin.
 
 **users** — Benutzer
 - `active_split_id` (FK → splits, nullable) trägt seit `1.2.0`, welcher Split gerade
@@ -464,10 +502,21 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   es einmal nicht eingetragen wurde. Das `id DESC` ist Pflicht: Zeitstempel haben
   Sekundenauflösung, zwei Einträge derselben Sekunde hätten sonst keine definierte
   Reihenfolge.
+- **`distanz_m` und `dauer_s`** (int, nullable, seit `1.4.0`) sind dasselbe für
+  Ausdauerübungen und stehen aus genau dem Grund hier, aus dem `weight` hier steht: Im
+  einfachen Modus gibt es überhaupt keine `workout_sets`-Zeilen, und der Verlauf (§7.8) liest
+  ausschließlich diese Tabelle. Welches Paar gilt, entscheidet `exercises.erfassung`; das
+  jeweils andere bleibt `NULL`. Eine Zeile mit Gewicht **und** Distanz gibt es nicht.
+- **Sie sind die SUMME über die Intervalle, nicht das Maximum** — das ist der Unterschied zu
+  `weight`. Zwei Intervalle zu 1000 m sind 2000 gelaufene Meter; zwei Sätze zu 40 kg sind
+  keine 80 kg. Die Zeit steht in **Sekunden**; `mm:ss` ist reine Ein- und Ausgabe.
+- Die Vorbelegung von Distanz und Zeit kommt aus **einer** Zeile und nicht aus zwei
+  Einzelabfragen: 5000 m vom Dienstag mit der Zeit vom Freitag ergäben eine Pace, die es nie
+  gegeben hat.
 
 **workout_sets** — die einzelnen Sätze einer Planposition (Expertenmodus, siehe §7.4)
 - `id`, `workout_log_id` (FK, **CASCADE**), `satz_nr` (int), `reps` (int, nullable),
-  `weight` (decimal, nullable)
+  `weight` (decimal, nullable), `distanz_m` (int, nullable), `dauer_s` (int, nullable)
 - **Eindeutig ist `(workout_log_id, satz_nr)`.** Die Nummern werden bei jedem Speichern neu
   von 1 an vergeben — die Reihenfolge der gesendeten Liste *ist* die Reihenfolge der Sätze.
   Damit gibt es weder Lücken noch ein Umnummerieren.
@@ -478,6 +527,12 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
 - `reps` **und** `weight` sind nullbar — Körpergewichtsübungen haben kein Gewicht,
   Halte-Übungen keine Wiederholungszahl. Ein Satz, in dem **beides** leer ist, wird
   abgelehnt: Er beantwortet keine Frage.
+- **`distanz_m` und `dauer_s` sind das zweite Feldpaar** (seit `1.4.0`), für Ausdauerübungen.
+  Eine Zeile trägt immer nur *eines* der beiden Paare; welches, entscheidet
+  `exercises.erfassung` — **serverseitig, nie die Nutzlast**. Felder der jeweils anderen Art
+  werden verworfen, nicht mitgespeichert. Die Ablehnungsregel gilt dort genauso: ohne Distanz
+  und ohne Zeit sagt ein Intervall nichts. In der Oberfläche heißen diese Zeilen
+  **Intervalle** — reine Beschriftung, im Datenmodell bleiben es Sätze.
 - **Die ganze Satzliste ist die Nutzlast, nicht der einzelne Satz.** `api/log.php → check`
   nimmt sie als Feld `sets` entgegen und ersetzt die Sätze der Position vollständig. Der
   Aufruf ist damit idempotent und beliebig oft wiederholbar — worauf sich die Warteschlange
@@ -653,13 +708,35 @@ Sie sind seit `1.2.0` keine Adminsache mehr, jeder Benutzer verwaltet seine eige
     Bizeps sekundär.
   - Neue Gruppen lassen sich hier **nicht** anlegen; dafür gibt es §6.2. Ein Link dorthin
     steht neben der Liste.
-- **Trainingsgerät (Pflicht):** ein Auswahlfeld mit den sieben Werten aus §4 — Maschine,
-  Multipresse, Kabel, Langhantel, Kurzhantel, Kettlebell, Körpergewicht. Kein Freitext, damit
+- **Trainingsgerät (Pflicht):** ein Auswahlfeld mit den zehn Werten aus §4 — Maschine,
+  Multipresse, Kabel, Langhantel, Kurzhantel, Kettlebell, Körpergewicht, Laufband,
+  Crosstrainer, Rudergerät. Kein Freitext, damit
   der Filter darauf verlässlich ist; kein Checkbox-Fächer wie bei den Muskelgruppen, weil es
-  genau einen Wert aus sieben gibt. Angezeigt wird es als **Abzeichen mit Symbol und Text**
+  genau einen Wert aus zehn gibt. Angezeigt wird es als **Abzeichen mit Symbol und Text**
   — überall dort, wo eine Übung erscheint: Übungsliste, Planverwaltung, Handy-Ansicht,
   Tauschvorschläge und Übungsauswahl. Symbol *und* Text, weil ein Piktogramm allein
-  verlangte, dass man sieben Zeichen auswendig kennt.
+  verlangte, dass man zehn Zeichen auswendig kennt.
+- **Trainingsart (Pflicht, seit `1.4.0`):** ein Auswahlfeld mit *Kraft* und *Ausdauer*.
+  In der Datenbank heißt die Spalte `erfassung` (§4) — der Schlüssel steht dort, die
+  Beschriftung nur im Code, wie beim Trainingsgerät auch.
+
+  Es hat **keinen** Leereintrag — anders als beim Gerät gibt es keine Bestandsübung ohne
+  Wert, die nachgepflegt werden müsste, und eine Option, die nie ausgewählt sein kann, wäre
+  ein Bedienelement ohne Funktion. Serverseitig bleibt das Feld trotzdem Pflicht: `update`
+  ersetzt die ganze Übung, ein Aufruf ohne das Feld fiele sonst still auf *Kraft* zurück und
+  machte aus einer Laufbandübung lautlos wieder eine Kraftübung. In der Liste tragen nur
+  Ausdauerübungen ein Abzeichen — an hundert Kraftübungen trüge es keine Information.
+
+  **Bei *Ausdauer* entfällt die Muskelgruppen-Auswahl ganz** (seit `1.4.1`): „Welchen Muskel
+  trainiert Laufen?" hat keine Antwort, die man ankreuzen könnte. Der Block wird ausgeblendet
+  **und** deaktiviert — ausgeblendet allein genügt nicht, weil `FormData` auch unsichtbare
+  Felder einsammelt. Serverseitig ist die Gruppe dann weder Pflicht noch wird sie
+  gespeichert; mitgeschickte Gruppen werden verworfen. Wer eine Kraftübung auf *Ausdauer*
+  umstellt, verliert damit ihre Zuordnung — der Block verschwindet dabei sichtbar.
+
+  **Trainingsgerät und Trainingsart stehen deshalb VOR den Muskelgruppen.** Die Trainingsart
+  entscheidet, ob der Block darunter überhaupt erscheint; stünde sie dahinter, blendete eine
+  Auswahl den Kasten über sich aus und der halbe Rest des Formulars spränge nach oben.
 
   Das Feld ist auch beim **Bearbeiten** Pflicht. Ein fehlender Wert kann dadurch nicht neu
   entstehen; wo doch einer fehlt — etwa nach dem Einspielen einer alten Sicherung —, zeigt
@@ -1268,6 +1345,36 @@ getrennt** weiter (§7.6).
   - Grenzen: höchstens **20 Sätze** je Übung, **1 bis 200** Wiederholungen, **0 bis 1000 kg**
     je Satz; ein Satz ohne Wiederholungen **und** ohne Gewicht wird abgelehnt.
 
+- **Ausdauerübungen werden mit Distanz und Zeit erfasst** (seit `1.4.0`, `exercises.erfassung`
+  = `ausdauer`, §4). Alles am Ablauf bleibt gleich — Warteschlange, Idempotenz, „Erledigt" als
+  eigener Zustand, die Sperre nach dem Abhaken, die Tauschsperre ab dem ersten Eintrag. Es
+  sind dieselben Zeilen in `workout_sets`, nur mit dem anderen Feldpaar; in der Oberfläche
+  heißen sie **Intervalle**.
+
+  - **Einfacher Modus:** statt des Gewichtsfelds zwei Felder — Distanz in Metern und Zeit als
+    `mm:ss`. Sie stehen in einer **eigenen Zeile über** der Aktionszeile: Zwei Felder plus
+    „Tauschen" plus „Erledigt" passen nebeneinander nicht auf ein 390 px breites Display.
+  - **Expertenmodus:** dieselbe Intervallzeile statt der Satzzeile, **ohne Stepper** — ±1
+    Meter ist keine sinnvolle Schrittweite, und ein zweiter Schrittwert (±100 m? ±10 s?) wäre
+    für Intervall, Dauerlauf und Rudern jeweils für etwas falsch. Dieselbe Überlegung, aus
+    der auch das Gewicht keinen hat.
+  - **Die Zeit wird als `mm:ss` eingegeben** (`24:30`), gespeichert werden Sekunden.
+    Angenommen werden auch `h:mm:ss` und — als freundliche Lesart der naheliegendsten
+    Fehleingabe — eine nackte Zahl als **Minuten** (`24` = `24:00`). Sekunden über 59 werden
+    **abgewiesen und nicht umgerechnet**: `5:75` ist ein Vertipper, und daraus stillschweigend
+    `6:15` zu machen hieße, eine Zahl zu speichern, die niemand eingegeben hat.
+  - **Die Pace steht schon beim Eintragen da**, unter den Werten, aus denen sie entsteht —
+    sonst sieht man beim Training nicht, ob man schneller war als letztes Mal. Sie ist bei
+    Ausdauer **immer** vorhanden und zeigt `—`, solange nichts zu rechnen ist; eine Zeile,
+    die beim Tippen erscheint und wieder verschwindet, ließe die ganze Liste springen.
+  - Grenzen: **1 bis 100 000 m** und **0:01 bis 6:00:00** je Intervall, wieder höchstens 20;
+    ein Intervall ohne Distanz **und** ohne Zeit wird abgelehnt.
+  - **Der Warteschlangen-Schlüssel bleibt `-v3`.** Die *Form* eines Eintrags ändert sich
+    nicht: Die neuen Felder sind additiv und optional, ein wartender Alt-Eintrag bleibt
+    gültig, und einen wartenden Ausdauer-Eintrag kann es vor dem Rollout nicht geben —
+    Ausdauerübungen existieren dann noch nicht. Ein Sprung würde nur die Eingaben von jedem
+    verwerfen, der gerade trainiert.
+
 - **Schlechtes Netz.** Der Regelfall im Studio ist nicht *kein* Empfang, sondern *schwacher*.
   Drei Vorkehrungen, gestaffelt:
 
@@ -1351,6 +1458,7 @@ getrennt** weiter (§7.6).
    WHERE COALESCE(mg.parent_id, mg.id) = CAST(:hauptgruppe AS INTEGER)
      AND e.id != :current_exercise_id
      AND e.archived = 0
+     AND COALESCE(e.erfassung, 'kraft') = :erfassung
   ```
   Verglichen wird die **Hauptgruppe** (§4), nicht die genaue Untergruppe. Das `CAST` ist
   zwingend: `COALESCE()` liefert einen Wert ohne Spaltenaffinität, und PDO bindet Werte aus
@@ -1367,6 +1475,21 @@ getrennt** weiter (§7.6).
 
   Umgekehrt landen Übungen mit passender Primärgruppe zuverlässig in der Liste, egal wie
   viele Sekundärgruppen sie mitbringen.
+- **Vorgeschlagen wird nur, was sich genauso protokollieren lässt** (seit `1.4.0`): dieselbe
+  `erfassung` (§4). Ohne diesen Filter bekäme man für die Beinpresse ein Laufband angeboten —
+  beide hängen an „Beine" —, und die Position stünde danach mit einem Gewichtsfeld an einer
+  Übung, die in Metern protokolliert wird. Das ist **kein** Widerspruch zu der Regel, dass
+  das Gerät keine Rolle spielt: Beim Gerät geht es um den Ausweg bei besetzter Maschine, hier
+  um die Frage, ob die bereits sichtbaren Felder überhaupt noch passen.
+
+  Damit ist zugesichert, dass Planübung und eingetauschte Übung immer dieselbe Erfassungsart
+  haben — `api/log.php` verlässt sich darauf und liest sie von der Planübung.
+- **Bei Ausdauerübungen entscheidet allein die Trainingsart** (seit `1.4.1`): Vorgeschlagen
+  werden alle anderen nicht archivierten Ausdauerübungen, alphabetisch. Die Muskelgruppe
+  spielt keine Rolle — sie ist dort gar nicht mehr gesetzt (§6.3). Das ist kein Notbehelf,
+  sondern genau der Fall, für den es den Tausch gibt: Das Laufband ist besetzt, also nimmt
+  man den Crosstrainer. Und keine Rangfolge nach „nächstliegend": Eine nähere oder fernere
+  Ausdauerform gibt es nicht.
 - Die Vorschlagsliste zeigt zu jeder Alternative deren weitere Muskelgruppen an, damit
   erkennbar ist, was man sich zusätzlich einhandelt — dazu das **Trainingsgerät**, das an
   dieser Stelle die entscheidende Angabe ist: Man tauscht meist, *weil* ein Gerät besetzt ist.
@@ -1465,6 +1588,44 @@ getrennt** weiter (§7.6).
   Tausch schreibt in `plan_exercises` und braucht keine `session_id`; „nur diese Einheit"
   braucht eine und wird deshalb vorher nicht angeboten — mit einem Hinweissatz im Dialog,
   sonst wirkt der fehlende Knopf wie ein Fehler.
+- **Übung spontan hinzufügen** (seit `1.4.2`). Unter der Übungsliste steht *Noch eine
+  Übung?* mit einem Knopf, der dieselbe Auswahlmaske öffnet wie die Planverwaltung (§6.4) —
+  gefiltert nach Muskelgruppe und Trainingsgerät. Es ist dieselbe Maske, kein Nachbau:
+  Markup und Logik liegen in `lib/view_uebung_waehlen_dialog.php` und `assets/app.js`.
+
+  **Bei laufender Einheit gibt es zwei Knöpfe je Vorschlag**, in derselben Reihenfolge und
+  aus demselben Grund wie beim Übungstausch (§7.5):
+
+  | | |
+  |---|---|
+  | **Nur diese Einheit** | Die Position gehört ausschließlich zum heutigen Training. Sie steht vorn, weil sie im Studio der Regelfall ist — man hat Lust auf eine Übung, nicht auf eine Planänderung |
+  | **Dauerhaft im Plan** | Die Position kommt ans Ende des Plans und steht beim nächsten Mal wieder da |
+
+  Ohne laufendes Training gibt es nur den zweiten Knopf; „nur diese" bezöge sich auf nichts.
+  Der Kasten steht trotzdem, mit angepasstem Text — er erspart den Umweg über die Planseite.
+
+  **Hinzufügen ist von der Struktursperre ausgenommen** — als einzige der drei
+  Strukturaktionen. Der Grund für die Sperre ist, dass sich „x/n" unter einer laufenden
+  Anzeige nicht verschieben soll; beim **Umsortieren** und **Entfernen** trifft das zu und
+  bleibt gesperrt. Eine Übung ans **Ende** zu hängen verschiebt dagegen keine bestehende
+  Position: Keine `plan_exercise_id` ändert sich, die Warteschlange behält ihre Schlüssel,
+  und dass „n" um eins wächst, hat der Benutzer gerade selbst ausgelöst und sieht es.
+
+  **Die Tagesposition ist überall unsichtbar, wo der Plan gemeint ist** (§4): in der
+  Planverwaltung, beim Kopieren, beim Zurücksetzen auf die Vorlage, im Fingerabdruck des
+  Splits und im „Als Text"-Export. Sichtbar ist sie in ihrer eigenen Einheit und im Verlauf
+  — dort zählt sie in „x/n" mit, denn protokolliert ist sie ja.
+
+  **Entfernen und Verschieben weisen sie ab** (409). Über die Oberfläche ist beides ohnehin
+  nicht erreichbar; der Riegel steht, weil die Folge schwer wäre: Das Löschen leerte
+  `workout_log.plan_exercise_id` und nähme genau dem Eintrag die Zuordnung, für den die
+  Position angelegt wurde. Sie verschwindet von selbst — mit dem Löschen ihrer Einheit.
+
+  **Die mitgeschickte `session_id` wird geprüft**, nicht geglaubt: gegen die tatsächlich
+  offene Einheit dieses Benutzers und gegen den angefragten Plan. Passt sie nicht, gibt es
+  einen **409** und keinen stillen Rückfall auf „dauerhaft" — der schriebe eine Übung
+  dauerhaft in den Plan, die jemand ausdrücklich nur für heute wollte, und das fiele erst
+  beim nächsten Training auf.
 - **Mitternachts-Robustheit:** Die Einheit ist die Einheit der Logik, nicht der Kalendertag.
   Eine offene Einheit bleibt aktiv, auch wenn das Datum während des Trainings wechselt.
 - **Ende — auf zwei Wegen:**
@@ -1599,7 +1760,7 @@ eine Filterleiste umschaltbar:
   eine getauschte Position ist als „statt …" gekennzeichnet.
 - **Übungen**: je Übung der Gewichtsverlauf — als kleine Kurve in der Kopfzeile, aufgeklappt
   als Tabelle mit Datum und Gewicht, dazu die Veränderung gegenüber dem ersten Eintrag und
-  der Bestwert. Übungen ohne Gewichtsangabe erscheinen nicht.
+  der Bestwert. Übungen ganz ohne Werte erscheinen nicht.
 
 **Satzgenau protokollierte Einheiten** (§7.4) zeigen zusätzlich:
 
@@ -1622,6 +1783,31 @@ eine Filterleiste umschaltbar:
   direkt an der Zahl**: eine Näherung, kein gemessener Wert. Der Hinweis ist nicht Zierde —
   eine geschätzte Zahl sieht aus wie eine gemessene, und genau diese vorgetäuschte
   Genauigkeit hat das Wiederholungsfeld gekostet (§4).
+
+**Ausdauerübungen** (§7.4) zeigen statt Gewicht, Volumen und 1RM die **Pace**:
+
+- In der Ansicht **Einheiten** trägt die Zahlenspalte bei einer Ausdauerposition
+  `10,9 km/h · 5:30 /km`. Sobald eine Einheit Kraft **und** Ausdauer mischt — ein Plan darf
+  das —, heißt die Spalte **„Kennzahl"** statt „1RM"/„Gewicht": Ein gemeinsamer Kopf ist
+  ehrlicher als einer, der für die halbe Tabelle falsch ist, und eine sechste Spalte nur für
+  die Pace bliebe bei einer reinen Krafteinheit dauerhaft leer. Die Spalte „Sätze" zeigt dort
+  die Intervalle (`3000 m/16:00 · 2000 m/11:30`).
+- In der Ansicht **Übungen** trägt die Kopfzeile die **Distanzkurve**, und im aufgeklappten
+  Bereich stehen — genau dort, wo bei Kraft Volumen und 1RM stehen — die Kurven
+  **Geschwindigkeit** und **Dauer**. Die Tabelle hat dann Datum, Intervalle, Distanz, Zeit
+  und Pace; die Pace-Zelle trägt beide Angaben **untereinander** (km/h über min/km), damit es
+  fünf Spalten bleiben.
+- **Beide Pace-Angaben stehen da, weil sie verschiedene Fragen beantworten**: km/h steht am
+  Gerät und lässt sich dort vergleichen, min/km ist die Zahl, in der man beim Laufen denkt.
+  Eine von beiden allein zwänge jedes Mal zum Kopfrechnen. Eine Nachkommastelle bei km/h —
+  die zweite wäre vorgetäuschte Genauigkeit, die Distanzanzeige eines Laufbands ist selbst
+  auf 10 m gerundet.
+- **Gerechnet wird über die ganze Einheit**, nicht je Intervall: Gefragt ist „wie schnell war
+  ich heute". Fehlt einer der beiden Werte, steht `—` und keine 0 — dieselbe Regel wie beim
+  Volumen.
+- **Bestwert** heißt bei Ausdauer die **weiteste Strecke** einer Einheit, die Entsprechung
+  zum schwersten Gewicht. Eine beste Pace wäre die naheliegende Alternative und irreführend:
+  Sie ist auf 400 m fast immer besser als auf 10 km.
 
 **Jeder sieht ausschließlich seine eigenen Daten — auch Admins.** Trainingsdaten sind
 persönlich. Es gibt hier bewusst keine Benutzerauswahl; die `user_id` stammt durchgehend aus
@@ -1770,3 +1956,71 @@ PWA-Installation lassen sich lokal nicht sinnvoll testen.
     Volumen- und 1RM-Kurve samt Näherungs-Hinweis. Gegenprobe: Expertenmodus wieder
     ausschalten → die alte Ansicht ist unverändert da, die protokollierten Einheiten bleiben
     lesbar.
+
+22. **Ausdauergeräte** (§7.4, §7.8, seit `1.4.0`): Im Adminbereich eine Übung *Laufband*
+    anlegen — Gerät „Laufband", **Trainingsart „Ausdauer"** — und in einen Plan aufnehmen,
+    der daneben mindestens eine Kraftübung enthält. In der Übungsliste trägt sie ein
+    **Ausdauer**-Abzeichen neben dem Gerätesymbol, die Kraftübungen keines.
+
+    **Beim Anlegen:** *Trainingsgerät* und *Trainingsart* stehen über den Muskelgruppen. Auf
+    „Ausdauer" umschalten → der Muskelgruppen-Block **verschwindet**, und die Übung lässt
+    sich **ohne** Gruppe speichern. Zurück auf „Kraft" → der Block ist wieder da und verlangt
+    wieder eine primäre Gruppe. Eine bestehende Kraftübung auf „Ausdauer" umstellen und
+    speichern → ihre Muskelgruppen sind weg, und die Zeile mahnt das **nicht** als Mangel an.
+
+    Training starten. Die Laufbandkarte zeigt statt des Gewichtsfelds **Distanz** und
+    **Zeit**, darunter eine Zeile *Pace* mit `—`. `5000` und `26:00` eintragen → die Pace
+    steht sofort auf `11,5 km/h · 5:12 /km`, **ohne** dass die Karte höher oder niedriger
+    wird. Abhaken → beide Felder werden schreibgeschützt, die nächste Übung wird grün; die
+    Kraftübung daneben ist unverändert. Häkchen wieder entfernen → die Werte bleiben stehen
+    und sind wieder änderbar.
+
+    **Zeitformat:** `24` eingeben → gilt als 24:00. `5:75` eingeben und abhaken → Fehler
+    „Zeit als mm:ss angeben", der Wert bleibt stehen. **Tausch:** „Tauschen" an der
+    Laufbandposition schlägt genau die **anderen Ausdauerübungen** vor — keine Kraftübung,
+    auch wenn eine dieselbe primäre Muskelgruppe hätte. Umgekehrt taucht das Laufband bei
+    einer Kraftübung nicht auf.
+
+    Expertenmodus einschalten und dieselbe Position noch einmal: „+ Intervall" legt eine
+    Zeile mit **zwei Feldern und ohne −/+** an, der Knopf nennt den Vorschlag
+    (`+ Intervall (5000 m / 26:00)`). Zwei Intervalle eintragen → der Kopf sagt
+    „2 Intervalle (…)", und die Pace rechnet über die **Summe** beider.
+
+    Flugmodus einschalten, ein Intervall ändern → der Balken strichelt, nach den
+    Wiederversuchen erscheint die rote Leiste; Flugmodus aus → der Wert wird nachgeholt.
+    (Damit ist zugleich geprüft, dass der Warteschlangen-Schlüssel `-v3` geblieben ist: Eine
+    Eingabe, die vor dem Rollout wartete, darf nicht verworfen worden sein.)
+
+    Training beenden; im Verlauf unter **Einheiten** heißt die Zahlenspalte „Kennzahl", die
+    Laufbandzeile zeigt die Pace und die Kraftzeile weiterhin ihr 1RM. Unter **Übungen**
+    trägt die Laufbandkarte die **Distanzkurve** in der Kopfzeile, aufgeklappt die Kurven
+    *Geschwindigkeit* und *Dauer*, die Tabelle Datum/Intervalle/Distanz/Zeit/Pace und darunter
+    „Bestwert … m". Gegenprobe: Die Kraftübungen sehen im Verlauf unverändert aus.
+
+23. **Übung spontan hinzufügen** (§7.6, seit `1.4.2`): Training starten. Unter der
+    Übungsliste steht *Noch eine Übung?* — den Knopf drücken. Die Auswahlmaske ist dieselbe
+    wie in der Planverwaltung; nach Muskelgruppe und Gerät filtern, beide Filter schränken
+    sich gegenseitig ein. Was schon im heutigen Programm steht, trägt **Bereits im Plan**
+    und ist gesperrt.
+
+    Eine Übung mit **Nur diese Einheit** hinzufügen → die Seite lädt neu, die Übung steht
+    **am Ende** der Liste, und die Trainingsleiste zählt eine mehr („2/6" statt „2/5").
+    Werte eintragen und abhaken → funktioniert wie an jeder anderen Position, inklusive
+    Sätzen, Tauschsperre und Pace bei Ausdauer.
+
+    **Gegenprobe auf der Planseite:** *Pläne* öffnen → die Übung steht dort **nicht**. Der
+    Split zeigt auch **kein** „Auf Vorlage zurücksetzen", das er vorher nicht schon zeigte.
+
+    Training beenden, neues Training mit demselben Plan starten → die Übung ist **weg**, die
+    Leiste zählt wieder „x/5". Im Verlauf unter *Einheiten* steht die beendete Einheit
+    dagegen mit **„…/6"**, und die Übung ist in ihrer Tabelle aufgeführt.
+
+    Dasselbe noch einmal mit **Dauerhaft im Plan** → die Übung steht danach auch auf der
+    Planseite und im nächsten Training. Gegenprobe: Sie lässt sich dort ganz normal
+    umsortieren und entfernen.
+
+    **Ohne laufendes Training** steht derselbe Kasten da, aber nur mit *Dauerhaft im Plan* —
+    und der Text sagt das auch.
+
+    Zuletzt: Die Einheit mit der nur-für-heute-Übung im Verlauf **löschen** → sie
+    verschwindet samt ihren Einträgen, und auf der Planseite ändert sich nichts.

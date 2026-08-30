@@ -41,10 +41,12 @@ match (to_str($eingabe['action'] ?? '')) {
 };
 
 /**
- * Prueft Name, Beschreibung, Trainingsgeraet und Muskelgruppen-Auswahl.
+ * Prueft Name, Beschreibung, Trainingsgeraet, Erfassungsart und
+ * Muskelgruppen-Auswahl.
  *
  * @return array{name_de:string,name_en:?string,description:?string,focus:?string,
- *               equipment:string,image_crop:string,groups:int[],primary:int}
+ *               equipment:string,erfassung:string,image_crop:string,
+ *               groups:int[],primary:int}
  */
 function eingabe_pruefen(array $eingabe): array {
     $fehler = [];
@@ -81,6 +83,22 @@ function eingabe_pruefen(array $eingabe): array {
         $fehler['equipment'] = 'Unbekanntes Trainingsgerät.';
     }
 
+    // Die Erfassungsart ist Pflicht, und zwar SERVERSEITIG -- obwohl das
+    // Formular ein Auswahlfeld ohne Leereintrag zeigt, in dem immer etwas
+    // gewaehlt ist. Der Grund steht in Fallstrick 22: `update` ersetzt die
+    // ganze Uebung. Ein Aufruf, der das Feld weglaesst, fiele sonst still auf
+    // 'kraft' zurueck -- und aus einer Laufbanduebung waere lautlos wieder eine
+    // Kraftuebung geworden, mit `ok:true`. Ein 422 ist dort das freundlichere
+    // Verhalten. Deshalb hier KEIN Rueckfall auf ERFASSUNG_VORGABE wie beim
+    // Bildzuschnitt darunter: Der Vorgabewert gilt fuer die MIGRATION, nicht
+    // fuer eine unvollstaendige Nutzlast.
+    $erfassung = to_str($eingabe['erfassung'] ?? '');
+    if ($erfassung === '') {
+        $fehler['erfassung'] = 'Bitte eine Erfassungsart wählen.';
+    } elseif (!erfassung_gueltig($erfassung)) {
+        $fehler['erfassung'] = 'Unbekannte Erfassungsart.';
+    }
+
     // Der Bildzuschnitt ist -- anders als das Geraet -- KEIN Pflichtfeld: Er
     // hat einen sinnvollen Vorgabewert ('mitte'), und der ist genau das
     // Verhalten von vorher. Ein fehlendes Feld faellt deshalb still darauf
@@ -99,7 +117,23 @@ function eingabe_pruefen(array $eingabe): array {
     $primaer = to_int_or_null($eingabe['primary_group_id'] ?? null);
     $sekundaer = to_id_list($eingabe['secondary_group_ids'] ?? []);
 
-    if ($primaer === null) {
+    // Bei AUSDAUER spielt die Muskelgruppe ueberhaupt keine Rolle -- sie ist
+    // weder Pflicht noch wird sie gespeichert (§6.3, seit 1.4.1).
+    //
+    // "Welchen Muskel trainiert Laufen?" hat keine Antwort, die man ankreuzen
+    // koennte, und die Tauschlogik braucht sie hier auch nicht: Bei Ausdauer
+    // wird ueber die Trainingsart getauscht, nicht ueber die Gruppe
+    // (tausch_vorschlaege() in lib/training.php).
+    //
+    // Mitgeschickte Gruppen werden VERWORFEN und nicht etwa gespeichert --
+    // dieselbe Linie wie bei den Wertfeldern in api/log.php: Was zur
+    // Trainingsart nicht passt, kommt gar nicht erst in die Datenbank. Wer eine
+    // Kraftuebung auf Ausdauer umstellt, verliert damit ihre Zuordnung; das
+    // Formular blendet den Block dann aus, es ist also sichtbar.
+    if (ist_ausdauer($erfassung)) {
+        $primaer   = null;
+        $sekundaer = [];
+    } elseif ($primaer === null) {
         $fehler['muscle_groups'] = 'Bitte eine Gruppe als primär markieren.';
     }
 
@@ -132,6 +166,7 @@ function eingabe_pruefen(array $eingabe): array {
         'description' => $beschreibung === '' ? null : $beschreibung,
         'focus'       => $fokus === '' ? null : $fokus,
         'equipment'   => $geraet,
+        'erfassung'   => $erfassung,
         'image_crop'  => $zuschnitt,
         'groups'      => $gruppen,
         'primary'     => (int)$primaer,
@@ -181,13 +216,13 @@ function aktion_anlegen(array $eingabe): never {
         $id = db_transaction(function (PDO $pdo) use ($daten, $bild): int {
             $stmt = $pdo->prepare(
                 'INSERT INTO exercises
-                     (name_de, name_en, description, focus, equipment, image_path,
-                      image_crop, archived, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)'
+                     (name_de, name_en, description, focus, equipment, erfassung,
+                      image_path, image_crop, archived, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $daten['equipment'], $bild,
+                $daten['focus'], $daten['equipment'], $daten['erfassung'], $bild,
                 $daten['image_crop'], now(),
             ]);
             $neu = (int)$pdo->lastInsertId();
@@ -229,13 +264,14 @@ function aktion_bearbeiten(array $eingabe): never {
             $stmt = $pdo->prepare(
                 'UPDATE exercises
                     SET name_de = ?, name_en = ?, description = ?, focus = ?,
-                        equipment = ?, image_path = ?, image_crop = ?
+                        equipment = ?, erfassung = ?, image_path = ?,
+                        image_crop = ?
                   WHERE id = ?'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $daten['equipment'], $bildSpalte,
-                $daten['image_crop'], $id,
+                $daten['focus'], $daten['equipment'], $daten['erfassung'],
+                $bildSpalte, $daten['image_crop'], $id,
             ]);
             gruppen_schreiben($pdo, $id, $daten['groups'], $daten['primary']);
         });
@@ -308,6 +344,10 @@ function aktion_loeschen(array $eingabe): never {
         json_err('Diese Übung gibt es nicht (mehr).', 404);
     }
 
+    // Bewusst OHNE Filter auf session_id (§7.6): Auch eine Position, die nur
+    // zu einer Einheit gehoert, ist ein Verweis auf diese Uebung -- der
+    // Fremdschluessel steht auf RESTRICT, das Loeschen schluege sonst mit einer
+    // nackten SQL-Meldung fehl statt mit einem verstaendlichen Satz.
     $stmt = db()->prepare('SELECT COUNT(*) FROM plan_exercises WHERE exercise_id = ?');
     $stmt->execute([$id]);
     $inPlaenen = (int)$stmt->fetchColumn();

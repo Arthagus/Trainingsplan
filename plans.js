@@ -112,207 +112,34 @@
     }
 
     // --- Übung auswählen (§6.4) -------------------------------------------
-    // Statt eines Pulldowns mit allen aktiven Übungen: ein Dialog, dessen Liste
-    // sich nach Muskelgruppe und Trainingsgerät filtern lässt — einzeln oder
-    // kombiniert. Bei dreistelligem Übungsbestand ist das der Unterschied
-    // zwischen bedienbar und unbedienbar.
+    // Die Maske selbst steht in assets/app.js (uebungWaehlenEinrichten) und im
+    // Partial lib/view_uebung_waehlen_dialog.php — seit 1.4.2 braucht die
+    // Trainingsansicht dieselbe (§7.6), und zwei Fassungen davon wären
+    // irgendwann verschieden. Hier bleibt nur, was diese Seite ausmacht: zu
+    // WELCHEM Plan hinzugefügt wird und was danach passiert.
 
-    const waehlenDialog = qs('#waehlen-dialog');
-    const waehlenListe  = qs('#waehlen-liste');
-    const waehlenFehler = qs('#waehlen-fehler');
-    const waehlenGruppe = qs('#waehlen-gruppe');
-    const waehlenGeraet = qs('#waehlen-geraet');
-    let waehlenPlan = null;
-
-    // Jeder Ladevorgang bekommt eine Nummer, und nur der jeweils JÜNGSTE darf
-    // die Liste zeichnen.
-    //
-    // Ohne das gewinnt die zuletzt eingetroffene Antwort, nicht die zuletzt
-    // gestellte Frage: Zwei Abrufe können sich überholen — Dialog für Plan A
-    // öffnen, schließen, gleich darauf Plan B öffnen; oder zwei Filter kurz
-    // hintereinander umstellen. Trifft die ältere Antwort später ein,
-    // überschreibt sie die neuere, und die Liste beschreibt dann einen Zustand,
-    // den niemand mehr angefragt hat — samt Hinweis „Schon in …" und samt
-    // „Bereits im Plan" zum falschen Plan. Erst ein Neuladen räumt das auf.
-    let waehlenLauf = 0;
-
-    // Die vollständigen Optionslisten einmal beim Laden sichern. Die Felder
-    // werden gleich beschnitten — ohne diese Kopie wäre das ein Weg ohne
-    // Rückweg, und die weggefilterten Einträge kämen nie wieder.
-    const alleOptionen = (feld) =>
-        Array.from(feld.options).map((o) => ({ value: o.value, text: o.textContent.trim() }));
-    const gruppenOptionen = alleOptionen(waehlenGruppe);
-    const geraeteOptionen = alleOptionen(waehlenGeraet);
-
-    qs('#waehlen-schliessen').addEventListener('click', () => waehlenDialog.close());
-
-    // Ein geschlossener Dialog nimmt keine Antwort mehr an -- am 'close' und
-    // nicht am Schließen-Knopf, weil die Escape-Taste denselben Weg nimmt.
-    // Sonst zeichnete ein Abruf, der beim Schließen noch unterwegs war, beim
-    // nächsten Öffnen kurz die Liste des VORIGEN Plans.
-    waehlenDialog.addEventListener('close', () => { waehlenLauf++; });
-
-    /**
-     * Beschränkt ein Auswahlfeld auf die Werte, die noch zu Treffern führen.
-     *
-     * Die erste Option („alle …", Wert '') bleibt immer stehen — sie ist der Weg
-     * zurück. Ist die aktuelle Wahl nicht mehr dabei, meldet die Funktion das:
-     * Der Aufrufer setzt dann zurück und lädt neu, statt eine garantiert leere
-     * Liste stehen zu lassen.
-     *
-     * @param erlaubt Liste der zulässigen Werte, oder null für „alle"
-     * @returns {boolean} true, wenn die bisherige Wahl entfallen ist
-     */
-    function auswahlBeschneiden(feld, vorrat, erlaubt) {
-        const zulaessig = (wert) => erlaubt === null || erlaubt.includes(wert);
-        const wahl = feld.value;
-        const bleibt = wahl === '' || zulaessig(wahl);
-
-        feld.innerHTML = '';
-        // Werte als String vergleichen: Die Gruppen-IDs kommen als Zahl aus dem
-        // JSON, im DOM ist jeder Optionswert Text.
-        vorrat.forEach((o) => {
-            if (o.value === '' || zulaessig(o.value)) {
-                feld.add(new Option(o.text, o.value));
-            }
-        });
-
-        feld.value = bleibt ? wahl : '';
-        return !bleibt;
-    }
-
-    /** Lädt die Trefferliste zum aktuellen Plan und den aktuellen Filtern. */
-    async function waehlenLaden(zweiterVersuch = false) {
-        if (!waehlenPlan) return;
-
-        const lauf = ++waehlenLauf;
-
-        waehlenFehler.hidden = true;
-        waehlenListe.innerHTML = '<p class="matt">Wird geladen …</p>';
-
-        try {
-            const daten = await apiFetch(ENDPUNKT, {
-                body: {
-                    action: 'exercise_picker',
-                    plan_id: Number(waehlenPlan.dataset.id),
-                    group_id: waehlenGruppe.value ? Number(waehlenGruppe.value) : null,
-                    equipment: waehlenGeraet.value,
-                },
-            });
-
-            // Überholt: Inzwischen ist ein neuerer Abruf unterwegs (anderer
-            // Plan, anderer Filter) oder der Dialog wurde geschlossen. Diese
-            // Antwort ist damit die Auskunft auf eine Frage von gestern.
-            if (lauf !== waehlenLauf) return;
-
-            // Die Felder schränken sich gegenseitig ein: Nach der Wahl einer
-            // Muskelgruppe stehen unter Trainingsgerät nur noch die Geräte, für
-            // die es dort auch eine Übung gibt — und umgekehrt. Der Server
-            // rechnet jede Facette ohne ihren eigenen Filter, deshalb bleibt der
-            // Weg zurück auf „alle" immer offen.
-            const raus = [
-                auswahlBeschneiden(waehlenGruppe, gruppenOptionen,
-                    daten.facetten.gruppen.map(String)),
-                auswahlBeschneiden(waehlenGeraet, geraeteOptionen,
-                    daten.facetten.geraete),
-            ].some(Boolean);
-
-            // Ein Wechsel kann die Wahl im anderen Feld ungültig machen: erst
-            // Kurzhantel, dann eine Muskelgruppe ohne Kurzhantelübung. Die Wahl
-            // steht dann auf „alle" und die Liste dazu muss neu geholt werden.
-            // Genau einmal — danach ist beides '' und damit immer gültig.
-            if (raus && !zweiterVersuch) {
-                await waehlenLaden(true);
-                return;
-            }
-
-            if (!daten.exercises.length) {
-                waehlenListe.innerHTML =
-                    '<p>Keine passende Übung. Mit weniger Filtern suchen oder unter '
-                    + '<a href="admin_exercises.php">Übungen</a> eine anlegen.</p>';
-                return;
-            }
-
-            // Was schon im Plan steht, bleibt sichtbar und wird nur gesperrt:
-            // Herausgefiltert wüsste man nicht, ob die gesuchte Übung fehlt oder
-            // längst dabei ist. Dieselbe Überlegung wie in der API.
-            // Der Hinweis „Schon in …" kommt aus vorschlagMarkup() selbst — er
-            // gehört zur Übung und gilt in allen drei Listen gleich.
-            waehlenListe.innerHTML = daten.exercises.map((v) => vorschlagMarkup(v,
-                v.im_plan
-                    ? '<button type="button" disabled>Bereits im Plan</button>'
-                    : '<button type="button" class="waehlen-hinzu"'
-                      + (daten.gesperrt ? ' disabled' : '') + '>Hinzufügen</button>'
-            )).join('');
-
-            if (daten.gesperrt) {
-                // Ein zweiter Tab kann den Dialog geöffnet haben, nachdem hier
-                // ein Training gestartet wurde. Dann sagt es die Auswahl, statt
-                // den Benutzer in ein 409 laufen zu lassen.
-                waehlenFehler.textContent =
-                    'Dieser Benutzer trainiert gerade — solange lässt sich der Plan '
-                    + 'nicht ändern.';
-                waehlenFehler.hidden = false;
-            }
-        } catch (fehler) {
-            // Auch die Fehlermeldung gehört zu ihrem Abruf: Die eines
-            // überholten Versuchs stünde sonst über einer Liste, die längst
-            // geladen ist.
-            if (lauf !== waehlenLauf) return;
-            waehlenListe.innerHTML = '';
-            waehlenFehler.textContent = fehler.message;
-            waehlenFehler.hidden = false;
-        }
-    }
-
-    function waehlenOeffnen(plan) {
-        waehlenPlan = plan;
-        qs('#waehlen-titel').textContent =
-            'Übung hinzufügen zu ' + qs('.plan-name', plan).value.trim();
-        // Beide Felder auf den vollen Vorrat zurück, bevor neu beschnitten wird.
-        // Die getroffene Wahl bleibt dabei stehen — wer nacheinander mehrere
-        // Rückenübungen aufnimmt, will den Filter nicht jedes Mal neu setzen.
-        // Ohne diesen Schritt behielte das Feld dagegen die Einschränkung der
-        // letzten Suche, und Einträge fehlten ohne erkennbaren Grund.
-        auswahlBeschneiden(waehlenGruppe, gruppenOptionen, null);
-        auswahlBeschneiden(waehlenGeraet, geraeteOptionen, null);
-        waehlenDialog.showModal();
-        waehlenLaden();
-    }
-
-    // Die Filter laden nur die Liste neu — der Dialog bleibt offen, sonst wäre
-    // ein zweiter Filterversuch ein zweiter Weg durch die ganze Maske.
-    waehlenGruppe.addEventListener('change', waehlenLaden);
-    waehlenGeraet.addEventListener('change', waehlenLaden);
-
-    waehlenListe.addEventListener('click', async (e) => {
-        const knopf = e.target.closest('.waehlen-hinzu');
-        if (!knopf || !waehlenPlan) return;
-
-        knopf.disabled = true;
-        waehlenFehler.hidden = true;
-
-        try {
+    const waehlen = uebungWaehlenEinrichten({
+        async hinzufuegen(exerciseId, ziel) {
             await apiFetch(ENDPUNKT, {
                 body: {
                     action: 'add_exercise',
-                    plan_id: Number(waehlenPlan.dataset.id),
-                    exercise_id: Number(knopf.closest('.vorschlag').dataset.id),
+                    plan_id: ziel.planId,
+                    exercise_id: exerciseId,
                 },
             });
             // Die neue Position kommt server-gerendert — wie bei jeder anderen
-            // Planänderung auch. Bis die Seite da ist, sagt der Dialog, was
-            // gerade passiert; seine Liste beschreibt ab jetzt den Stand von
-            // vorhin und darf nicht mehr wie eine Auskunft aussehen.
-            waehlenListe.innerHTML =
-                '<p class="matt">Hinzugefügt — die Seite wird neu geladen …</p>';
+            // Planänderung auch.
             neuLaden();
-        } catch (fehler) {
-            waehlenFehler.textContent = fehler.message;
-            waehlenFehler.hidden = false;
-            knopf.disabled = false;
-        }
+            return 'Hinzugefügt — die Seite wird neu geladen …';
+        },
     });
+
+    function waehlenOeffnen(plan) {
+        waehlen.oeffnen({
+            planId: Number(plan.dataset.id),
+            titel: 'Übung hinzufügen zu ' + qs('.plan-name', plan).value.trim(),
+        });
+    }
 
     // --- Übungstausch (§7.5) ----------------------------------------------
     // Dieselben Vorschläge wie im Training, nur dauerhaft: ohne laufende

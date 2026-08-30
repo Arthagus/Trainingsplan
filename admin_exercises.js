@@ -54,6 +54,42 @@
     qsa('[data-gruppen-wahl]').forEach(gruppenWahlEinrichten);
 
     // -----------------------------------------------------------------------
+    // Trainingsart (exercises.erfassung)
+    //
+    // Bei „Ausdauer" verschwindet der ganze Muskelgruppen-Block: „Welchen
+    // Muskel trainiert Laufen?" hat keine Antwort, die man ankreuzen könnte,
+    // und der Server verlangt dort auch keine (§6.3).
+    //
+    // Ausgeblendet UND deaktiviert, und beides wird gebraucht: `hidden` nimmt
+    // den Block aus dem Blick, `disabled` aus dem Formular. `new
+    // FormData(formular)` sammelt auch unsichtbare Felder ein — ohne das
+    // `disabled` reiste eine vorher angehakte Gruppe mit, die niemand mehr
+    // sehen kann. Umgekehrt genügt `disabled` allein nicht, der Kasten stünde
+    // dann grau, aber sichtbar da.
+    //
+    // Der Anfangszustand steht schon im gerenderten HTML; hier wird er nur
+    // fortgeschrieben. Sonst blitzte der Block beim Aufklappen einer
+    // Ausdauerübung kurz auf.
+    // -----------------------------------------------------------------------
+
+    function trainingsartVerdrahten(feld) {
+        const formular = feld.closest('form');
+        const block = formular ? qs('[data-gruppen-wahl]', formular) : null;
+        if (!block) return;
+
+        function nachziehen() {
+            const aus = feld.value === 'ausdauer';
+            block.hidden = aus;
+            block.disabled = aus;
+        }
+
+        feld.addEventListener('change', nachziehen);
+        nachziehen();
+    }
+
+    qsa('select[name="erfassung"]').forEach(trainingsartVerdrahten);
+
+    // -----------------------------------------------------------------------
     // Formulare abschicken
     // -----------------------------------------------------------------------
 

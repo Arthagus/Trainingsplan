@@ -65,6 +65,18 @@ CREATE INDEX IF NOT EXISTS idx_muscle_groups_sort
 -- Geprueft wird in api/exercises.php. In der Oberflaeche ist das Feld Pflicht;
 -- die Spalte laesst NULL zu, weil Uebungen aus der Zeit davor keinen Wert
 -- haben und in der Liste als "Geraet fehlt" angemahnt werden.
+--
+-- erfassung sagt, WIE protokolliert wird: 'kraft' (Wiederholungen und Gewicht)
+-- oder 'ausdauer' (Distanz und Zeit). Codeliste ERFASSUNG in lib/geraete.php,
+-- geprueft in api/exercises.php, wieder ohne CHECK aus demselben Grund.
+--
+-- Sie haengt an der UEBUNG und nicht am Geraet -- der naheliegende Griff waere,
+-- sie aus equipment abzuleiten (Laufband = Ausdauer), und der ist falsch herum:
+-- Die Uebung ist die Taetigkeit und bestimmt, was gemessen wird; das Geraet
+-- sagt nur, wo sie stattfindet. Ausserdem kippte eine abgeleitete Erfassungsart
+-- rueckwirkend die Bedeutung bereits protokollierter Werte, sobald jemand ein
+-- Geraet umtraegt. Anders als bei equipment ist der Vorgabewert hier richtig
+-- und nicht geraten: Vor 1.4.0 gab es nur eine Art zu protokollieren.
 CREATE TABLE IF NOT EXISTS exercises (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name_de     TEXT    NOT NULL,
@@ -72,6 +84,7 @@ CREATE TABLE IF NOT EXISTS exercises (
     description TEXT,
     focus       TEXT,
     equipment   TEXT,
+    erfassung   TEXT    NOT NULL DEFAULT 'kraft',
     image_path  TEXT,
     -- Welche Seite beim quadratischen Zuschnitt wegfaellt: 'links', 'mitte'
     -- oder 'rechts'. Wirkt allein ueber object-position im Stylesheet, die
@@ -278,10 +291,25 @@ CREATE INDEX IF NOT EXISTS idx_plans_user
 -- exercise_id mit RESTRICT: Eine Uebung, die in einem Plan steht, laesst sich
 -- nicht hart loeschen -- sie wird archiviert (§6.3). Der Fremdschluessel setzt
 -- das durch, statt sich auf die Anwendungslogik zu verlassen.
+-- session_id traegt die Ausnahme: eine Position, die NUR zu einer Einheit
+-- gehoert (§7.6, seit 1.4.2). NULL heisst "gehoert zum Plan" -- das ist der
+-- Regelfall und der Zustand jeder Zeile vor 1.4.2.
+--
+-- Warum die Zeile hier steht und nicht in einer eigenen Tabelle: workout_log
+-- haengt ueber plan_exercise_id an genau dieser id (§4). Eine Uebung, die nur
+-- heute dazukommt, braucht deshalb eine echte Planposition -- sonst waere ihr
+-- Protokolleintrag nicht zuzuordnen, "x/n" nicht zaehlbar und die Tauschsperre
+-- ohne Anker.
+--
+-- Und warum sie nach der Einheit STEHEN BLEIBT statt geloescht zu werden:
+-- Loeschen setzt workout_log.plan_exercise_id ueber ON DELETE SET NULL auf
+-- NULL, und damit verloere der Verlauf die Zuordnung -- lautlos. Die Zeile
+-- bleibt und wird ueberall dort ausgeblendet, wo der PLAN gemeint ist.
 CREATE TABLE IF NOT EXISTS plan_exercises (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     plan_id     INTEGER NOT NULL REFERENCES plans(id)     ON DELETE CASCADE,
     exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE RESTRICT,
+    session_id  INTEGER          REFERENCES sessions(id)  ON DELETE CASCADE,
     sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
@@ -341,6 +369,17 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_time
 -- Expertenmodus nicht: Wer den ersten Satz eintraegt, ist noch lange nicht
 -- fertig -- er will gleich den zweiten und dritten machen. Ohne diese Spalte
 -- haekte sich die Uebung mit dem ersten Satz selbst ab (§7.4).
+--
+-- distanz_m und dauer_s sind das Gegenstueck fuer Ausdaueruebungen (1.4.0) und
+-- stehen aus genau dem Grund hier, aus dem weight hier steht: Im einfachen
+-- Modus gibt es ueberhaupt keine workout_sets-Zeilen, und der Verlauf
+-- (uebungen_mit_verlauf(), gewichts_verlauf()) liest ausschliesslich diese
+-- Tabelle. Sie tragen den Leitwert der Position.
+--
+-- ABER als SUMME und nicht als Maximum -- das ist der Unterschied zu weight:
+-- Zwei Intervalle zu 1000 m sind 2000 gelaufene Meter, zwei Saetze zu 40 kg
+-- sind keine 80 kg. Gespeichert wird in Sekunden; mm:ss ist reine Ein- und
+-- Ausgabe (dauer_mmss() / dauer_aus_eingabe() in lib/helpers.php).
 CREATE TABLE IF NOT EXISTS workout_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id       INTEGER NOT NULL REFERENCES sessions(id)       ON DELETE CASCADE,
@@ -349,6 +388,8 @@ CREATE TABLE IF NOT EXISTS workout_log (
     exercise_id      INTEGER NOT NULL REFERENCES exercises(id)      ON DELETE RESTRICT,
     plan_id          INTEGER          REFERENCES plans(id)          ON DELETE SET NULL,
     weight           REAL,
+    distanz_m        INTEGER,
+    dauer_s          INTEGER,
     done             INTEGER NOT NULL DEFAULT 1 CHECK (done IN (0, 1)),
     performed_at     TEXT    NOT NULL
 );
@@ -381,6 +422,12 @@ CREATE INDEX IF NOT EXISTS idx_workout_log_session
 -- Halte-Uebungen keine Wiederholungszahl. Ein Satz, in dem BEIDES leer ist,
 -- wird von api/log.php abgelehnt -- er saegte nichts aus.
 --
+-- distanz_m und dauer_s sind dasselbe Feldpaar fuer Ausdaueruebungen (1.4.0);
+-- welches von beiden Paaren gilt, entscheidet exercises.erfassung, und zwar
+-- serverseitig -- nie die Nutzlast. Eine Zeile traegt immer nur EIN Paar, das
+-- jeweils andere bleibt NULL. Die Ablehnungsregel gilt dort genauso: ohne
+-- Distanz und ohne Zeit sagt ein Intervall nichts.
+--
 -- satz_nr wird beim Speichern immer neu von 1 an vergeben. Die Nutzlast
 -- beschreibt die vollstaendige Satzliste, der Server ersetzt sie als Ganzes;
 -- es gibt deshalb keine Luecken und kein Umnummerieren.
@@ -389,7 +436,9 @@ CREATE TABLE IF NOT EXISTS workout_sets (
     workout_log_id INTEGER NOT NULL REFERENCES workout_log(id) ON DELETE CASCADE,
     satz_nr        INTEGER NOT NULL,
     reps           INTEGER,
-    weight         REAL
+    weight         REAL,
+    distanz_m      INTEGER,
+    dauer_s        INTEGER
 );
 
 -- Traegt das Lesen in Satzreihenfolge und sichert zugleich, dass eine

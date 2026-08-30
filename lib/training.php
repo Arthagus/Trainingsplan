@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/helpers.php';
+// Wegen ERFASSUNG und ist_ausdauer(): Die Fachlichkeit hier unterscheidet
+// durchgehend zwischen Kraft und Ausdauer, und wer training.php hat, hat damit
+// auch die Codeliste -- index.php, history.php, api/log.php, api/swap.php.
+require_once __DIR__ . '/geraete.php';
 
 /**
  * Trainingslogik: Plan-Rotation, offene Einheiten, Vorbelegung von Gewichten.
@@ -203,6 +207,41 @@ function letztes_gewicht(int $userId, int $exerciseId): ?float {
 }
 
 /**
+ * Das Gegenstueck zu letztes_gewicht() fuer Ausdaueruebungen: Distanz und Zeit
+ * der zuletzt protokollierten Einheit, als Vorbelegung des naechsten Mals.
+ *
+ * EINE Abfrage und nicht zwei, weil beide Werte aus DERSELBEN Zeile stammen
+ * muessen: 5000 m vom Dienstag mit der Zeit vom Freitag ergaeben eine Pace, die
+ * es nie gab. Deshalb reicht hier auch nicht das Muster von letztes_gewicht(),
+ * das jede Spalte fuer sich sucht.
+ *
+ * Verlangt wird, dass MINDESTENS einer der beiden Werte gefuellt ist -- eine
+ * Zeile ganz ohne Werte (abgehakt, nichts eingetragen) taugt nicht als Vorlage.
+ *
+ * Das id DESC im ORDER BY ist Pflicht, aus demselben Grund wie bei
+ * letztes_gewicht(): Zeitstempel haben Sekundenaufloesung.
+ */
+function letzte_ausdauerwerte(int $userId, int $exerciseId): array {
+    $stmt = db()->prepare(
+        'SELECT distanz_m, dauer_s FROM workout_log
+          WHERE user_id = ? AND exercise_id = ?
+            AND (distanz_m IS NOT NULL OR dauer_s IS NOT NULL)
+          ORDER BY performed_at DESC, id DESC LIMIT 1'
+    );
+    $stmt->execute([$userId, $exerciseId]);
+    $z = $stmt->fetch();
+
+    if ($z === false) {
+        return ['distanz_m' => null, 'dauer_s' => null];
+    }
+
+    return [
+        'distanz_m' => $z['distanz_m'] === null ? null : (int)$z['distanz_m'],
+        'dauer_s'   => $z['dauer_s']   === null ? null : (int)$z['dauer_s'],
+    ];
+}
+
+/**
  * Bringt eine Satzzeile aus der Datenbank in die Form, die die App benutzt.
  *
  * PDO liefert alles als Text; ohne diese Stelle stuenden in den JSON-Antworten
@@ -210,9 +249,16 @@ function letztes_gewicht(int $userId, int $exerciseId): ?float {
  */
 function satz_zeile(array $z): array {
     return [
-        'satz_nr' => (int)$z['satz_nr'],
-        'reps'    => $z['reps']   === null ? null : (int)$z['reps'],
-        'weight'  => $z['weight'] === null ? null : (float)$z['weight'],
+        'satz_nr'   => (int)$z['satz_nr'],
+        'reps'      => $z['reps']      === null ? null : (int)$z['reps'],
+        'weight'    => $z['weight']    === null ? null : (float)$z['weight'],
+        // Das zweite Feldpaar, fuer Ausdaueruebungen (§7.4). Eine Zeile traegt
+        // immer nur EINES der beiden; welches, entscheidet exercises.erfassung.
+        // Beide stehen trotzdem in jeder Zeile: Der Browser bekaeme sonst je
+        // nach Uebung verschieden geformte Objekte, und satzAusDaten() muesste
+        // raten, was fehlt.
+        'distanz_m' => $z['distanz_m'] === null ? null : (int)$z['distanz_m'],
+        'dauer_s'   => $z['dauer_s']   === null ? null : (int)$z['dauer_s'],
     ];
 }
 
@@ -226,7 +272,8 @@ function satz_zeile(array $z): array {
  */
 function saetze_der_einheit(int $sessionId): array {
     $stmt = db()->prepare(
-        'SELECT wl.plan_exercise_id, ws.satz_nr, ws.reps, ws.weight
+        'SELECT wl.plan_exercise_id, ws.satz_nr, ws.reps, ws.weight,
+                ws.distanz_m, ws.dauer_s
            FROM workout_sets ws
            JOIN workout_log wl ON wl.id = ws.workout_log_id
           WHERE wl.session_id = ?
@@ -262,7 +309,7 @@ function saetze_der_einheit(int $sessionId): array {
  */
 function letzte_saetze(int $userId, int $exerciseId, ?int $ausserSessionId = null): array {
     $stmt = db()->prepare(
-        'SELECT ws.satz_nr, ws.reps, ws.weight
+        'SELECT ws.satz_nr, ws.reps, ws.weight, ws.distanz_m, ws.dauer_s
            FROM workout_sets ws
           WHERE ws.workout_log_id = (
                 SELECT wl.id
@@ -295,7 +342,7 @@ function saetze_zu_logs(array $logIds): array {
 
     $ids = array_map('intval', array_values($logIds));
     $stmt = db()->prepare(
-        'SELECT workout_log_id, satz_nr, reps, weight
+        'SELECT workout_log_id, satz_nr, reps, weight, distanz_m, dauer_s
            FROM workout_sets
           WHERE workout_log_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')
           ORDER BY workout_log_id, satz_nr'
@@ -324,13 +371,24 @@ function saetze_zu_logs(array $logIds): array {
  * deshalb stehen beide bewusst nebeneinander und muessen zusammen geaendert
  * werden. Mehr als diese Formatierung teilen sie nicht.
  */
-function saetze_text(array $saetze): string {
+function saetze_text(array $saetze, string $erfassung): string {
     if ($saetze === []) {
         return '';
     }
 
     $teile = [];
     foreach ($saetze as $s) {
+        if (ist_ausdauer($erfassung)) {
+            $m   = $s['distanz_m'] === null ? '—' : $s['distanz_m'] . ' m';
+            $zeit = $s['dauer_s']  === null ? '—' : dauer_mmss($s['dauer_s']);
+            // Schraegstrich zwischen den beiden Werten EINES Intervalls, damit
+            // der Mittelpunkt weiter allein die Intervalle voneinander trennt.
+            // Mit "·" an beiden Stellen liest sich "1000 m · 5:30 · 500 m" wie
+            // drei Angaben statt wie zwei Intervalle.
+            $teile[] = $m . '/' . $zeit;
+            continue;
+        }
+
         $wdh = $s['reps']   === null ? '?' : (string)$s['reps'];
         $kg  = $s['weight'] === null ? '—' : format_decimal($s['weight']);
         $teile[] = $wdh . '×' . $kg;
@@ -354,14 +412,22 @@ function saetze_text(array $saetze): string {
  *
  * Gegenstueck: saetzeZusammenfassung() in index.js.
  */
-function saetze_zusammenfassung(array $saetze): string {
+function saetze_zusammenfassung(array $saetze, string $erfassung): string {
+    $ausdauer = ist_ausdauer($erfassung);
+
     if ($saetze === []) {
-        return 'Noch kein Satz';
+        return $ausdauer ? 'Noch kein Intervall' : 'Noch kein Satz';
     }
 
-    $anzahl = count($saetze) . (count($saetze) === 1 ? ' Satz' : ' Sätze');
+    // "Intervall" statt "Satz" bei Ausdauer -- am Laufband macht man keine
+    // Saetze. Nur Beschriftung: Im Datenmodell heissen die Zeilen weiterhin
+    // workout_sets.satz_nr, und das bleibt auch so, sonst braeuchte dieselbe
+    // Sache zwei Namen in der Datenbank.
+    $wort = $ausdauer
+        ? (count($saetze) === 1 ? ' Intervall' : ' Intervalle')
+        : (count($saetze) === 1 ? ' Satz' : ' Sätze');
 
-    return $anzahl . ' (' . saetze_text($saetze) . ')';
+    return count($saetze) . $wort . ' (' . saetze_text($saetze, $erfassung) . ')';
 }
 
 /**
@@ -410,6 +476,96 @@ function saetze_e1rm(array $saetze): ?float {
 }
 
 /**
+ * Die Gesamtdistanz einer Intervallfolge in Metern -- der Leitwert, der in
+ * workout_log.distanz_m landet.
+ *
+ * SUMME und nicht Maximum, und das ist der Unterschied zu leitgewicht(): Zwei
+ * Intervalle zu 1000 m sind 2000 gelaufene Meter. Beim Gewicht waere dieselbe
+ * Rechnung Unsinn -- zwei Saetze zu 40 kg sind keine 80 kg.
+ *
+ * null, wenn kein einziges Intervall eine Distanz traegt: Eine 0 stuende fuer
+ * "null Meter gelaufen" und liesse sich von "nichts eingetragen" nicht mehr
+ * unterscheiden -- dieselbe Ueberlegung wie bei saetze_volumen().
+ */
+function saetze_distanz(array $saetze): ?int {
+    $summe = 0;
+    $zaehlt = false;
+
+    foreach ($saetze as $s) {
+        if (($s['distanz_m'] ?? null) !== null) {
+            $summe += (int)$s['distanz_m'];
+            $zaehlt = true;
+        }
+    }
+
+    return $zaehlt ? $summe : null;
+}
+
+/** Die Gesamtzeit einer Intervallfolge in Sekunden. Wie saetze_distanz(). */
+function saetze_dauer(array $saetze): ?int {
+    $summe = 0;
+    $zaehlt = false;
+
+    foreach ($saetze as $s) {
+        if (($s['dauer_s'] ?? null) !== null) {
+            $summe += (int)$s['dauer_s'];
+            $zaehlt = true;
+        }
+    }
+
+    return $zaehlt ? $summe : null;
+}
+
+/**
+ * Die Durchschnittsgeschwindigkeit in km/h.
+ *
+ * null, sobald einer der beiden Werte fehlt oder die Zeit 0 ist -- gerechnet
+ * wird nicht mit Annahmen. Gerechnet wird in PHP und nicht in SQL, aus dem
+ * Grund, aus dem auch Volumen und 1RM hier stehen: Die Datenmenge ist winzig,
+ * und die Formel gehoert dorthin, wo man sie lesen kann.
+ */
+function tempo_kmh(?int $meter, ?int $sekunden): ?float {
+    if ($meter === null || $sekunden === null || $sekunden <= 0 || $meter <= 0) {
+        return null;
+    }
+    return $meter * 3.6 / $sekunden;
+}
+
+/** Die Zeit fuer einen Kilometer, in Sekunden. Gegenrechnung zu tempo_kmh(). */
+function sekunden_je_km(?int $meter, ?int $sekunden): ?int {
+    if ($meter === null || $sekunden === null || $meter <= 0 || $sekunden <= 0) {
+        return null;
+    }
+    return (int)round($sekunden * 1000 / $meter);
+}
+
+/**
+ * Die Pace als fertiger Text: "10,9 km/h · 5:30 /km".
+ *
+ * BEIDE Angaben, weil sie verschiedene Fragen beantworten: Die
+ * Geschwindigkeit steht am Geraet und laesst sich dort vergleichen, die Zeit
+ * je Kilometer ist die Zahl, in der Laeufer denken. Eine von beiden allein
+ * zwaenge jedes Mal zum Kopfrechnen.
+ *
+ * Eine Nachkommastelle bei km/h: Die zweite waere vorgetaeuschte Genauigkeit
+ * -- die Distanzanzeige eines Laufbands ist selbst auf 10 m gerundet.
+ *
+ * Das Gegenstueck heisst paceText() in index.js und muss zeichengleich
+ * antworten; die Pace steht in der Trainingsansicht server-gerendert und wird
+ * beim Tippen im Browser nachgezogen.
+ */
+function pace_text(?int $meter, ?int $sekunden): string {
+    $kmh = tempo_kmh($meter, $sekunden);
+    $jeKm = sekunden_je_km($meter, $sekunden);
+
+    if ($kmh === null || $jeKm === null) {
+        return '—';
+    }
+
+    return format_decimal(round($kmh, 1)) . ' km/h · ' . dauer_mmss($jeKm) . ' /km';
+}
+
+/**
  * Die Positionen eines Plans, wie sie in dieser Einheit anzuzeigen sind.
  *
  * Zwei Dinge stecken hier drin, die eine naive Umsetzung falsch macht:
@@ -438,11 +594,12 @@ function plan_positionen(
                 COALESCE(sw.replacement_exercise_id, pe.exercise_id) AS exercise_id,
                 sw.replacement_exercise_id IS NOT NULL AS getauscht,
                 e.name_de, e.name_en, e.description, e.focus, e.equipment,
+                e.erfassung,
                 e.image_path, e.image_crop, e.archived,
                 orig.name_de     AS plan_uebung_name,
                 orig.name_en     AS plan_uebung_name_en,
                 wl.id            AS log_id,
-                wl.weight, wl.done, wl.performed_at
+                wl.weight, wl.distanz_m, wl.dauer_s, wl.done, wl.performed_at
            FROM plan_exercises pe
            LEFT JOIN exercise_swaps sw
                   ON sw.plan_exercise_id = pe.id AND sw.session_id = :sid
@@ -452,7 +609,12 @@ function plan_positionen(
                   ON orig.id = pe.exercise_id
            LEFT JOIN workout_log wl
                   ON wl.plan_exercise_id = pe.id AND wl.session_id = :sid
+          -- Der Plan PLUS die Positionen, die nur zu dieser Einheit gehoeren
+          -- (§7.6). Ohne die zweite Haelfte fehlte die spontan hinzugefuegte
+          -- Uebung genau da, wo man sie eingetragen hat; ohne die erste stuende
+          -- sie in JEDER kuenftigen Einheit.
           WHERE pe.plan_id = :pid
+            AND (pe.session_id IS NULL OR pe.session_id = :sid)
           ORDER BY pe.sort_order, pe.id'
     );
     $stmt->execute([':sid' => $sessionId, ':pid' => $planId]);
@@ -485,8 +647,16 @@ function plan_positionen(
         // Haekchen.
         $hatEintrag = $z['log_id'] !== null;
         $erledigt   = $hatEintrag && (int)$z['done'] === 1;
-        $letztes    = letztes_gewicht($userId, $exerciseId);
         $peId       = (int)$z['plan_exercise_id'];
+        $ausdauer   = ist_ausdauer($z['erfassung']);
+
+        // Je Erfassungsart nur die Vorbelegung holen, die auch gebraucht wird
+        // -- beide waeren eine zusaetzliche Abfrage je Position, und die Werte
+        // der jeweils anderen Art zeigt die Seite ohnehin nirgends an.
+        $letztes  = $ausdauer ? null : letztes_gewicht($userId, $exerciseId);
+        $letzteAd = $ausdauer
+            ? letzte_ausdauerwerte($userId, $exerciseId)
+            : ['distanz_m' => null, 'dauer_s' => null];
 
         $ergebnis[] = [
             'plan_exercise_id' => $peId,
@@ -496,6 +666,7 @@ function plan_positionen(
             'description'      => $z['description'],
             'focus'            => $z['focus'],
             'equipment'        => $z['equipment'],
+            'erfassung'        => $ausdauer ? 'ausdauer' : 'kraft',
             'image_path'       => $z['image_path'],
             'image_crop'       => $z['image_crop'],
             'archived'         => (int)$z['archived'] === 1,
@@ -511,6 +682,16 @@ function plan_positionen(
             // aufgefuellt.
             'weight'           => $hatEintrag ? to_decimal_or_null($z['weight']) : $letztes,
             'letztes_gewicht'  => $letztes,
+            // Dasselbe Spiel fuer Ausdauer: in der Einheit protokollierte Werte,
+            // sonst die vom letzten Mal.
+            'distanz_m'        => $hatEintrag
+                ? ($z['distanz_m'] === null ? null : (int)$z['distanz_m'])
+                : $letzteAd['distanz_m'],
+            'dauer_s'          => $hatEintrag
+                ? ($z['dauer_s'] === null ? null : (int)$z['dauer_s'])
+                : $letzteAd['dauer_s'],
+            'letzte_distanz_m' => $letzteAd['distanz_m'],
+            'letzte_dauer_s'   => $letzteAd['dauer_s'],
             // Die Saetze DIESER Einheit -- die Eingabe von jetzt.
             'saetze'           => $saetzeDerEinheit[$peId] ?? [],
             // Die Saetze vom LETZTEN Mal -- Anzeige und Vorbelegung. Die
@@ -637,7 +818,10 @@ function uebungen_im_plan(int $planId, ?int $sessionId): array {
            FROM plan_exercises pe
            LEFT JOIN exercise_swaps sw
                   ON sw.plan_exercise_id = pe.id AND sw.session_id = :sid
-          WHERE pe.plan_id = :pid'
+          -- Dasselbe Fenster wie in plan_positionen(): Was heute im Programm
+          -- steht, ist kein Tauschvorschlag -- auch das spontan Hinzugefuegte.
+          WHERE pe.plan_id = :pid
+            AND (pe.session_id IS NULL OR pe.session_id = :sid)'
     );
     $stmt->execute([':sid' => $sessionId, ':pid' => $planId]);
 
@@ -762,18 +946,68 @@ function primaergruppe_von_uebung(int $exerciseId): ?array {
         : ['gruppe' => (int)$zeile['gruppe'], 'wurzel' => (int)$zeile['wurzel']];
 }
 
+/**
+ * Tauschvorschlaege fuer eine AUSDAUERuebung: alle anderen Ausdaueruebungen.
+ *
+ * Ohne Muskelgruppe und ohne Rangfolge -- es gibt keine "naechstliegende"
+ * Ausdauerform, und alphabetisch findet man am Geraet, was man sucht. Die
+ * Nachbarfunktion sortiert dagegen erst nach Untergruppe, weil dort ein Ersatz
+ * naeher oder ferner liegen kann.
+ *
+ * Das Feld `gruppe` ist hier null -- die Vorschlagskarte zeigt dann keine
+ * Gruppenzeile, was richtig ist: Es gibt keine.
+ */
+function ausdauer_vorschlaege(array $ausschluss, string $platzhalter): array {
+    $stmt = db()->prepare(
+        "SELECT e.id, e.name_de, e.name_en, e.equipment, e.erfassung,
+                e.image_path, e.image_crop, NULL AS gruppe
+           FROM exercises e
+          WHERE COALESCE(e.erfassung, 'kraft') = 'ausdauer'
+            AND e.id NOT IN ($platzhalter)
+            AND e.archived = 0
+          ORDER BY e.name_de"
+    );
+    $stmt->execute($ausschluss);
+
+    $vorschlaege = $stmt->fetchAll();
+    foreach ($vorschlaege as &$v) {
+        $v['muskelgruppen'] = [];
+    }
+
+    return $vorschlaege;
+}
+
 function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     // Uebungen, die ohnehin im laufenden Plan stehen, sind kein Ersatz --
     // man macht sie an diesem Tag sowieso. Ohne diesen Ausschluss bestuenden
     // die Vorschlaege groesstenteils aus Zeilen, die zwei Positionen weiter
     // unten schon warten.
-    $primaer = primaergruppe_von_uebung($exerciseId);
-    if ($primaer === null) {
-        return [];
-    }
+    // Vorgeschlagen wird nur, was sich GENAUSO protokollieren laesst (1.4.0).
+    // Das ist kein Widerspruch zur Regel darunter, dass das Geraet keine Rolle
+    // spielt, sondern eine Frage anderer Art: Beim Geraet geht es um den
+    // Ausweg bei besetzter Maschine, hier darum, ob die bereits sichtbaren
+    // Felder ueberhaupt noch passen. Ohne diesen Filter bekaeme man fuer die
+    // Beinpresse ein Laufband angeboten -- beide haengen an "Beine" --, und
+    // die Position stuende danach mit einem Gewichtsfeld an einer Uebung, die
+    // in Metern protokolliert wird.
+    $stmtE = db()->prepare('SELECT erfassung FROM exercises WHERE id = ?');
+    $stmtE->execute([$exerciseId]);
+    $ausdauer = ist_ausdauer((string)($stmtE->fetchColumn() ?: ''));
 
     $ausschluss = array_values(array_unique(array_merge([$exerciseId], $ausschluss)));
     $platzhalter = implode(',', array_fill(0, count($ausschluss), '?'));
+
+    // Bei AUSDAUER entscheidet allein die Trainingsart -- die Muskelgruppe
+    // spielt keine Rolle und ist dort seit 1.4.1 gar nicht mehr gesetzt (§6.3).
+    //
+    // Das ist kein Notbehelf, sondern genau der Fall, fuer den es den Tausch
+    // gibt (§7.5): Das Laufband ist besetzt, also nimmt man den Crosstrainer.
+    // Wuerde hier weiter ueber die Primaergruppe gesucht, faende eine
+    // Ausdaueruebung ueberhaupt keinen Partner mehr -- primaergruppe_von_uebung()
+    // liefert fuer sie null.
+    if ($ausdauer) {
+        return ausdauer_vorschlaege($ausschluss, $platzhalter);
+    }
 
     // Verglichen wird die HAUPTGRUPPE, nicht die genaue Untergruppe: Eine
     // Uebung fuer "Brust (oben)" darf durch eine fuer "Brust (unten)" ersetzt
@@ -786,8 +1020,8 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     // besetzte Maschine; ein Filter auf dasselbe Geraet verhinderte genau den
     // Ausweg, den man in dem Moment sucht.
     $stmt = db()->prepare(
-        "SELECT e.id, e.name_de, e.name_en, e.equipment, e.image_path,
-                e.image_crop, mg.name_de AS gruppe
+        "SELECT e.id, e.name_de, e.name_en, e.equipment, e.erfassung,
+                e.image_path, e.image_crop, mg.name_de AS gruppe
            FROM exercises e
            JOIN exercise_muscle_groups emg
                 ON emg.exercise_id = e.id AND emg.is_primary = 1
@@ -799,6 +1033,10 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
           WHERE COALESCE(mg.parent_id, mg.id) = CAST(? AS INTEGER)
             AND e.id NOT IN ($platzhalter)
             AND e.archived = 0
+            -- COALESCE, weil eine Sicherung von vor 1.4.0 die Spalte zwar
+            -- mitbringt, ein von Hand eingetragener NULL-Wert aber denkbar
+            -- bleibt; unbekannt gilt als Kraft, wie ueberall sonst.
+            AND COALESCE(e.erfassung, 'kraft') = 'kraft'
           -- Naechstliegender Ersatz zuerst: erst die Uebungen DERSELBEN
           -- Untergruppe, danach der Rest der Hauptgruppe. Wer Ersatz fuer eine
           -- Trizeps-Uebung sucht, bekommt sonst Bizeps-Uebungen zwischen die
@@ -808,6 +1046,15 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
           ORDER BY CASE WHEN mg.id = CAST(? AS INTEGER) THEN 0 ELSE 1 END,
                    mg.sort_order, mg.name_de, e.name_de"
     );
+    $primaer = primaergruppe_von_uebung($exerciseId);
+    if ($primaer === null) {
+        // Eine Kraftuebung ohne Primaergruppe hat keine Tauschklasse. Das ist
+        // seit jeher so und bleibt: In der Oberflaeche ist die Gruppe fuer
+        // Kraft Pflicht, denkbar ist der Fall nur nach einer alten Sicherung --
+        // und die Uebungsliste mahnt ihn dort sichtbar an.
+        return [];
+    }
+
     $stmt->execute([$primaer['wurzel'], ...$ausschluss, $primaer['gruppe']]);
     $vorschlaege = $stmt->fetchAll();
 
@@ -862,7 +1109,13 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
                 sp.name AS split_name,
                 (SELECT COUNT(*) FROM workout_log wl
                   WHERE wl.session_id = s.id AND wl.done = 1) AS erledigt,
-                (SELECT COUNT(*) FROM plan_exercises pe WHERE pe.plan_id = s.plan_id) AS gesamt
+                -- Das "n" der EINHEIT, nicht das des heutigen Plans: Eine
+                -- Position, die nur zu dieser Einheit gehoerte, zaehlt hier mit
+                -- (§7.6). Ohne den zweiten Zweig stuende im Verlauf "4/3" --
+                -- protokolliert ist sie ja.
+                (SELECT COUNT(*) FROM plan_exercises pe
+                  WHERE pe.plan_id = s.plan_id
+                    AND (pe.session_id IS NULL OR pe.session_id = s.id)) AS gesamt
            FROM sessions s
            LEFT JOIN plans  p  ON p.id  = s.plan_id
            LEFT JOIN splits sp ON sp.id = p.split_id
@@ -884,7 +1137,8 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
 function einheit_eintraege(int $sessionId, int $userId): array {
     $stmt = db()->prepare(
         'SELECT wl.id AS log_id, wl.exercise_id, wl.weight, wl.performed_at,
-                e.name_de, e.name_en,
+                wl.distanz_m, wl.dauer_s,
+                e.name_de, e.name_en, e.erfassung,
                 pe.sort_order,
                 pe.exercise_id AS plan_uebung_id,
                 orig.name_de   AS plan_uebung_name,
@@ -901,22 +1155,36 @@ function einheit_eintraege(int $sessionId, int $userId): array {
 }
 
 /**
- * Alle Uebungen, fuer die dieser Benutzer je ein Gewicht protokolliert hat --
+ * Alle Uebungen, fuer die dieser Benutzer je einen Wert protokolliert hat --
  * mit Anzahl, letztem Wert und Bestwert.
  *
- * Grundlage der Verlaufsansicht. Uebungen ohne Gewichtsangabe tauchen nicht
- * auf: Fuer sie gaebe es nichts zu zeigen.
+ * Grundlage der Verlaufsansicht. Uebungen ganz ohne Werte tauchen nicht auf:
+ * Fuer sie gaebe es nichts zu zeigen.
+ *
+ * "Wert" hiess bis 1.4.0 ausschliesslich `weight`, und genau das war der Punkt,
+ * an dem eine Ausdaueruebung aus dem Verlauf fiel -- vollstaendig und ohne
+ * Meldung, sie stand einfach nicht in der Liste. Der Filter fragt jetzt nach
+ * IRGENDEINEM der drei Werte.
+ *
+ * bestwert bedeutet je nach Erfassungsart etwas anderes: bei Kraft das
+ * schwerste Gewicht, bei Ausdauer die weiteste Distanz. Beide werden geholt --
+ * welcher gilt, entscheidet die Anzeige anhand von erfassung. Eine einzige
+ * Spalte mit einem CASE waere kuerzer und in der Antwort nicht mehr deutbar.
  */
 function uebungen_mit_verlauf(int $userId): array {
     $stmt = db()->prepare(
-        'SELECT wl.exercise_id, e.name_de, e.name_en, e.image_path,
-                COUNT(*)      AS anzahl,
-                MAX(wl.weight) AS bestwert,
+        'SELECT wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung,
+                COUNT(*)          AS anzahl,
+                MAX(wl.weight)    AS bestwert,
+                MAX(wl.distanz_m) AS bestdistanz,
                 MAX(wl.performed_at) AS zuletzt
            FROM workout_log wl
            JOIN exercises e ON e.id = wl.exercise_id
-          WHERE wl.user_id = ? AND wl.weight IS NOT NULL
-          GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path
+          WHERE wl.user_id = ?
+            AND (wl.weight IS NOT NULL
+                 OR wl.distanz_m IS NOT NULL
+                 OR wl.dauer_s IS NOT NULL)
+          GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung
           ORDER BY zuletzt DESC, e.name_de'
     );
     $stmt->execute([$userId]);
@@ -924,16 +1192,37 @@ function uebungen_mit_verlauf(int $userId): array {
 }
 
 /**
- * Der Gewichtsverlauf einer Uebung, aelteste zuerst (fuer die Kurve).
+ * Der Wertverlauf einer Uebung, aelteste zuerst (fuer die Kurve).
  *
  * wl.id kommt mit, damit sich ueber saetze_zu_logs() die Saetze je Punkt
  * zuordnen lassen -- daraus entstehen Volumen und geschaetztes 1RM (§7.8).
+ *
+ * Der Name bleibt trotz der Ausdauerwerte: Er wird aus einem halben Dutzend
+ * Stellen zitiert, und die Funktion tut weiterhin dasselbe -- sie liefert die
+ * Messreihe einer Uebung. Welche Spalte davon die Kurve traegt, entscheidet
+ * die Aufrufstelle ueber den $feld-Parameter von verlauf_kurve().
+ *
+ * Der IS-NOT-NULL-Filter haengt an der Erfassungsart: Bei Kraft zaehlt ein
+ * Punkt ohne Gewicht nicht (er traegt keine Aussage), bei Ausdauer einer ohne
+ * Distanz UND ohne Zeit. Wuerde hier pauschal auf alle drei geprueft, stuenden
+ * in der Kraftkurve Punkte ohne Gewicht -- als Luecken sichtbar, aber in der
+ * Tabelle darunter als leere Zeilen.
  */
-function gewichts_verlauf(int $userId, int $exerciseId, int $limit = 60): array {
+function gewichts_verlauf(
+    int $userId,
+    int $exerciseId,
+    string $erfassung = ERFASSUNG_VORGABE,
+    int $limit = 60
+): array {
+    $filter = ist_ausdauer($erfassung)
+        ? '(wl.distanz_m IS NOT NULL OR wl.dauer_s IS NOT NULL)'
+        : 'wl.weight IS NOT NULL';
+
     $stmt = db()->prepare(
-        'SELECT wl.id AS log_id, wl.weight, wl.performed_at
+        'SELECT wl.id AS log_id, wl.weight, wl.distanz_m, wl.dauer_s,
+                wl.performed_at
            FROM workout_log wl
-          WHERE wl.user_id = ? AND wl.exercise_id = ? AND wl.weight IS NOT NULL
+          WHERE wl.user_id = ? AND wl.exercise_id = ? AND ' . $filter . '
           ORDER BY wl.performed_at DESC, wl.id DESC
           LIMIT ' . (int)$limit
     );

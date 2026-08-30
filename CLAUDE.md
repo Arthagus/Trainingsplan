@@ -32,7 +32,7 @@ korrigieren, nicht zu befolgen. Im Zweifel nachfragen statt raten.
 
 | Datei | Inhalt |
 |---|---|
-| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 21 Abnahmekriterien |
+| `LASTENHEFT.md` | Fachlichkeit, Datenmodell, die 23 Abnahmekriterien |
 | `doku/stand.md` | **Flüchtig:** laufende Version, Datenstand, offene Punkte — kurz gehalten |
 | `doku/historie.md` | **Chronik:** was wann ausgerollt wurde und warum. Keine Anweisung — hier steht, was WAR |
 | `doku/deployment.md` | Topologie, Portainer-Ablauf, Fehlersuche |
@@ -118,7 +118,7 @@ node --check assets/app.js
 ```
 
 **Geprüft wird gegen den Dev-Server per `curl`**: Sitzung aufbauen, Endpunkt aufrufen,
-Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 21 manuellen Kriterien
+Antwort und Datenbankzustand vergleichen. Die Abnahme läuft über die 23 manuellen Kriterien
 in `LASTENHEFT.md` §11.
 
 Der Sitzungsaufbau, weil das Token die einzige fummelige Stelle ist:
@@ -132,6 +132,21 @@ curl -s -b $J -c $J -X POST http://127.0.0.1:8100/api/auth.php \
      -H "Content-Type: application/json" -H "X-CSRF-Token: $TOK" \
      -d '{"action":"login","name":"tester","password":"geheim12345"}'
 ```
+
+**Für eine Gegenprobe muss der Dev-Server OHNE Opcache laufen.** `opcache.enable` ist hier
+`On` und `opcache.revalidate_freq` steht auf **2** — der Server sieht eine geänderte Datei
+also bis zu zwei Sekunden lang nicht. Wer eine Zeile entfernt und sofort denselben `curl`
+absetzt, misst den **alten** Stand, und die Gegenprobe fällt „zu freundlich" aus: Sie
+bestätigt die Regel, die gerade gar nicht mehr läuft. Am 2026-08-30 genau so passiert.
+Deshalb:
+
+```bash
+nohup env APP_SECRET=test php -d opcache.enable=0 -S 127.0.0.1:8100 -t "$(pwd)" &
+```
+
+Dasselbe Erkennungszeichen wie bei den drei JS-Fallen weiter unten: **Das Ergebnis ist zu
+glatt.** Wer eine Zeile entfernt und trotzdem alles grün sieht, prüft zuerst den eigenen
+Aufbau.
 
 **Das Muster muss `name="csrf-token"` enthalten.** Ein bloßes `content="[^"]*"` greift den
 ersten Treffer im `<head>`, und das ist der Viewport — die Anmeldung scheitert dann mit
@@ -315,6 +330,21 @@ Die dritte entsteht nur durch die *Lücke*: Positionen 1 und 3 protokollieren, 2
 Wer der Reihe nach abhakt, bekommt nie einen orangen Balken zu sehen — und prüft damit
 genau die Regel nicht, die schwierig ist (§7.3, `positions_zustaende()`).
 
+**Seit `1.4.0` braucht der Plan außerdem BEIDE Erfassungsarten** (Fallstrick 30). Ein
+reiner Kraftplan beantwortet drei Fragen systematisch falsch, weil es nichts zu
+unterscheiden gibt: ob die Zahlenspalte im Verlauf bei einer gemischten Einheit auf
+„Kennzahl" umschaltet, ob `satzZeileMarkup()` je Karte den richtigen Zweig wählt, und ob
+der Tausch die Erfassungsarten trennt. Für die letzte Frage müssen die beiden Übungen
+zusätzlich **dieselbe Primärgruppe** haben und **außerhalb des Plans** stehen — sonst
+trennt schon die Muskelgruppe bzw. der Ausschluss „steht ohnehin im Plan", und der
+Erfassungsfilter bleibt ungeprüft. Genau daran lief die erste Gegenprobe am 2026-08-30 ins
+Leere: Beide Listen kamen leer zurück, und das sah nach einem Befund aus.
+
+```php
+$p->prepare("INSERT INTO exercises (name_de,equipment,erfassung,created_at)
+             VALUES (?,?,?,?)")->execute(["Laufband","laufband","ausdauer",$n]);
+```
+
 **Ein Benutzer und ein Split beweisen die halbe Fachlichkeit nicht.** Zwei Fragen
 beantwortet dieser Bestand systematisch falsch, weil es nichts zu verwechseln gibt:
 
@@ -371,14 +401,22 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/csrf.php` | Token, `csrf_check()` für JSON und Formulare, `CSRF_FEHLER_CODE` — steckt in der Boilerplate **jeder** geschützten Seite |
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
 | `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Textausgabe `split_texte()`, **die zentrale Rechteregel** `split_darf_bearbeiten()` samt ihrem API-Zwilling `split_zugriff_api()` — dazu der Vorlagenabgleich aus `1.2.11` (`vorlage_stand()`, `split_zuruecksetzen()`), `fremde_splits()` für den Adminbereich und den Fingerabdruck `signaturen_bauen()` mit seinen **zwei Feldern** `inhalt`/`namen`, siehe Fallstrick 24 |
-| `lib/geraete.php` | Codelisten `GERAETE` und `ZUSCHNITT`, `geraet_abzeichen()` |
+| `lib/geraete.php` | Codelisten `GERAETE`, `ZUSCHNITT` und **`ERFASSUNG`**, `geraet_abzeichen()`, `ist_ausdauer()` |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung — dazu `verwaiste_bilder()`/`verwaiste_bilder_loeschen()`, die einzige Stelle, die Dateien ohne Übung findet |
 | `lib/healthcheck.php` | Was der HEALTHCHECK im `Dockerfile` startet — fasst die Datenbank an und **begründet** ein „unhealthy" |
 | `lib/view_header.php` / `view_footer.php` | Layout als Partial, inklusive Leisten-Stapel `#leisten` |
 | `lib/view_geraet_symbole.php` | SVG-Symbolvorrat + Beschriftungen, aus dem Header eingebunden |
 | `lib/view_bild_dialog.php` / `view_platzhalter.php` | Geteilte Bausteine für Übungsbilder — von `index.php` und dem Adminbereich gemeinsam benutzt |
+| `lib/view_uebung_waehlen_dialog.php` | Die Übungsauswahl (§6.4) — geteilt von `plans.php` und `index.php`; die Logik dazu ist `uebungWaehlenEinrichten()` in `assets/app.js` |
 | `lib/view_split_karte.php` / `view_split_text_dialog.php` / `view_split_name_dialog.php` | Dasselbe für Splits: `split_liste()` samt Karte, der „Als Text"-Dialog und der zum Umbenennen — geteilt zwischen `splits.php` und `admin_splits.php` |
+
+**Nicht jede Seite ist eine Seite.** `download_backup.php` rendert nichts, sondern liefert
+eine Sicherung als Datei aus — und damit den kompletten Datenbestand samt Passwort-Hashes.
+Der Zugriff hängt deshalb an `require_login()` **und** `require_admin()`, und der Dateiname
+kommt nicht aus der Anfrage, sondern wird über `backup_pfad()` gegen das Sicherungs-
+verzeichnis aufgelöst (Path-Jail wie bei `image.php`). Wer dort etwas ändert, ändert den am
+weitesten reichenden Datenabfluss, den die App hat.
 
 **Die JSON-Endpunkte tragen ihren Gegenstand im Namen**, mit zwei Ausnahmen, die man
 kennen muss: `api/token.php` liefert ein frisches CSRF-Token (Fallstrick 23) und ist der
@@ -393,7 +431,7 @@ ins `UPDATE`-Statement, bevor man das erste Mal darauf schreibt (Fallstrick 22):
 | `auth.php` | `login`, `change_password`, `change_name`, `set_expert_mode`, `set_satz_vorlage`, `revoke_device`, `revoke_all` |
 | `exercises.php` | `create`, `update`, `archive`, `unarchive`, `delete` |
 | `log.php` | `check`, `uncheck` |
-| `maintenance.php` | `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`, `optimize`, `checkpoint`, `images_orphans`, `images_cleanup` |
+| `maintenance.php` | `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`, `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`, `images_recut_check`, `images_recut` |
 | `muscle_groups.php` | `create`, `update`, `delete`, `reorder` |
 | `plans.php` | `create_plan`, `rename_plan`, `delete_plan`, `reorder_plans`, `exercise_picker`, `add_exercise`, `remove_exercise`, `move_exercise`, `reorder_exercises`, `swap_suggestions`, `swap_exercise` |
 | `session.php` | `start`, `end`, `delete` |
@@ -738,8 +776,9 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   wird **nur**, was direkt im Wurzelverzeichnis liegt und auf `.js` endet; die Wurzel wird
   aus `self.location` **gerechnet** und nicht als `/` geraten. **Nicht vorab geladen** — der
   erste Aufruf nach einem Rollout geht ans Netz, jeder weitere kommt aus dem Cache; ein
-  Präcache aller sieben Skripte wäre Verkehr auf genau der Verbindung, die das entlasten
-  soll.
+  Präcache **aller elf** Seiten-Skripte wäre Verkehr auf genau der Verbindung, die das
+  entlasten soll. (Die Zahl wächst mit jeder neuen Seite; sie steht hier nur als
+  Größenordnung, nirgends im Code.)
 - **Asset-Adressen tragen die Version** (`style.css?v=…`), gesetzt in
   `lib/view_header.php` und `lib/view_footer.php` aus `app_version()`. Wer eine neue CSS-
   oder JS-Datei einbindet, hängt sie dort mit an — ohne den Parameter friert die Datei im
@@ -800,7 +839,9 @@ stehen (siehe **11**), statt die folgenden aufrücken zu lassen.
 
 **Wo anfangen:** an Splits und Plänen arbeitet man mit **24–26**, am Training mit
 **1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**, an allem, was einen
-Übungsnamen anzeigt, mit **27**, an Leisten und Meldungen mit **19** und **29**.
+Übungsnamen anzeigt, mit **27**, an Leisten und Meldungen mit **19** und **29**, an allem,
+was Werte erfasst oder auswertet, zusätzlich mit **30**, an allem, was `plan_exercises`
+liest, mit **31**.
 
 **Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
 Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
@@ -835,6 +876,19 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    nicht: `require_passwort_gesetzt_api()` gehört in **jeden** Endpunkt außer
    `api/auth.php`. Sonst benutzt jemand mit dem vom Admin vergebenen Startpasswort die
    ganze API, ohne je ein eigenes zu setzen — und `must_change_password` wäre wirkungslos.
+
+   **`api/auth.php` ist die Ausnahme nur am DATEIKOPF, nicht in der Sache.** Anmeldung und
+   erzwungener Wechsel müssen erreichbar bleiben, deshalb steht dort keine Sperre über
+   allem — aber `change_name`, `set_expert_mode` und `set_satz_vorlage` rufen sie
+   ausdrücklich selbst auf. Wer dort eine Aktion ergänzt, entscheidet also bewusst, ob sie
+   vor dem Passwortwechsel erreichbar sein darf; der Dateikopf nimmt ihm die Entscheidung
+   nicht ab. Die Gegenprobe, die nur echte Aufrufe zählt und keine Kommentare:
+
+   ```bash
+   for f in api/*.php; do
+     grep -vE '^\s*(//|\*)' "$f" | grep -q 'require_passwort_gesetzt_api()' || echo "ohne: $f"
+   done
+   ```
 
 4. **`workout_log` ist eindeutig über `(session_id, plan_exercise_id)`**, nicht über
    `exercise_id` (§4). Nach einem Tausch steht in `exercise_id` die Ersatzübung; ohne die
@@ -946,8 +1000,8 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       genau so stehen sie im `<head>`. Sonst ist der Precache toter Ballast.
     - **Die Seiten-Skripte stehen ausdrücklich NICHT in `ASSETS`** (seit `1.2.11`): Sie
       werden gecacht, wenn sie zum ersten Mal gebraucht werden, nicht auf Vorrat. Ein
-      Präcache holte bei jeder Installation alle sieben, auch die für Seiten, die niemand
-      öffnet. Der Schutz gegen den eingefrorenen Stand hängt hier ohnehin nicht am
+      Präcache holte bei jeder Installation alle — inzwischen elf —, auch die für Seiten,
+      die niemand öffnet. Der Schutz gegen den eingefrorenen Stand hängt hier ohnehin nicht am
       Precache, sondern am `?v=` in der Adresse — und das tragen sie.
 
 13. **Die Warteschlange fürs Abhaken hängt an `user_id` UND `session_id`** (§7.4), jeder
@@ -1077,6 +1131,11 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     - **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
       Umbenennung ist eine Textänderung ohne Migration; wer den *Schlüssel* ändert, braucht
       ein `UPDATE`.
+    - **Seit `1.4.0` sind es zehn Werte** — dazu kamen `laufband`, `crosstrainer`,
+      `rudergeraet`. Sie stehen in derselben Liste wie alles andere und sind **kein**
+      Sonderfall: Ob eine Übung in Metern protokolliert wird, entscheidet
+      `exercises.erfassung` und nicht das Gerät (Fallstrick 30). Die Zahl „sieben" stand an
+      vier Stellen im Fließtext und ist überall mitgezogen.
     - **Das Gerät ist auch beim Bearbeiten Pflicht** — der Mechanismus, über den Altbestand
       seinen Wert bekommt: Die Migration setzt nichts, die Liste mahnt „Gerät fehlt", der
       Filter `GERAET_LEER` findet genau diese Zeilen.
@@ -1432,8 +1491,16 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     Muskelgruppen** — **und die Antwort lautet trotzdem `ok:true`.** Die Übung steht danach
     ohne Zuordnung da und taucht im Tausch nie wieder auf.
 
-    `eingabe_pruefen()` verlangt nur `name_de`, `equipment` und `primary_group_id` als
-    Pflicht — alles andere fällt still auf `null` oder die leere Liste. Jeder Aufruf muss die
+    `eingabe_pruefen()` verlangt `name_de`, `equipment`, `erfassung` und `primary_group_id`
+    als Pflicht — alles andere fällt still auf `null` oder die leere Liste.
+
+    **`erfassung` ist seit `1.4.0` bewusst PFLICHT und hat keinen Rückfall**, obwohl die
+    Spalte `NOT NULL DEFAULT 'kraft'` ist und das Formular ein Auswahlfeld ohne Leereintrag
+    zeigt. Genau deshalb: Ein Aufruf ohne das Feld fiele sonst still auf `kraft` zurück, und
+    aus einer Laufbandübung wäre lautlos wieder eine Kraftübung geworden — mit `ok:true`.
+    Der Vorgabewert gilt für die **Migration**, nicht für eine unvollständige Nutzlast. Beim
+    Bildzuschnitt daneben ist es umgekehrt geregelt, und das ist kein Widerspruch: `mitte`
+    ist eine Ausrichtung und ändert keine Bedeutung. Jeder Aufruf muss die
     unveränderten Felder aus einem **vorher gezogenen Abzug** wörtlich mittragen; jedes neue Feld an `exercises` erbt dieses Verhalten (so kam `image_crop`
     dazu). **Das Muster ist nicht einheitlich, Analogieschluss hilft nicht:**
     `api/plans.php → rename_plan` und `api/users.php → set_admin` fassen genau eine Spalte
@@ -1777,6 +1844,181 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     kann, nicht an jeden Vorgang, den es gibt.** Wo der Normalfall ohnehin gutgeht, ist
     Schweigen die richtige Meldung.
 
+30. **Kraft und Ausdauer sind zwei Erfassungsarten derselben Position — nicht zwei
+    Datenmodelle** (§4, §7.4, seit `1.4.0`). `exercises.erfassung` ist `kraft` oder
+    `ausdauer`; danach richtet sich, ob eine Zeile Wiederholungen und Gewicht trägt oder
+    Distanz und Zeit. **Alles andere bleibt gleich**: dieselben Zeilen in `workout_sets`,
+    dieselbe Warteschlange, dieselbe Idempotenz, dieselbe Tauschsperre, dieselben vier
+    Balkenfarben. Wer hier einen zweiten Weg neben dem bestehenden baut, hat die Fachlichkeit
+    verdoppelt statt sie erweitert.
+
+    **Sie hängt an der ÜBUNG und nicht am Gerät**, und das ist die Entscheidung, aus der
+    alles Weitere folgt. Der naheliegende Griff wäre, sie aus `equipment` abzuleiten —
+    Laufband heißt Ausdauer. Falsch herum: Die Übung ist die Tätigkeit und bestimmt, was
+    gemessen wird; das Gerät sagt nur, wo sie stattfindet. *Laufen ist Laufen, ob im Freien
+    oder auf dem Band* (Vorgabe des Benutzers, 2026-08-30). Drei Folgen, jede für sich
+    ausreichend:
+
+    - Eine spätere Ausdauerform **ohne eigenes Gerät** — Seilspringen, Laufen im Freien —
+      bräuchte sonst einen erfundenen Gerätetyp in einer Liste, die die Frage „Maschine,
+      Kabelzug oder Kurzhanteln?" beantworten soll.
+    - Die Regel **„das Gerät ist KEIN Kriterium des Tauschs"** (§7.5, Fallstrick 16) bliebe
+      sonst nicht wörtlich wahr: `tausch_vorschlaege()` müsste doch nach `equipment` filtern,
+      und wer die Funktion später liest, fände dort eine Zeile, die dem ausgeschriebenen Satz
+      widerspricht.
+    - Eine abgeleitete Erfassungsart **kippte rückwirkend die Bedeutung gespeicherter
+      Werte**, sobald jemand ein Gerät umträgt oder die Liste erweitert — lautlos, mit
+      `ok:true`. Ein gespeicherter Wert ändert sich nur, wenn jemand genau dieses Feld
+      anfasst.
+
+    **In der Oberfläche heißt das Feld „Trainingsart"**, in der Datenbank `erfassung`
+    (Ansage des Benutzers, 2026-08-30). Dieselbe Trennung wie bei `GERAETE`: Der Schlüssel
+    steht in der Datenbank, die Beschriftung nur im Code — eine Umbenennung ist damit eine
+    Textänderung und keine Migration. **Die Spalte wird deshalb NICHT umbenannt**, auch wenn
+    die Namen dadurch auseinandergehen; ein `RENAME COLUMN` für ein Label wäre eine Migration
+    ohne Gegenwert.
+
+    **Bei Ausdauer gibt es keine Muskelgruppe** (§6.3, seit `1.4.1`) — weder Pflicht noch
+    gespeichert. „Welchen Muskel trainiert Laufen?" hat keine Antwort, die man ankreuzen
+    könnte. Drei Dinge hängen daran, und das dritte ist das, was man leicht übersieht:
+
+    - **Das Formular blendet den Block aus UND deaktiviert ihn.** Beides wird gebraucht:
+      `hidden` nimmt ihn aus dem Blick, `disabled` aus dem Formular — `new FormData(formular)`
+      sammelt auch unsichtbare Felder ein. Der Anfangszustand wird **serverseitig** gerendert,
+      sonst blitzt der Block beim Aufklappen einer Ausdauerübung auf.
+    - **Trainingsgerät und Trainingsart stehen VOR den Muskelgruppen.** Die Trainingsart
+      steuert den Block darunter; stünde sie dahinter, blendete eine Auswahl den Kasten über
+      sich aus und der Rest des Formulars spränge nach oben. Wer eine weitere Angabe ergänzt,
+      die einen Block darunter steuert, sortiert sie genauso ein.
+    - **`tausch_vorschlaege()` sucht für Ausdauer NICHT über die Primärgruppe**, sondern
+      liefert alle anderen Ausdauerübungen (`ausdauer_vorschlaege()`). Ohne diesen Zweig fände
+      eine Ausdauerübung **gar keinen** Tauschpartner mehr — `primaergruppe_von_uebung()`
+      liefert für sie `null`, und die Funktion stieg bis `1.4.0` genau dort mit `[]` aus. Das
+      ist zugleich der Fall, für den es den Tausch überhaupt gibt: Laufband besetzt, also
+      Crosstrainer.
+
+    Was daran im Code hängt:
+
+    - **Der Torwächter heißt `ist_ausdauer()`** (`lib/geraete.php`) und fällt bei jedem
+      unbekannten Wert auf Kraft zurück — dieselbe Überlegung wie bei
+      `satz_vorlage_normalisieren()`: Eine alte Sicherung darf kein Training abbrechen.
+      `lib/training.php` bindet `geraete.php` ein, damit jede Seite mit Trainingslogik ihn
+      hat.
+    - **Die Erfassungsart kommt SERVERSEITIG aus der Übung, nie aus der Nutzlast.**
+      `api/log.php → position_laden()` liest sie mit; `saetze_pruefen()` bekommt sie als
+      Parameter. Felder der jeweils anderen Art werden **verworfen**, nicht gespeichert —
+      eine Zeile mit Gewicht *und* Distanz wäre von keiner Anzeige mehr deutbar.
+    - **`position_laden()` liest die Erfassungsart der PLANÜBUNG, nicht der eingetauschten.**
+      Das ist zulässig, weil `tausch_vorschlaege()` nur innerhalb derselben Erfassungsart
+      vorschlägt und **beide** Tauschpfade (`api/swap.php`, `api/plans.php`) gegen genau diese
+      Liste prüfen. Fällt die Regel je, gehört dort ein `COALESCE` über `exercise_swaps` her.
+    - **`saetze_gleich()` muss ALLE VIER Wertfelder vergleichen.** Sie trägt die
+      Idempotenz-Ausnahme aus Fallstrick 18; eine Ausnahme, die zu großzügig vergleicht,
+      lässt eine echte Änderung an einer festgeschriebenen Position durchgehen. Ganzzahlen
+      mit `===`, Gewichte weiter über `zahl_gleich()`. Dazu vergleicht
+      `abgeschlossene_position_schuetzen()` die **Leitwerte** der `workout_log`-Zeile mit.
+
+      **Das sind zwei unabhängige Wächter, und beim Prüfen führt das in die Irre:** Wer eine
+      Distanz ändert, ändert auch die Summe — der Leitwert-Vergleich schlägt dann zu, und
+      eine Gegenprobe am Satzvergleich sieht aus, als wirke er. Der scharfe Fall ist eine
+      **umsortierte Intervallliste bei gleicher Summe**; nur dort greift `saetze_gleich()`
+      allein.
+    - **`workout_log.distanz_m`/`dauer_s` sind SUMMEN, `weight` ist ein MAXIMUM.** Zwei
+      Intervalle zu 1000 m sind 2000 gelaufene Meter, zwei Sätze zu 40 kg sind keine 80 kg.
+      Gerechnet wird in `saetze_distanz()`/`saetze_dauer()` (`lib/training.php`) — dieselben
+      Funktionen, die der Verlauf benutzt, damit nicht zwei Summen auseinanderlaufen.
+    - **Der Warteschlangen-Schlüssel bleibt `-v3`.** Die *Form* eines Eintrags ändert sich
+      nicht: Die neuen Felder sind additiv und optional, ein wartender Alt-Eintrag bleibt
+      gültig, und einen wartenden Ausdauer-Eintrag kann es vor dem Rollout nicht geben. Der
+      Reflex „neue Felder ⇒ neue Schlüsselnummer" verwürfe hier nur die Eingaben von jedem,
+      der gerade trainiert (dieselbe Überlegung wie bei `set_satz_vorlage`, Fallstrick 17).
+    - **`uebungen_mit_verlauf()` und `gewichts_verlauf()` filterten auf `weight IS NOT
+      NULL`** — daran fiel eine Ausdauerübung **vollständig und ohne Meldung** aus dem
+      Verlauf. Wer eine weitere Wertart ergänzt, sieht zuerst dort nach. Der Name
+      `gewichts_verlauf()` bleibt trotzdem: Er wird aus einem halben Dutzend Stellen zitiert,
+      und die Funktion tut weiterhin dasselbe — sie liefert die Messreihe einer Übung.
+    - **Die Zeit steht in SEKUNDEN in der Datenbank**, `mm:ss` ist reine Ein- und Ausgabe.
+      Das Paar heißt `dauer_mmss()`/`dauer_aus_eingabe()` (`lib/helpers.php`) und
+      `dauerMMSS()`/`dauerAusEingabe()` (`assets/app.js`) — **beide Hälften zusammen ändern**,
+      wie bei `saetze_text()`/`saetzeText()`. `dauer_text()` in `lib/training.php` ist etwas
+      anderes: Sie nimmt zwei Zeitstempel und beantwortet „wie lange dauerte die Einheit".
+    - **Ein Plan darf gemischt sein.** Deshalb hängt die Erfassungsart in `index.js` an der
+      KARTE (`data-erfassung`) und nicht an der Seite — anders als `experte`, das für alle
+      Karten gleich gilt. Im Verlauf entscheidet sie je ZEILE; sobald eine Ausdauerposition
+      dabei ist, heißt die Zahlenspalte „Kennzahl" statt „1RM"/„Gewicht".
+    - **Die Pace-Zeile ist bei Ausdauer IMMER da** und zeigt `—`, solange nichts zu rechnen
+      ist. Sie ein- und auszublenden ließe die Karte beim Tippen wachsen und schrumpfen —
+      Fallstrick 19a. Gerechnet wird server- wie clientseitig über die **Summe** und aus den
+      **Leitwerten der Position**, nicht aus der Satzliste: Beide sind nach dem Speichern
+      dieselbe Zahl, aber die Leitwerte stehen auch dann da, wenn die Position im einfachen
+      Modus protokolliert wurde und gar keine Intervallzeilen hat.
+    - **Die Intervallzeile hat keinen Stepper.** ±1 Meter ist keine sinnvolle Schrittweite,
+      und ein zweiter Schrittwert (±100 m? ±10 s?) wäre für Intervall, Dauerlauf und Rudern
+      jeweils für etwas falsch — dieselbe Überlegung, aus der das Gewicht schon keinen hat.
+
+31. **`plan_exercises` ist nicht mehr nur „der Plan"** (§4, §7.6, seit `1.4.2`). Eine Zeile
+    mit gesetzter `session_id` gehört **ausschließlich zu einer Einheit** — sie entsteht
+    über *Übung hinzufügen → Nur diese Einheit* in der Trainingsansicht. `NULL` ist der
+    Regelfall und der Zustand jeder Zeile davor.
+
+    **Warum sie in dieser Tabelle steht und nicht in einer eigenen:** `workout_log` hängt
+    über `plan_exercise_id` an genau dieser `id` (Fallstrick 4). Eine Übung, die nur heute
+    dazukommt, braucht deshalb eine echte Planposition — sonst wäre ihr Protokolleintrag
+    nicht zuzuordnen, „x/n" nicht zählbar und die Tauschsperre ohne Anker.
+
+    **Und warum sie nach der Einheit stehen bleibt:** Löschen setzt
+    `workout_log.plan_exercise_id` über `ON DELETE SET NULL` auf `NULL` — der Verlauf
+    verlöre die Zuordnung, lautlos und mit `ok:true`. Sie bleibt und wird **ausgeblendet**,
+    wo der *Plan* gemeint ist.
+
+    **Daraus die Regel, die man beim nächsten `SELECT` braucht: Jede Abfrage über
+    `plan_exercises` muss sich zur `session_id` äußern**, und es gibt genau zwei Antworten:
+
+    | Wo | Bedingung |
+    |---|---|
+    | Der **Plan** — Planverwaltung, Kopieren, Zurücksetzen, Fingerabdruck, Textexport, „Schon in …" | `pe.session_id IS NULL` |
+    | Eine **laufende Einheit** — `plan_positionen()`, `fortschritt()`, `uebungen_im_plan()`, die Übungsauswahl | `(pe.session_id IS NULL OR pe.session_id = :sid)` |
+
+    **Beide Zählungen müssen dieselbe Menge sehen.** Steht in der Liste eine Karte mehr, als
+    `fortschritt()` kennt, läuft „x/n" über das Ziel hinaus — genau davor warnt Fallstrick 2.
+    Dasselbe im Verlauf: `einheiten_verlauf()` zählt `n` **je Einheit**
+    (`pe.session_id = s.id`), sonst zeigte eine alte Einheit „4/3".
+
+    Die ausdrücklichen **Ausnahmen**, jede aus eigenem Grund — wer eine ergänzt, begründet
+    sie hier:
+
+    - `position_laden()` in `api/log.php` und `api/swap.php` sowie `position_zugriff()` in
+      `api/plans.php` filtern **nicht**: Sie müssen die Tagesposition ja finden.
+    - `einheit_eintraege()` filtert **nicht** — der Verlauf muss sie auflösen.
+    - Der Löschschutz in `api/exercises.php` zählt **beides**: Auch eine Tagesposition ist
+      ein Verweis auf die Übung, und der Fremdschlüssel steht auf `RESTRICT`.
+    - `aktion_uebung_hinzufuegen()` nimmt `MAX(sort_order)` über **alles** — sonst bekäme
+      eine später dauerhaft hinzugefügte Übung dieselbe `sort_order` wie eine ältere
+      Tagesposition.
+
+    **Entfernen und Verschieben weisen eine Tagesposition ab** (409). Über die Oberfläche
+    ist beides nicht erreichbar — die Planverwaltung zeigt sie nicht, und während der
+    Einheit greift die Struktursperre. Der Riegel steht wegen des zweiten Tabs und weil die
+    Folge schwer wäre.
+
+    **Hinzufügen ist als einzige Strukturaktion von der Sperre ausgenommen.** Ans Ende zu
+    hängen verschiebt keine bestehende Position: keine `plan_exercise_id` ändert sich, die
+    Warteschlange behält ihre Schlüssel, und dass „n" wächst, hat der Benutzer selbst
+    ausgelöst. Umsortieren und Entfernen bleiben gesperrt.
+
+    **Die Gegenprobe** — sie zeigt jede Stelle mit ihrem Umfeld; abgeglichen wird gegen die
+    Ausnahmeliste oben:
+
+    ```bash
+    grep -rn -B2 -A8 --include='*.php' 'FROM plan_exercises\|JOIN plan_exercises' . \
+      | grep -v '^doku/'
+    ```
+
+    Beim Umbau an diesem Bereich lohnt der schärfere Weg: `session_id` in **einer** dieser
+    Abfragen entfernen und nachsehen, ob genau das Erwartete durchfällt. Am `1.4.2`-Umbau
+    war das der Beweis — ohne den Filter im Zurücksetzen **verschwand** die Tagesposition
+    still, und mit ihr die Zuordnung ihres Protokolleintrags.
+
 ## Deployment
 
 Docker-Container (`php:8.3-apache`) im LXC `10.10.10.2` auf einem Hetzner-Rootserver mit
@@ -1845,6 +2087,18 @@ Daraus die Zählweise:
   `LASTENHEFT.md` stehen nicht in der Positivliste von `paket_bauen.sh`; wer nur dort
   schreibt, lässt die Nummer stehen. Eine neue Version ohne jeden Codeunterschied wäre ein
   zweites Image mit identischem Inhalt — Verschwendung und irreführend zugleich.
+- **Die letzte Stelle, plus eins — immer.** `1.4.1` → `1.4.2` → `1.4.3`, auch nach einer
+  neuen Tabelle, einem neuen Endpunkt oder einer ganzen Funktion. Wörtlich vom Benutzer
+  (2026-08-30): *„du änderst immer nur die letzte Zahl der Versionsnummer mit +1 außer ich
+  sage etwas anderes."* Das schließt beides ein: **kein Sprung auf eine höhere Basisnummer**
+  und **kein Überspringen** innerhalb der letzten Stelle. Festgelegt, nachdem ein Feature
+  mit Schemaänderung ungefragt als `1.5.0` gebaut worden war.
+
+  Der Reflex „großes Feature ⇒ neue Minor" ist hier falsch: Die Nummer sagt nichts über den
+  Umfang, sie ist die Kennung genau eines Standes. Wie groß eine Auslieferung war, steht in
+  `doku/historie.md`; wofür die Nummer gut ist, ist das Wiederfinden des Images in
+  Portainer. `1.3.1` war ebenfalls ein Sprung auf Ansage — und dass er einer war, steht
+  dort ausdrücklich dabei.
 - Der Sprung selbst ist gratis und braucht keine Rückfrage; nur das **Bauen** braucht sie.
 
 - **Es gibt zwei Compose-Dateien, und sie tun mit Absicht Gegenteiliges.**

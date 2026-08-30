@@ -37,6 +37,18 @@
     const SATZ_SPEICHER_VERZUG_MS = 800;
     const WDH_GRENZE = 200;   // muss zu WDH_MAX in api/log.php passen
 
+    /**
+     * Ist diese Position eine Ausdauerübung (§7.4)?
+     *
+     * Die Auskunft kommt aus dem Datenattribut, das index.php aus
+     * `exercises.erfassung` setzt — sie wird nirgends im Browser hergeleitet.
+     * Ein Plan darf gemischt sein, deshalb hängt sie an der KARTE und nicht an
+     * der Seite; `experte` daneben gilt dagegen für alle Karten gleich.
+     */
+    function istAusdauer(karte) {
+        return karte.dataset.erfassung === 'ausdauer';
+    }
+
     const satzWartend = new Set();
     let satzUhr = null;
 
@@ -472,6 +484,13 @@
         const gewicht = qs('.gewicht', karte);
         if (gewicht) gewicht.readOnly = erledigt || sessionId <= 0;
 
+        // Dieselbe Sperre für die zwei Felder einer Ausdauerposition im
+        // einfachen Modus — sie stehen an derselben Stelle im Ablauf wie das
+        // Gewichtsfeld und dürfen nach dem Abhaken genauso wenig wandern.
+        qsa('.distanz, .dauer', karte).forEach((feld) => {
+            feld.readOnly = erledigt || sessionId <= 0;
+        });
+
         // Aus demselben Grund lässt sich eine abgehakte Position nicht tauschen
         // (§7.5) — der Protokolleintrag hält fest, was tatsächlich gemacht
         // wurde. Der Server weist es ohnehin ab; hier wird es gar nicht erst
@@ -540,7 +559,38 @@
      * Zeile ist ein Bedienelement, das sich im Betrieb ständig ändert; zwei
      * Fassungen davon wären irgendwann verschieden.
      */
-    function satzZeileMarkup(satz, nr) {
+    function satzZeileMarkup(satz, nr, ausdauer) {
+        if (ausdauer) {
+            // Zwei Textfelder und KEIN Stepper: ±1 Meter ist keine sinnvolle
+            // Schrittweite, und ein zweiter Schrittwert (±100 m? ±10 s?) wäre
+            // für Intervall, Dauerlauf und Rudern jeweils für etwas falsch —
+            // dieselbe Überlegung, aus der das Gewicht schon keinen hat.
+            //
+            // Die Zeile ist dadurch deutlich schmaler als die Kraftzeile: rund
+            // 230 px statt der 315, die im Stylesheet vorgerechnet sind. Die
+            // Staffelung der beiden Media Queries dort greift trotzdem, sie
+            // blendet nur Beschriftungen aus.
+            return '<li class="satz-zeile zeile-ausdauer" data-nr="' + nr + '">'
+                + '<span class="satz-nr" aria-hidden="true">' + nr + '.</span>'
+                + '<span class="wert-feld">'
+                + '<input type="text" inputmode="numeric" pattern="[0-9]*"'
+                + ' class="satz-distanz" enterkeyhint="next" placeholder="—"'
+                + ' aria-label="Intervall ' + nr + ': Distanz in Metern"'
+                + ' value="' + escapeHtml(satz.distanz) + '">'
+                + '<span class="wert-einheit" aria-hidden="true">m</span>'
+                + '</span>'
+                + '<span class="satz-in" aria-hidden="true">in</span>'
+                + '<span class="wert-feld">'
+                + '<input type="text" inputmode="numeric" pattern="[0-9:]*"'
+                + ' class="satz-dauer" enterkeyhint="done" placeholder="mm:ss"'
+                + ' aria-label="Intervall ' + nr + ': Zeit als Minuten und Sekunden"'
+                + ' value="' + escapeHtml(satz.dauer) + '">'
+                + '</span>'
+                + '<button type="button" class="leise satz-weg"'
+                + ' aria-label="Intervall ' + nr + ' löschen">✕</button>'
+                + '</li>';
+        }
+
         return '<li class="satz-zeile" data-nr="' + nr + '">'
             + '<span class="satz-nr" aria-hidden="true">' + nr + '.</span>'
             + '<span class="stepper">'
@@ -576,9 +626,17 @@
     function saetzeLesen(karte) {
         if (!experte) return null;
 
+        const ausdauer = istAusdauer(karte);
+
+        // Immer ALLE vier Felder, auch die der jeweils anderen Erfassungsart —
+        // sie bleiben dann leer. Ein Objekt, dessen Form je nach Übung anders
+        // aussieht, müsste an jeder weiteren Stelle wieder unterschieden
+        // werden; so ist die Fallunterscheidung genau hier und sonst nirgends.
         return qsa('.satz-zeile', karte).map((zeile) => ({
-            reps: qs('.satz-reps', zeile).value.trim(),
-            weight: qs('.satz-gewicht', zeile).value.trim(),
+            reps: ausdauer ? '' : qs('.satz-reps', zeile).value.trim(),
+            weight: ausdauer ? '' : qs('.satz-gewicht', zeile).value.trim(),
+            distanz: ausdauer ? qs('.satz-distanz', zeile).value.trim() : '',
+            dauer: ausdauer ? qs('.satz-dauer', zeile).value.trim() : '',
         }));
     }
 
@@ -595,7 +653,9 @@
         const alle = saetzeLesen(karte);
         if (alle === null) return null;
 
-        return alle.filter((s) => s.reps !== '' || s.weight !== '');
+        return alle.filter(
+            (s) => s.reps !== '' || s.weight !== '' || s.distanz !== '' || s.dauer !== ''
+        );
     }
 
     /** Ist die Position als fertig markiert? */
@@ -609,6 +669,12 @@
             reps: satz.reps === null || satz.reps === undefined ? '' : String(satz.reps),
             weight: satz.weight === null || satz.weight === undefined
                 ? '' : zahlFuerAnzeige(satz.weight),
+            distanz: satz.distanz_m === null || satz.distanz_m === undefined
+                ? '' : String(satz.distanz_m),
+            // Der Server liefert Sekunden, das Feld zeigt mm:ss — umgerechnet
+            // wird an genau dieser einen Stelle.
+            dauer: satz.dauer_s === null || satz.dauer_s === undefined
+                ? '' : dauerMMSS(satz.dauer_s),
         };
     }
 
@@ -621,11 +687,47 @@
         }
     }
 
-    /** „12×40 · 10×40 · 9×45" — das Gegenstück zu saetze_text() in PHP. */
-    function saetzeText(saetze) {
+    /**
+     * „12×40 · 10×40 · 9×45" bzw. „1000 m/5:30 · 500 m/2:40" — das Gegenstück
+     * zu saetze_text() in lib/training.php.
+     */
+    function saetzeText(saetze, ausdauer) {
+        if (ausdauer) {
+            return saetze
+                .map((s) => (s.distanz ? s.distanz + ' m' : '—') + '/' + (s.dauer || '—'))
+                .join(' · ');
+        }
+
         return saetze
             .map((s) => (s.reps || '?') + '×' + (s.weight || '—'))
             .join(' · ');
+    }
+
+    /**
+     * „10,9 km/h · 5:30 /km" — Gegenstück zu pace_text() in lib/training.php.
+     *
+     * Gerechnet wird über die SUMME der Intervalle, nicht je Intervall: Gefragt
+     * ist „wie schnell war ich heute", und das beantwortet ein einzelnes
+     * Intervall nicht. Fehlt einer der beiden Werte, steht „—" — eine 0 wäre
+     * eine Behauptung.
+     */
+    function paceText(saetze) {
+        let meter = 0;
+        let sek = 0;
+        let hatM = false;
+        let hatS = false;
+
+        saetze.forEach((s) => {
+            const m = s.distanz === '' ? null : Number(s.distanz);
+            const d = dauerAusEingabe(s.dauer);
+            if (m !== null && Number.isFinite(m)) { meter += m; hatM = true; }
+            if (d !== null) { sek += d; hatS = true; }
+        });
+
+        if (!hatM || !hatS || meter <= 0 || sek <= 0) return '—';
+
+        return zahlFuerAnzeige(Math.round(meter * 3.6 / sek * 10) / 10)
+            + ' km/h · ' + dauerMMSS(Math.round(sek * 1000 / meter)) + ' /km';
     }
 
     /**
@@ -634,12 +736,17 @@
      * Die Zeile „zuletzt …" (server-gerendert) und dieser Kopf (hier gebaut)
      * stehen am Handy direkt übereinander.
      */
-    function saetzeZusammenfassung(saetze) {
-        if (saetze.length === 0) return 'Noch kein Satz';
+    function saetzeZusammenfassung(saetze, ausdauer) {
+        if (saetze.length === 0) {
+            return ausdauer ? 'Noch kein Intervall' : 'Noch kein Satz';
+        }
 
-        const anzahl = saetze.length + (saetze.length === 1 ? ' Satz' : ' Sätze');
+        const eins = saetze.length === 1;
+        const wort = ausdauer
+            ? (eins ? ' Intervall' : ' Intervalle')
+            : (eins ? ' Satz' : ' Sätze');
 
-        return anzahl + ' (' + saetzeText(saetze) + ')';
+        return saetze.length + wort + ' (' + saetzeText(saetze, ausdauer) + ')';
     }
 
     /**
@@ -653,25 +760,36 @@
         const block = qs('.saetze-block', karte);
         if (!block) return;
 
+        const ausdauer = istAusdauer(karte);
+
         // Die Zeilen NUR neu bauen, wenn sich ihre Anzahl geändert hat. Beim
         // Tippen und beim Stepper stehen die Felder schon richtig — sie über
         // innerHTML zu ersetzen risse dem Benutzer den Fokus und die
         // Cursorposition mitten aus der Eingabe.
         if (zeilenNeu) {
             qs('.satz-liste', block).innerHTML =
-                saetze.map((s, i) => satzZeileMarkup(s, i + 1)).join('');
+                saetze.map((s, i) => satzZeileMarkup(s, i + 1, ausdauer)).join('');
         }
 
         const zusammen = qs('.saetze-zusammenfassung', block);
         if (zusammen) {
-            zusammen.textContent = saetzeZusammenfassung(saetze);
+            zusammen.textContent = saetzeZusammenfassung(saetze, ausdauer);
         }
+
+        paceSchreiben(karte, saetze);
 
         const knopf = qs('.satz-hinzu', block);
         const naechster = naechsterSatz(karte, saetze);
-        knopf.textContent = (naechster.reps || naechster.weight)
-            ? '+ Satz (' + (naechster.reps || '?') + ' × ' + (naechster.weight || '—') + ')'
-            : '+ Satz';
+        if (ausdauer) {
+            knopf.textContent = (naechster.distanz || naechster.dauer)
+                ? '+ Intervall (' + (naechster.distanz ? naechster.distanz + ' m' : '—')
+                    + ' / ' + (naechster.dauer || '—') + ')'
+                : '+ Intervall';
+        } else {
+            knopf.textContent = (naechster.reps || naechster.weight)
+                ? '+ Satz (' + (naechster.reps || '?') + ' × ' + (naechster.weight || '—') + ')'
+                : '+ Satz';
+        }
 
         // Nach jedem Neuzeichnen erneut sperren: Die Zeilen entstehen über
         // innerHTML neu und wüssten sonst nichts vom Häkchen.
@@ -707,9 +825,10 @@
         const fest = istErledigt(karte) || !laeuft;
         const grund = laeuft ? 'Erst das Häkchen entfernen' : 'Erst das Training starten';
 
-        qsa('.satz-reps, .satz-gewicht', block).forEach((feld) => {
-            feld.readOnly = fest;
-        });
+        qsa('.satz-reps, .satz-gewicht, .satz-distanz, .satz-dauer', block)
+            .forEach((feld) => {
+                feld.readOnly = fest;
+            });
 
         qsa('.satz-minus, .satz-plus, .satz-weg, .satz-hinzu', block).forEach((k) => {
             k.disabled = fest;
@@ -725,9 +844,14 @@
 
     /** Schreibt die Sätze in die Karte zurück und zeichnet sie neu. */
     function saetzeSetzen(karte, saetze, zeilenNeu = true) {
+        // Die Feldnamen sind hier die des SERVERS (distanz_m, dauer_s), nicht
+        // die der Eingabe (distanz, dauer): Das Attribut trägt dieselbe Form,
+        // die auch index.php hineinschreibt und die satzAusDaten() erwartet.
         karte.dataset.saetze = JSON.stringify(saetze.map((s) => ({
             reps: s.reps === '' ? null : Number(s.reps),
             weight: s.weight === '' ? null : zahlAusEingabe(s.weight),
+            distanz_m: !s.distanz ? null : Number(s.distanz),
+            dauer_s: dauerAusEingabe(s.dauer),
         })));
         saetzeZeichnen(karte, saetze, zeilenNeu);
 
@@ -780,7 +904,32 @@
         if (saetze.length > 0) {
             return saetze[saetze.length - 1];
         }
-        return { reps: '', weight: karte.dataset.letztesGewicht || '' };
+        return {
+            reps: '',
+            weight: karte.dataset.letztesGewicht || '',
+            distanz: karte.dataset.letzteDistanz || '',
+            dauer: karte.dataset.letzteDauer || '',
+        };
+    }
+
+    /**
+     * Schreibt die Pace-Zeile fort — im Expertenmodus aus der Intervallliste,
+     * im einfachen aus den beiden Feldern der Karte.
+     *
+     * Die Zeile steht bei Ausdauer IMMER in der Karte (index.php rendert sie
+     * mit „—"), hier wird nur ihr Inhalt getauscht. Sie ein- und auszublenden
+     * änderte die Kartenhöhe bei jedem Zeichen (Fallstrick 19a).
+     */
+    function paceSchreiben(karte, saetze) {
+        const wert = qs('.pace-wert', karte);
+        if (!wert) return;
+
+        wert.textContent = saetze === null
+            ? paceText([{
+                distanz: (qs('.distanz', karte)?.value ?? '').trim(),
+                dauer: (qs('.dauer', karte)?.value ?? '').trim(),
+            }])
+            : paceText(saetze);
     }
 
     /**
@@ -930,6 +1079,13 @@
             action: 'check',
             plan_exercise_id: peId,
             weight: eintrag.weight,
+            // Die zwei Ausdauerfelder des einfachen Modus reisen als ROHTEXT
+            // mit („5000", „24:30") — der Server parst und weist eine
+            // Fehleingabe mit 422 samt Feldnamen ab. Im Browser zu parsen wäre
+            // kürzer und verschluckte den Vertipper: dauerAusEingabe() liefert
+            // dort null, und die Zeit wäre stillschweigend weg.
+            distanz: eintrag.distanz ?? '',
+            dauer: eintrag.dauer ?? '',
             // „Fertig mit der Übung" ist ein eigener Zustand — im
             // Expertenmodus entsteht die Zeile schon mit dem ersten Satz.
             done: eintrag.done !== false,
@@ -945,6 +1101,20 @@
     function gewichtsWert(karte) {
         const feld = qs('.gewicht', karte);
         return feld ? feld.value : '';
+    }
+
+    /**
+     * Die zwei Ausdauerfelder der Karte — nur im einfachen Modus vorhanden.
+     *
+     * Wie gewichtsWert(): Fehlt das Feld, ist der Wert leer. Der Server
+     * unterscheidet „nicht geschickt" nicht von „leer geschickt", weil beides
+     * dasselbe heißt — an dieser Position steht kein Wert.
+     */
+    function ausdauerWerte(karte) {
+        return {
+            distanz: qs('.distanz', karte)?.value ?? '',
+            dauer: qs('.dauer', karte)?.value ?? '',
+        };
     }
 
     /**
@@ -970,6 +1140,8 @@
                 body: nutzlast(peId, {
                     action: aktiv ? 'check' : 'uncheck',
                     weight: aktiv ? gewichtsWert(karte) : '',
+                    distanz: aktiv ? ausdauerWerte(karte).distanz : '',
+                    dauer: aktiv ? ausdauerWerte(karte).dauer : '',
                     sets: aktiv ? saetze : null,
                     done: erledigt,
                 }),
@@ -1029,6 +1201,8 @@
         schlange.setzen(peId, {
             action: aktiv ? 'check' : 'uncheck',
             weight: aktiv ? gewichtsWert(karte) : '',
+            distanz: aktiv ? ausdauerWerte(karte).distanz : '',
+            dauer: aktiv ? ausdauerWerte(karte).dauer : '',
             sets: aktiv ? saetze : null,
             done: erledigt,
             vorher: vorher,
@@ -1156,6 +1330,15 @@
             if (eintraege[k].action === 'check') {
                 const feld = qs('.gewicht', karte);
                 if (feld) feld.value = eintraege[k].weight || '';
+
+                // Dasselbe für die zwei Ausdauerfelder — ohne sie sähe man
+                // nach einem Neuladen im Funkloch die eigene Distanz und Zeit
+                // wieder verschwinden, während das Häkchen stehen bleibt.
+                const dFeld = qs('.distanz', karte);
+                if (dFeld) dFeld.value = eintraege[k].distanz || '';
+                const tFeld = qs('.dauer', karte);
+                if (tFeld) tFeld.value = eintraege[k].dauer || '';
+                if (dFeld || tFeld) paceSchreiben(karte, null);
                 // Die wartenden Sätze schlagen die serverseitig gerenderten:
                 // Die Seite zeigt den BESTÄTIGTEN Stand, die Ablage den
                 // eingegebenen. Ohne diese Zeile sähe man nach einem Neuladen
@@ -1180,7 +1363,9 @@
         // der Satzliste — sie IST die Eingabe, es gibt daneben keine zweite
         // „Wert speichern"-Aktion (§7.4).
         if (e.target.classList.contains('satz-reps')
-            || e.target.classList.contains('satz-gewicht')) {
+            || e.target.classList.contains('satz-gewicht')
+            || e.target.classList.contains('satz-distanz')
+            || e.target.classList.contains('satz-dauer')) {
             saetzeSetzen(karte, saetzeLesen(karte), false);
             satzSpeichernSpaeter(karte);
             return;
@@ -1219,6 +1404,71 @@
         pauseStufe = 0;
         abarbeiten();
     });
+
+    // --- Übung spontan hinzufügen (§7.6) -----------------------------------
+    // Die Maske selbst ist die der Planverwaltung (uebungWaehlenEinrichten in
+    // assets/app.js) — hier steht nur, was das Training daran unterscheidet:
+    // die zwei Knöpfe und das Ziel.
+
+    // Dieselbe Wahl wie beim Tausch und in derselben Reihenfolge: Bei laufender
+    // Einheit steht „Nur diese Einheit" vorn, weil das im Studio der Regelfall
+    // ist — man hat gerade Lust auf eine Übung, nicht auf eine Planänderung.
+    // Ohne Training gibt es nichts, worauf sich „nur diese" bezöge.
+    const ANHAENGEN_KNOEPFE = sessionId > 0
+        ? '<button type="button" class="waehlen-hinzu" data-modus="session">'
+          + 'Nur diese Einheit</button>'
+          + '<button type="button" class="leise waehlen-hinzu" data-modus="permanent">'
+          + 'Dauerhaft im Plan</button>'
+        : '<button type="button" class="waehlen-hinzu" data-modus="permanent">'
+          + 'Dauerhaft im Plan</button>';
+
+    const anhaengenKnopf = qs('#uebung-anhaengen');
+    const anhaengenWaehlen = anhaengenKnopf
+        ? uebungWaehlenEinrichten({
+            knoepfe: ANHAENGEN_KNOEPFE,
+            async hinzufuegen(exerciseId, ziel, knopf) {
+                const nurHeute = knopf.dataset.modus === 'session';
+
+                await apiFetch('api/plans.php', {
+                    body: {
+                        action: 'add_exercise',
+                        plan_id: ziel.planId,
+                        exercise_id: exerciseId,
+                        // Nur mitschicken, wenn es wirklich „nur heute" heißt.
+                        // Der Server prüft die ID gegen die tatsächlich offene
+                        // Einheit und antwortet sonst mit 409 — ein stiller
+                        // Rückfall auf „dauerhaft" wäre die schlechtere Antwort.
+                        session_id: nurHeute ? sessionId : null,
+                    },
+                });
+
+                // Die neue Position kommt server-gerendert, wie jede andere
+                // Änderung an der Liste auch. Sie im Browser nachzuziehen hieße,
+                // das Kartenmarkup ein zweites Mal zu bauen.
+                //
+                // Die Warteschlange übersteht das Neuladen: Sie liegt im
+                // localStorage und wird beim Aufbau wieder auf die Zeilen gelegt
+                // (warteschlangeAnwenden). Ein wartendes Häkchen geht also nicht
+                // verloren.
+                window.location.reload();
+                return nurHeute
+                    ? 'Für heute dazugenommen — die Seite wird neu geladen …'
+                    : 'In den Plan aufgenommen — die Seite wird neu geladen …';
+            },
+        })
+        : null;
+
+    if (anhaengenKnopf && anhaengenWaehlen) {
+        anhaengenKnopf.addEventListener('click', () => {
+            anhaengenWaehlen.oeffnen({
+                planId: Number(anhaengenKnopf.dataset.plan),
+                titel: 'Übung hinzufügen',
+                // Nur bei laufender Einheit: Dann zählt „Bereits im Plan" auch
+                // das, was heute schon dazugekommen ist.
+                sessionId: sessionId > 0 ? sessionId : null,
+            });
+        });
+    }
 
     // --- Übungstausch ------------------------------------------------------
 
@@ -1446,6 +1696,20 @@
             saetzeZeichnen(karte, satzListeAusDaten(karte.dataset.saetze), true);
         });
     }
+
+    // Im einfachen Modus zieht die Pace an den zwei Kartenfeldern statt an der
+    // Intervallliste. Sie wird beim Tippen fortgeschrieben und nicht erst beim
+    // Abhaken: Wer die Zeit einträgt, will sofort sehen, ob er schneller war.
+    // `input` und nicht `change` — sonst stünde die Zahl erst da, wenn das Feld
+    // den Fokus verliert, und das ist am Handy nach dem Zuklappen der Tastatur.
+    liste.addEventListener('input', (e) => {
+        if (!e.target.classList.contains('distanz')
+            && !e.target.classList.contains('dauer')) {
+            return;
+        }
+        const karte = e.target.closest('.position-karte');
+        if (karte) paceSchreiben(karte, null);
+    });
 
     // Erst die wartenden Eingaben auf die Zeilen übertragen, dann versuchen,
     // sie loszuwerden. Die Reihenfolge ist wichtig: Sonst blinkt der

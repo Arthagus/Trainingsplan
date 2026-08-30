@@ -93,6 +93,23 @@ $zustaende      = positions_zustaende($positionen, $laeuft);
 $aktivePosition = $zustaende['aktiv'];
 $uebersprungen  = $zustaende['uebersprungen'];
 
+// Die Muskelgruppen fuer die Filter der Uebungsauswahl (§7.6) -- wortgleich zu
+// plans.php, weil beide Seiten dasselbe Partial einbinden.
+$alleGruppen = db()->query(
+    'SELECT id, name_de, parent_id FROM muscle_groups ORDER BY sort_order, name_de'
+)->fetchAll();
+
+$hauptGruppen = array_values(array_filter(
+    $alleGruppen,
+    static fn(array $g): bool => $g['parent_id'] === null
+));
+$unterGruppen = [];
+foreach ($alleGruppen as $g) {
+    if ($g['parent_id'] !== null) {
+        $unterGruppen[(int)$g['parent_id']][] = $g;
+    }
+}
+
 // Die zwei Zahlen der Trainingsleiste (§7.4), in dieser Reihenfolge:
 //
 //   x/n beendet    abgehakt von allen Planpositionen
@@ -376,16 +393,26 @@ require __DIR__ . '/lib/view_header.php';
                     $zustandKlasse = 'zeile-offen';
                 }
                 ?>
-                <li class="karte position-karte <?= $zustandKlasse ?>"
+                <?php // Die Erfassungsart steht als KLASSE und als Datenattribut an
+                      // der Karte: Das Stylesheet braucht die Klasse (die Aktionszeile
+                      // wird bei Ausdauer zum Flex statt zum Dreispalter), index.js das
+                      // Attribut -- es zeichnet daraus die richtige Satzzeile. Beide aus
+                      // derselben Quelle, damit sie nicht auseinanderlaufen koennen. ?>
+                <?php $ausdauer = ist_ausdauer($z['erfassung'] ?? null); ?>
+                <li class="karte position-karte <?= $zustandKlasse ?><?= $ausdauer ? ' karte-ausdauer' : '' ?>"
                     data-pe="<?= $z['plan_exercise_id'] ?>"
                     data-eintrag="<?= $z['hat_eintrag'] ? '1' : '' ?>"
+                    data-erfassung="<?= $ausdauer ? 'ausdauer' : 'kraft' ?>"
                     <?php if ($experte): ?>
                         data-saetze="<?= h(json_encode($z['saetze'])) ?>"
                         data-letzte-saetze="<?= h(json_encode($z['letzte_saetze'])) ?>"
                         <?php // Rueckfall fuer den ersten Satz einer Uebung, die noch
                               // nie satzgenau protokolliert wurde -- wer aus dem
-                              // einfachen Modus kommt, hat hier trotzdem eine Zahl. ?>
+                              // einfachen Modus kommt, hat hier trotzdem eine Zahl.
+                              // Bei Ausdauer dasselbe mit den beiden anderen Werten. ?>
                         data-letztes-gewicht="<?= h(format_decimal($z['letztes_gewicht'])) ?>"
+                        data-letzte-distanz="<?= $z['letzte_distanz_m'] === null ? '' : (int)$z['letzte_distanz_m'] ?>"
+                        data-letzte-dauer="<?= h(dauer_mmss($z['letzte_dauer_s'])) ?>"
                     <?php endif; ?>>
 
                     <?php // Die Nummer der Uebung, oben links in der Ecke der Karte
@@ -438,13 +465,17 @@ require __DIR__ . '/lib/view_header.php';
                                   // in einer eigenen Zeile darunter. Nebeneinander waren
                                   // Tauschklasse und blosse Zusatzinformation kaum
                                   // auseinanderzuhalten. ?>
-                            <p class="gruppen-anzeige">
-                                <?php foreach ($z['muskelgruppen'] as $g): ?>
-                                    <span class="<?= (int)$g['is_primary'] === 1 ? 'gruppe-primaer' : 'gruppe-sekundaer' ?>">
-                                        <?= h((string)$g['name_de']) ?>
-                                    </span>
-                                <?php endforeach; ?>
-                            </p>
+                            <?php // Eine Ausdaueruebung hat keine Muskelgruppen (§6.3) --
+                                  // die Zeile entfaellt dann ganz statt leer dazustehen. ?>
+                            <?php if ($z['muskelgruppen'] !== []): ?>
+                                <p class="gruppen-anzeige">
+                                    <?php foreach ($z['muskelgruppen'] as $g): ?>
+                                        <span class="<?= (int)$g['is_primary'] === 1 ? 'gruppe-primaer' : 'gruppe-sekundaer' ?>">
+                                            <?= h((string)$g['name_de']) ?>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </p>
+                            <?php endif; ?>
                         </div>
 
                         <?php // Das Trainingsgeraet steht hier bewusst mit im Studio: Es
@@ -456,6 +487,7 @@ require __DIR__ . '/lib/view_header.php';
                               // Breite abzuringen und das Bild darf groesser werden. ?>
                         <p class="schwerpunkt-zeile">
                             <?= geraet_abzeichen($z['equipment'] ?? null) ?>
+                            <?= erfassung_abzeichen($z['erfassung'] ?? null) ?>
                             <?php if (!empty($z['focus'])): ?>
                                 <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
                             <?php endif; ?>
@@ -480,7 +512,22 @@ require __DIR__ . '/lib/view_header.php';
                                   // vorschlaegt. Gleiche Form wie die Zusammenfassung im
                                   // Satzblock darunter, damit man beides ohne Umdenken
                                   // vergleichen kann: erst wie viele, dann welche. ?>
-                            zuletzt <?= h(saetze_zusammenfassung($z['letzte_saetze'])) ?>
+                            zuletzt <?= h(saetze_zusammenfassung(
+                                $z['letzte_saetze'],
+                                $ausdauer ? 'ausdauer' : 'kraft'
+                            )) ?>
+                        <?php elseif ($ausdauer && ($z['letzte_distanz_m'] !== null
+                                                    || $z['letzte_dauer_s'] !== null)): ?>
+                            zuletzt
+                            <?= $z['letzte_distanz_m'] === null
+                                ? '—'
+                                : (int)$z['letzte_distanz_m'] . ' m' ?>
+                            in
+                            <?= $z['letzte_dauer_s'] === null
+                                ? '—'
+                                : h(dauer_mmss($z['letzte_dauer_s'])) ?>
+                        <?php elseif ($ausdauer): ?>
+                            Noch keine Zeit gespeichert
                         <?php elseif ($z['letztes_gewicht'] !== null): ?>
                             zuletzt <?= h(format_decimal($z['letztes_gewicht'])) ?> kg
                         <?php else: ?>
@@ -494,7 +541,10 @@ require __DIR__ . '/lib/view_header.php';
                                  <?= $z['plan_exercise_id'] === $aktivePosition ? 'open' : '' ?>>
                             <summary class="summary-knopf saetze-kopf">
                                 <span class="saetze-zusammenfassung"><?=
-                                    h(saetze_zusammenfassung($eigene))
+                                    h(saetze_zusammenfassung(
+                                        $eigene,
+                                        $ausdauer ? 'ausdauer' : 'kraft'
+                                    ))
                                 ?></span>
                             </summary>
 
@@ -508,8 +558,80 @@ require __DIR__ . '/lib/view_header.php';
                                   // api/log.php lehnt es ohnehin ab; der graue Knopf ist
                                   // die Bequemlichkeit davor. ?>
                             <button type="button" class="satz-hinzu"
-                                    <?= $laeuft ? '' : 'disabled title="Erst das Training starten"' ?>>+ Satz</button>
+                                    <?= $laeuft ? '' : 'disabled title="Erst das Training starten"' ?>><?=
+                                $ausdauer ? '+ Intervall' : '+ Satz'
+                            ?></button>
                         </details>
+                    <?php endif; ?>
+
+                    <?php // Die zwei Werte einer Ausdauerposition im EINFACHEN Modus
+                          // -- das Gegenstueck zum Gewichtsfeld, das in der Aktionszeile
+                          // darunter sitzt.
+                          //
+                          // Eine EIGENE Zeile und nicht die mittlere Spalte der
+                          // Aktionszeile: Dort steht bei Kraft genau ein schmales Feld,
+                          // und zwei davon plus "Tauschen" plus "Erledigt" passen bei
+                          // 390 px nicht mehr nebeneinander. Dieselbe Ueberlegung wie
+                          // bei den Wartungsknoepfen, die unter ihrem Text stehen.
+                          //
+                          // type="text" mit inputmode, nicht type="number": am Handy
+                          // bricht der Doppelpunkt der Zeitangabe sonst genauso weg wie
+                          // sonst das Dezimalkomma. ?>
+                    <?php if ($ausdauer && !$experte): ?>
+                        <p class="wert-zeile">
+                            <span class="wert-feld">
+                                <label for="d<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
+                                    Distanz in Metern
+                                </label>
+                                <input type="text" inputmode="numeric" pattern="[0-9]*"
+                                       id="d<?= $z['plan_exercise_id'] ?>" class="distanz"
+                                       value="<?= $z['distanz_m'] === null ? '' : (int)$z['distanz_m'] ?>"
+                                       placeholder="—" enterkeyhint="next"
+                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
+                                <span class="wert-einheit" aria-hidden="true">m</span>
+                            </span>
+
+                            <span class="wert-feld">
+                                <label for="t<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
+                                    Zeit als Minuten und Sekunden
+                                </label>
+                                <input type="text" inputmode="numeric" pattern="[0-9:]*"
+                                       id="t<?= $z['plan_exercise_id'] ?>" class="dauer"
+                                       value="<?= h(dauer_mmss($z['dauer_s'])) ?>"
+                                       placeholder="mm:ss" enterkeyhint="done"
+                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
+                            </span>
+                        </p>
+                    <?php endif; ?>
+
+                    <?php // Die Pace, sobald eine Ausdaueruebung im Spiel ist.
+                          //
+                          // Sie steht IMMER da, auch wenn nichts zu rechnen ist -- dann
+                          // als "—". Eine Zeile, die beim Tippen erscheint und wieder
+                          // verschwindet, machte die Karte hoeher und wieder niedriger,
+                          // und die ganze Liste sprang bei jedem Zeichen (Fallstrick
+                          // 19a). Der Inhalt wird von index.js nachgezogen.
+                          //
+                          // Gerechnet wird ueber die SUMME: im Expertenmodus ueber alle
+                          // Intervalle, im einfachen ueber die zwei Felder darunter.
+                          // Die Durchschnittsgeschwindigkeit ueber ein einzelnes
+                          // Intervall waere eine andere Zahl und beantwortete die
+                          // Frage "wie schnell war ich heute" gerade nicht. ?>
+                    <?php if ($ausdauer): ?>
+                        <?php
+                        // Die LEITWERTE der Position, nicht die Summe der Intervalle:
+                        // Beide sind nach dem Speichern dieselbe Zahl, aber die
+                        // Leitwerte stehen auch dann da, wenn die Position im
+                        // einfachen Modus protokolliert wurde und gar keine
+                        // Intervallzeilen hat. Ohne Eintrag tragen sie die Werte vom
+                        // LETZTEN Mal (Vorbelegung) -- die gehören hier nicht hin, das
+                        // wäre die Pace einer Einheit, die noch gar nicht stattfand.
+                        $paceM = $z['hat_eintrag'] ? $z['distanz_m'] : null;
+                        $paceS = $z['hat_eintrag'] ? $z['dauer_s']   : null;
+                        ?>
+                        <p class="matt pace-zeile">Pace <span class="pace-wert"><?=
+                            h(pace_text($paceM, $paceS))
+                        ?></span></p>
                     <?php endif; ?>
 
                     <?php // Tauschen -- Gewicht -- Erledigt in EINER Zeile. Das
@@ -531,7 +653,7 @@ require __DIR__ . '/lib/view_header.php';
                         <?php // Im Expertenmodus steht das Gewicht in jedem Satz --
                               // ein zusätzliches Feld für die ganze Übung wäre eine
                               // zweite Wahrheit neben der Satzliste. ?>
-                        <?php if (!$experte): ?>
+                        <?php if (!$experte && !$ausdauer): ?>
                             <span class="wert-feld">
                                 <label for="w<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
                                     Gewicht in kg
@@ -583,6 +705,31 @@ require __DIR__ . '/lib/view_header.php';
                 </li>
             <?php endforeach; ?>
         </ul>
+
+        <?php // Eine Uebung spontan dazunehmen (§7.6, seit 1.4.2).
+              //
+              // Unter der Liste und nicht in der Leiste: Man merkt im Studio,
+              // dass man noch Lust auf etwas hat, wenn man am Ende angekommen
+              // ist -- genau dort steht der Knopf. Dieselbe Gliederung wie auf
+              // splits.php und plans.php: Bestand, dann der Kasten zum Anlegen.
+              //
+              // Steht auch OHNE laufendes Training da: Dann gibt es nur den
+              // dauerhaften Weg, und der ist derselbe wie auf der Planseite --
+              // nur ohne den Umweg dorthin. ?>
+        <div class="karte uebung-anhaengen">
+            <p>
+                <strong>Noch eine Übung?</strong>
+                <?= $laeuft
+                    ? 'Du kannst sie dauerhaft in den Plan aufnehmen oder nur für '
+                      . 'dieses Training dazunehmen.'
+                    : 'Sie kommt ans Ende des Plans und steht dann auch beim '
+                      . 'nächsten Mal da.' ?>
+            </p>
+            <p>
+                <button type="button" id="uebung-anhaengen"
+                        data-plan="<?= (int)$planId ?>">Übung hinzufügen</button>
+            </p>
+        </div>
 
         <?php // Der zweite Weg zum Beenden, am ENDE der Liste (§7.6).
               //
@@ -638,6 +785,8 @@ require __DIR__ . '/lib/view_header.php';
     <p id="tausch-fehler" class="feld-fehler" role="alert" hidden></p>
     <p><button type="button" id="tausch-schliessen" class="leise">Abbrechen</button></p>
 </dialog>
+
+<?php require __DIR__ . '/lib/view_uebung_waehlen_dialog.php'; ?>
 
 <?php require __DIR__ . '/lib/view_bild_dialog.php'; ?>
 

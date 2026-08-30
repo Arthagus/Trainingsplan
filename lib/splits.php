@@ -178,7 +178,8 @@ function split_texte(array $splitIds): array {
             "SELECT pe.plan_id, e.name_de, e.name_en
                FROM plan_exercises pe
                JOIN exercises e ON e.id = pe.exercise_id
-              WHERE pe.plan_id IN ($pl)
+              -- Nur der PLAN, nicht was jemand einmalig zu einer Einheit dazugenommen hat (§7.6).
+              WHERE pe.plan_id IN ($pl) AND pe.session_id IS NULL
               ORDER BY pe.plan_id, pe.sort_order, pe.id"
         );
         $stmt->execute($planIds);
@@ -292,7 +293,9 @@ function signaturen_bauen(array $splitIds): array {
     $stmt = db()->prepare(
         "SELECT p.split_id, p.id AS plan_id, p.name AS plan_name, pe.exercise_id
            FROM plans p
-           LEFT JOIN plan_exercises pe ON pe.plan_id = p.id
+           -- Nur der PLAN, nicht was jemand einmalig zu einer Einheit dazugenommen hat (§7.6).
+           LEFT JOIN plan_exercises pe
+                  ON pe.plan_id = p.id AND pe.session_id IS NULL
           WHERE p.split_id IN ($platzhalter)
           ORDER BY p.split_id, p.sort_order, p.id, pe.sort_order, pe.id"
     );
@@ -637,8 +640,11 @@ function split_kopieren(
              VALUES (?, ?, ?, ?, ?)'
         );
         $positionenLesen = db()->prepare(
+            // Eine Kopie traegt den PLAN, nicht die Ausnahme eines
+            // Trainingstags (§7.6) -- sonst wanderte eine spontan
+            // hinzugefuegte Uebung in jede Kopie und von dort in jede Vorlage.
             'SELECT exercise_id, sort_order FROM plan_exercises
-              WHERE plan_id = ? ORDER BY sort_order, id'
+              WHERE plan_id = ? AND session_id IS NULL ORDER BY sort_order, id'
         );
         $positionSchreiben = db()->prepare(
             'INSERT INTO plan_exercises (plan_id, exercise_id, sort_order) VALUES (?, ?, ?)'
@@ -902,10 +908,14 @@ function split_zuruecksetzen(int $splitId, bool $namen = false): array {
         // Geschluesselt nach Uebung, damit eine Zeile auch dann wiederverwendet
         // wird, wenn die Vorlage sie in einen anderen Plan verschoben hat.
         $vorratLesen = db()->prepare(
+            // Ohne den Filter griffe das Zuruecksetzen nach einer Position,
+            // die nur zu einer Einheit gehoert: Sie wuerde entweder
+            // wiederverwendet -- und waere damit dauerhaft -- oder geloescht,
+            // und das risse die Zuordnung ihres Protokolleintrags mit (§7.6).
             'SELECT pe.id, pe.plan_id, pe.exercise_id
                FROM plan_exercises pe
                JOIN plans p ON p.id = pe.plan_id
-              WHERE p.split_id = ?
+              WHERE p.split_id = ? AND pe.session_id IS NULL
               ORDER BY pe.sort_order, pe.id'
         );
         $vorratLesen->execute([$splitId]);
@@ -959,6 +969,10 @@ function split_zuruecksetzen(int $splitId, bool $namen = false): array {
         }
 
         // --- 3. Was uebrig blieb, kommt in der Vorlage nicht mehr vor ------
+        // Die IDs stammen ausschliesslich aus dem Vorrat oben, und der ist auf
+        // session_id IS NULL gefiltert -- eine Tagesposition (§7.6) kann hier
+        // also gar nicht ankommen. Stuende sie doch darin, loeschte dieser
+        // Aufruf sie und risse die Zuordnung ihres Protokolleintrags mit.
         $positionLoeschen = db()->prepare('DELETE FROM plan_exercises WHERE id = ?');
         foreach ($vorrat as $zeilen) {
             foreach ($zeilen as $zeile) {
@@ -1001,9 +1015,14 @@ function split_zuruecksetzen(int $splitId, bool $namen = false): array {
  */
 function split_aufbau(int $splitId): array {
     $stmt = db()->prepare(
+        // Der Fingerabdruck beschreibt den PLAN (§6.4). Zaehlte eine Position
+        // mit, die nur zu einer Einheit gehoert, saehe der Split gegenueber
+        // seiner Vorlage geaendert aus -- und "Auf Vorlage zurücksetzen"
+        // erschiene fuer etwas, das morgen von selbst nicht mehr da ist.
         'SELECT p.id, p.name, p.sort_order, pe.exercise_id
            FROM plans p
-           LEFT JOIN plan_exercises pe ON pe.plan_id = p.id
+           LEFT JOIN plan_exercises pe
+                  ON pe.plan_id = p.id AND pe.session_id IS NULL
           WHERE p.split_id = ?
           ORDER BY p.sort_order, p.id, pe.sort_order, pe.id'
     );
@@ -1150,7 +1169,7 @@ function andere_plaene_eintragen(array $zeilen, int $splitId, int $ohnePlanId): 
         'SELECT pe.exercise_id, p.name
            FROM plan_exercises pe
            JOIN plans p ON p.id = pe.plan_id
-          WHERE p.split_id = ? AND p.id != ?
+          WHERE p.split_id = ? AND p.id != ? AND pe.session_id IS NULL
           GROUP BY pe.exercise_id, p.id
           ORDER BY p.sort_order, p.id'
     );

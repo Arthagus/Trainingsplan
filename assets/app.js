@@ -980,6 +980,287 @@ function zahlFuerAnzeige(wert) {
 }
 
 /**
+ * Formatiert eine Dauer in Sekunden als "5:30" bzw. "1:02:45".
+ * Gegenstueck zu dauer_mmss() in lib/helpers.php -- beide muessen zeichengleich
+ * antworten, weil die Zeit server-gerendert und im Browser gebaut am Handy
+ * direkt uebereinander steht.
+ */
+function dauerMMSS(sekunden) {
+    if (sekunden === null || sekunden === undefined || sekunden === '') return '';
+    const n = Math.trunc(Number(sekunden));
+    if (!Number.isFinite(n) || n < 0) return '';
+
+    const s = n % 60;
+    const m = Math.trunc(n / 60) % 60;
+    const h = Math.trunc(n / 3600);
+
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    return (h > 0 ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+}
+
+/**
+ * Wandelt eine Zeiteingabe in Sekunden. Leer oder ungueltig -> null.
+ * Gegenstueck zu dauer_aus_eingabe() in lib/helpers.php; die Sonderfaelle sind
+ * dort begruendet -- eine nackte Zahl gilt als MINUTEN, Sekunden ueber 59
+ * werden abgewiesen und nicht umgerechnet.
+ */
+function dauerAusEingabe(wert) {
+    const s = String(wert ?? '').trim();
+    if (s === '') return null;
+
+    if (/^\d+$/.test(s)) return Number(s) * 60;
+
+    const t = s.match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2})$/);
+    if (!t) return null;
+
+    const h = t[1] === undefined ? 0 : Number(t[1]);
+    const m = Number(t[2]);
+    const sek = Number(t[3]);
+
+    if (sek > 59 || (h > 0 && m > 59)) return null;
+    return h * 3600 + m * 60 + sek;
+}
+
+/**
+ * Die Uebungsauswahl (§6.4) -- geteilt zwischen Planverwaltung und Training.
+ *
+ * Statt eines Pulldowns mit allen aktiven Uebungen: ein Dialog, dessen Liste
+ * sich nach Muskelgruppe und Trainingsgeraet filtern laesst, einzeln oder
+ * kombiniert. Bei dreistelligem Uebungsbestand ist das der Unterschied
+ * zwischen bedienbar und unbedienbar.
+ *
+ * Stand bis 1.4.1 in plans.js. Seit 1.4.2 haengt auch die Trainingsansicht
+ * spontan eine Uebung an (§7.6) und braucht dieselbe Maske -- zwei Fassungen
+ * davon waeren irgendwann verschieden, dieselbe Ueberlegung wie bei
+ * vorschlagMarkup().
+ *
+ * Was die Aufrufstelle beisteuert, ist genau das, was sie unterscheidet:
+ *
+ * - `hinzufuegen(exerciseId, ziel, knopf)` schickt den Aufruf ab und liefert
+ *   den Satz zurueck, der danach in der Liste steht.
+ * - `knoepfe` (optional) ersetzt den einen "Hinzufügen"-Knopf durch eigenes
+ *   Markup -- die Trainingsansicht braucht dort ZWEI, fuer dauerhaft und fuer
+ *   nur heute (§7.6). Genau dasselbe Muster wie TAUSCH_KNOEPFE im
+ *   Tauschfenster; welcher Knopf gedrueckt wurde, liest `hinzufuegen` an
+ *   seinem `data-modus`.
+ *
+ * Alles andere -- Filter, Facetten, Ueberholschutz, Fehlerbehandlung -- ist
+ * hier und nur hier.
+ *
+ * Gibt es den Dialog auf dieser Seite nicht, liefert die Funktion null. Der
+ * Aufrufer prueft das; einen Knopf ohne Maske gibt es dann ohnehin nicht.
+ */
+function uebungWaehlenEinrichten({ hinzufuegen, knoepfe = null }) {
+    const dialog = qs('#waehlen-dialog');
+    if (!dialog) return null;
+
+    const liste  = qs('#waehlen-liste');
+    const fehler = qs('#waehlen-fehler');
+    const gruppe = qs('#waehlen-gruppe');
+    const geraet = qs('#waehlen-geraet');
+
+    // Wohin hinzugefuegt wird -- von der Aufrufstelle beim Oeffnen gesetzt.
+    let ziel = null;
+
+    // Jeder Ladevorgang bekommt eine Nummer, und nur der jeweils JUENGSTE darf
+    // die Liste zeichnen.
+    //
+    // Ohne das gewinnt die zuletzt eingetroffene Antwort, nicht die zuletzt
+    // gestellte Frage: Zwei Abrufe koennen sich ueberholen -- Dialog fuer Plan A
+    // oeffnen, schliessen, gleich darauf Plan B oeffnen; oder zwei Filter kurz
+    // hintereinander umstellen. Trifft die aeltere Antwort spaeter ein,
+    // ueberschreibt sie die neuere, und die Liste beschreibt dann einen Zustand,
+    // den niemand mehr angefragt hat -- samt Hinweis "Schon in ..." und samt
+    // "Bereits im Plan" zum falschen Plan.
+    let lauf = 0;
+
+    // Die vollstaendigen Optionslisten einmal beim Laden sichern. Die Felder
+    // werden gleich beschnitten -- ohne diese Kopie waere das ein Weg ohne
+    // Rueckweg, und die weggefilterten Eintraege kaemen nie wieder.
+    const alleOptionen = (feld) =>
+        Array.from(feld.options).map((o) => ({ value: o.value, text: o.textContent.trim() }));
+    const gruppenOptionen = alleOptionen(gruppe);
+    const geraeteOptionen = alleOptionen(geraet);
+
+    qs('#waehlen-schliessen').addEventListener('click', () => dialog.close());
+
+    // Ein geschlossener Dialog nimmt keine Antwort mehr an -- am 'close' und
+    // nicht am Schliessen-Knopf, weil die Escape-Taste denselben Weg nimmt.
+    // Sonst zeichnete ein Abruf, der beim Schliessen noch unterwegs war, beim
+    // naechsten Oeffnen kurz die Liste des VORIGEN Plans.
+    dialog.addEventListener('close', () => { lauf++; });
+
+    /**
+     * Beschraenkt ein Auswahlfeld auf die Werte, die noch zu Treffern fuehren.
+     *
+     * Die erste Option ("alle ...", Wert '') bleibt immer stehen -- sie ist der
+     * Weg zurueck. Ist die aktuelle Wahl nicht mehr dabei, meldet die Funktion
+     * das: Der Aufrufer setzt dann zurueck und laedt neu, statt eine garantiert
+     * leere Liste stehen zu lassen.
+     *
+     * @param erlaubt Liste der zulaessigen Werte, oder null fuer "alle"
+     * @returns {boolean} true, wenn die bisherige Wahl entfallen ist
+     */
+    function auswahlBeschneiden(feld, vorrat, erlaubt) {
+        const zulaessig = (wert) => erlaubt === null || erlaubt.includes(wert);
+        const wahl = feld.value;
+        const bleibt = wahl === '' || zulaessig(wahl);
+
+        feld.innerHTML = '';
+        // Werte als String vergleichen: Die Gruppen-IDs kommen als Zahl aus dem
+        // JSON, im DOM ist jeder Optionswert Text.
+        vorrat.forEach((o) => {
+            if (o.value === '' || zulaessig(o.value)) {
+                feld.add(new Option(o.text, o.value));
+            }
+        });
+
+        feld.value = bleibt ? wahl : '';
+        return !bleibt;
+    }
+
+    /** Laedt die Trefferliste zum aktuellen Ziel und den aktuellen Filtern. */
+    async function laden(zweiterVersuch = false) {
+        if (!ziel) return;
+
+        const nr = ++lauf;
+
+        fehler.hidden = true;
+        liste.innerHTML = '<p class="matt">Wird geladen …</p>';
+
+        try {
+            const daten = await apiFetch('api/plans.php', {
+                body: {
+                    action: 'exercise_picker',
+                    plan_id: ziel.planId,
+                    // Nur gesetzt, wenn die Aufrufstelle sich auf eine laufende
+                    // Einheit bezieht (§7.6): Dann zaehlt "Bereits im Plan" auch
+                    // die Uebungen, die nur heute dazugehoeren.
+                    session_id: ziel.sessionId || null,
+                    group_id: gruppe.value ? Number(gruppe.value) : null,
+                    equipment: geraet.value,
+                },
+            });
+
+            // Ueberholt: Inzwischen ist ein neuerer Abruf unterwegs (anderes
+            // Ziel, anderer Filter) oder der Dialog wurde geschlossen. Diese
+            // Antwort ist damit die Auskunft auf eine Frage von gestern.
+            if (nr !== lauf) return;
+
+            // Die Felder schraenken sich gegenseitig ein: Nach der Wahl einer
+            // Muskelgruppe stehen unter Trainingsgeraet nur noch die Geraete, fuer
+            // die es dort auch eine Uebung gibt -- und umgekehrt. Der Server
+            // rechnet jede Facette ohne ihren eigenen Filter, deshalb bleibt der
+            // Weg zurueck auf "alle" immer offen.
+            const raus = [
+                auswahlBeschneiden(gruppe, gruppenOptionen, daten.facetten.gruppen.map(String)),
+                auswahlBeschneiden(geraet, geraeteOptionen, daten.facetten.geraete),
+            ].some(Boolean);
+
+            // Ein Wechsel kann die Wahl im anderen Feld ungueltig machen: erst
+            // Kurzhantel, dann eine Muskelgruppe ohne Kurzhantelübung. Die Wahl
+            // steht dann auf "alle" und die Liste dazu muss neu geholt werden.
+            // Genau einmal -- danach ist beides '' und damit immer gueltig.
+            if (raus && !zweiterVersuch) {
+                await laden(true);
+                return;
+            }
+
+            if (!daten.exercises.length) {
+                liste.innerHTML =
+                    '<p>Keine passende Übung. Mit weniger Filtern suchen oder unter '
+                    + '<a href="admin_exercises.php">Übungen</a> eine anlegen.</p>';
+                return;
+            }
+
+            // Was schon im Plan steht, bleibt sichtbar und wird nur gesperrt:
+            // Herausgefiltert wuesste man nicht, ob die gesuchte Uebung fehlt oder
+            // laengst dabei ist. Dieselbe Ueberlegung wie in der API.
+            // Der Hinweis "Schon in ..." kommt aus vorschlagMarkup() selbst -- er
+            // gehoert zur Uebung und gilt in allen drei Listen gleich.
+            liste.innerHTML = daten.exercises.map((v) => vorschlagMarkup(v,
+                v.im_plan
+                    ? '<button type="button" disabled>Bereits im Plan</button>'
+                    : (knoepfe
+                        ?? '<button type="button" class="waehlen-hinzu">Hinzufügen</button>')
+            )).join('');
+        } catch (f) {
+            // Auch die Fehlermeldung gehoert zu ihrem Abruf: Die eines
+            // ueberholten Versuchs stuende sonst ueber einer Liste, die laengst
+            // geladen ist.
+            if (nr !== lauf) return;
+            liste.innerHTML = '';
+            fehler.textContent = f.message;
+            fehler.hidden = false;
+        }
+    }
+
+    // Die Filter laden nur die Liste neu -- der Dialog bleibt offen, sonst waere
+    // ein zweiter Filterversuch ein zweiter Weg durch die ganze Maske.
+    gruppe.addEventListener('change', () => laden());
+    geraet.addEventListener('change', () => laden());
+
+    liste.addEventListener('click', async (e) => {
+        const knopf = e.target.closest('.waehlen-hinzu');
+        if (!knopf || !ziel) return;
+
+        // ALLE Knoepfe dieses Vorschlags sperren, nicht nur den getroffenen:
+        // Wo es zwei gibt -- dauerhaft und nur heute --, waere der zweite sonst
+        // waehrend des laufenden Aufrufs noch drueckbar.
+        const eintrag = knopf.closest('.vorschlag');
+        const geschwister = qsa('.waehlen-hinzu', eintrag);
+        geschwister.forEach((k) => { k.disabled = true; });
+        fehler.hidden = true;
+
+        try {
+            const satz = await hinzufuegen(Number(eintrag.dataset.id), ziel, knopf);
+            // Ab jetzt beschreibt die Liste den Stand von vorhin und darf nicht
+            // mehr wie eine Auskunft aussehen.
+            liste.innerHTML = '<p class="matt">' + escapeHtml(satz) + '</p>';
+        } catch (f) {
+            fehler.textContent = f.message;
+            fehler.hidden = false;
+            geschwister.forEach((k) => { k.disabled = false; });
+        }
+    });
+
+    return {
+        /**
+         * @param neuesZiel {planId, titel, sessionId?} -- sessionId nur, wenn
+         *                  die Auswahl sich auf eine laufende Einheit bezieht.
+         */
+        oeffnen(neuesZiel) {
+            ziel = neuesZiel;
+            qs('#waehlen-titel').textContent = neuesZiel.titel;
+            // Beide Felder auf den vollen Vorrat zurueck, bevor neu beschnitten
+            // wird. Die getroffene Wahl bleibt dabei stehen -- wer nacheinander
+            // mehrere Rueckenuebungen aufnimmt, will den Filter nicht jedes Mal
+            // neu setzen. Ohne diesen Schritt behielte das Feld dagegen die
+            // Einschraenkung der letzten Suche, und Eintraege fehlten ohne
+            // erkennbaren Grund.
+            auswahlBeschneiden(gruppe, gruppenOptionen, null);
+            auswahlBeschneiden(geraet, geraeteOptionen, null);
+            dialog.showModal();
+            laden();
+        },
+        schliessen() { dialog.close(); },
+    };
+}
+
+/**
+ * Das Abzeichen zur Erfassungsart -- Gegenstueck zu erfassung_abzeichen() in
+ * lib/geraete.php.
+ *
+ * Nur bei Ausdauer, sonst leer. Und ohne Nachschlagetabelle wie bei den
+ * Geraeten: Es gibt genau einen sichtbaren Fall, eine JSON-Liste dafuer im
+ * Dokument waere ein Kanal, durch den nie mehr als ein Wort geht.
+ */
+function erfassungAbzeichen(code) {
+    if (code !== 'ausdauer') return '';
+    return '<span class="abzeichen erfassung-ausdauer">Ausdauer</span>';
+}
+
+/**
  * Die URL des Vorschaubilds zu einem gespeicherten Bildpfad.
  *
  * Gegenstueck zur gleichen Rechnung in den PHP-Seiten: Der Dateiname besteht
@@ -1451,6 +1732,7 @@ function vorschlagMarkup(v, knoepfe) {
     // Die Server-Antwort traegt das Feld deshalb gar nicht mehr mit.
     const schwerpunkt = '<p class="schwerpunkt-zeile">'
         + geraetAbzeichen(v.equipment)
+        + erfassungAbzeichen(v.erfassung)
         + '</p>';
 
     // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als
@@ -1476,7 +1758,7 @@ function vorschlagMarkup(v, knoepfe) {
         + bild
         + '<div class="vorschlag-text">'
         + uebungName(v.name_de, v.name_en)
-        + '<p class="gruppen-anzeige">' + gruppen + '</p>'
+        + (gruppen ? '<p class="gruppen-anzeige">' + gruppen + '</p>' : '')
         + schwerpunkt
         + '</div></div>'
         + '<p class="vorschlag-knoepfe">' + imSplitHinweis(v) + knoepfe + '</p>'

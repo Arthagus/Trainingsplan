@@ -328,6 +328,84 @@ function format_decimal(?float $v): string {
 }
 
 /**
+ * Formatiert eine Dauer in Sekunden als "5:30" bzw. "1:02:45".
+ *
+ * Das Gegenstueck heisst dauerMMSS() in assets/app.js und muss zeichengleich
+ * antworten -- die Zeit steht am Handy server-gerendert ("zuletzt ...") direkt
+ * ueber der im Browser gebauten Satzzeile, und zwei Schreibweisen liest man
+ * dort als Unterschied in der Sache.
+ *
+ * Die Minuten laufen ohne fuehrende Null, die Sekunden immer mit -- "5:30" und
+ * nicht "05:30", aber auch nicht "5:3". Erst ab einer Stunde kommt ein drittes
+ * Feld dazu; darunter waere "0:05:30" nur breiter.
+ *
+ * Bewusst KEIN Gegenstueck zu dauer_text() (lib/training.php): Das nimmt zwei
+ * Zeitstempel und beantwortet "wie lange dauerte die Einheit", hier steht eine
+ * eingegebene Dauer.
+ */
+function dauer_mmss(?int $sekunden): string {
+    if ($sekunden === null || $sekunden < 0) {
+        return '';
+    }
+
+    $s = $sekunden % 60;
+    $m = intdiv($sekunden, 60) % 60;
+    $h = intdiv($sekunden, 3600);
+
+    $mm = $h > 0 ? str_pad((string)$m, 2, '0', STR_PAD_LEFT) : (string)$m;
+    $ss = str_pad((string)$s, 2, '0', STR_PAD_LEFT);
+
+    return ($h > 0 ? $h . ':' : '') . $mm . ':' . $ss;
+}
+
+/**
+ * Wandelt eine Zeiteingabe in Sekunden oder null.
+ *
+ * Gegenstueck zu dauer_mmss() und zu dauerAusEingabe() in assets/app.js.
+ * Angenommen werden "mm:ss", "h:mm:ss" -- und eine nackte Zahl als MINUTEN.
+ *
+ * Die letzte Form ist eine bewusste Entscheidung und keine Nachlaessigkeit:
+ * "24" ist die naheliegendste Fehleingabe im Zeitfeld, und wer sie tippt,
+ * meint 24 Minuten und nicht 24 Sekunden. Sie als ungueltig abzuweisen waere
+ * formal sauber und im Studio mit feuchten Fingern schlicht laestig.
+ *
+ * Sekunden ueber 59 werden dagegen ABGEWIESEN und nicht umgerechnet: "5:75"
+ * ist ein Vertipper, und daraus stillschweigend 6:15 zu machen hiesse, eine
+ * Zahl zu speichern, die niemand eingegeben hat.
+ */
+function dauer_aus_eingabe(mixed $v): ?int {
+    if ($v === null || is_array($v)) {
+        return null;
+    }
+
+    $s = trim((string)$v);
+    if ($s === '') {
+        return null;
+    }
+
+    // Nackte Zahl: Minuten.
+    if (preg_match('/^\d+$/', $s) === 1) {
+        return (int)$s * 60;
+    }
+
+    if (preg_match('/^(?:(\d+):)?(\d{1,2}):(\d{1,2})$/', $s, $t) !== 1) {
+        return null;
+    }
+
+    $h = $t[1] === '' ? 0 : (int)$t[1];
+    $m = (int)$t[2];
+    $sek = (int)$t[3];
+
+    // Bei "h:mm:ss" duerfen auch die Minuten nicht ueber 59 laufen; bei "mm:ss"
+    // sind 90 Minuten dagegen eine voellig gewoehnliche Angabe.
+    if ($sek > 59 || ($h > 0 && $m > 59)) {
+        return null;
+    }
+
+    return $h * 3600 + $m * 60 + $sek;
+}
+
+/**
  * Formatiert einen gespeicherten Zeitstempel fuer die Anzeige.
  */
 function format_datetime(?string $ts): string {

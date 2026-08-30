@@ -266,12 +266,46 @@ function aktion_plaene_sortieren(array $eingabe): never {
  * Geraetefeld stehen, und man kaeme nicht mehr davon weg, ohne erst die
  * Muskelgruppe zurueckzusetzen.
  */
+/**
+ * Die laufende Einheit, wenn die Anfrage sich auf sie beruft -- sonst null.
+ *
+ * "Nur diese Einheit" (§7.6) darf sich niemand aus der Nutzlast erfinden: Die
+ * mitgeschickte ID wird gegen die tatsaechlich offene Einheit DIESES Benutzers
+ * geprueft und gegen den angefragten Plan.
+ *
+ * Passt sie nicht, gibt es einen 409 und keinen stillen Rueckfall auf
+ * "dauerhaft". Das ist die bewusst unbequemere Antwort: Der Rueckfall schriebe
+ * eine Uebung dauerhaft in den Plan, die jemand ausdruecklich nur fuer heute
+ * wollte -- und das faellt erst beim naechsten Training auf. Der Fall entsteht
+ * durch einen zweiten Tab, in dem das Training inzwischen beendet ist; ein
+ * Neuladen raeumt ihn auf.
+ */
+function einheit_der_anfrage(array $eingabe, int $planId): ?int {
+    $gewuenscht = to_int_or_null($eingabe['session_id'] ?? null);
+    if ($gewuenscht === null) {
+        return null;
+    }
+
+    $offen = offene_einheit(current_user_id());
+    if ($offen === null
+        || (int)$offen['id'] !== $gewuenscht
+        || (int)$offen['plan_id'] !== $planId) {
+        json_err(
+            'Diese Trainingseinheit läuft nicht mehr. Bitte die Seite neu laden.',
+            409
+        );
+    }
+
+    return $gewuenscht;
+}
+
 function aktion_uebungs_auswahl(array $eingabe): never {
     $planId = to_int_or_null($eingabe['plan_id'] ?? null);
     if ($planId === null) {
         json_err('Kein Plan angegeben.', 422);
     }
     $plan = plan_zugriff($planId);
+    $einheitId = einheit_der_anfrage($eingabe, $planId);
 
     $gruppe = to_int_or_null($eingabe['group_id'] ?? null);
     $geraet = to_str($eingabe['equipment'] ?? '');
@@ -305,7 +339,7 @@ function aktion_uebungs_auswahl(array $eingabe): never {
 
     // Die Reihenfolge der Platzhalter ist die Reihenfolge im SQL-Text: erst der
     // Wert aus der SELECT-Liste, dann WHERE, dann ORDER BY.
-    $werte = [$planId, ...$gruppeWerte, ...$geraetWerte];
+    $werte = [$planId, $einheitId, ...$gruppeWerte, ...$geraetWerte];
     $wo    = ['e.archived = 0'];
     if ($gruppeSql !== null) { $wo[] = $gruppeSql; }
     if ($geraetSql !== null) { $wo[] = $geraetSql; }
@@ -330,9 +364,15 @@ function aktion_uebungs_auswahl(array $eingabe): never {
     // Herausgefiltert waere es verwirrend: Man sucht eine Uebung, findet sie
     // nicht und weiss nicht, ob sie fehlt oder schon dabei ist.
     $stmt = db()->prepare(
-        'SELECT e.id, e.name_de, e.name_en, e.equipment, e.image_path, e.image_crop,
+        // e.erfassung muss mit: vorschlagMarkup() setzt daraus das
+        // Ausdauer-Abzeichen. Fehlt die Spalte, bleibt es lautlos weg -- genau
+        // die Sorte Luecke, die image_crop hier schon einmal hatte
+        // (Fallstrick 16).
+        'SELECT e.id, e.name_de, e.name_en, e.equipment, e.erfassung,
+                e.image_path, e.image_crop,
                 EXISTS (SELECT 1 FROM plan_exercises pe
-                         WHERE pe.plan_id = ? AND pe.exercise_id = e.id) AS im_plan
+                         WHERE pe.plan_id = ? AND pe.exercise_id = e.id
+                           AND (pe.session_id IS NULL OR pe.session_id = ?)) AS im_plan
            FROM exercises e
           WHERE ' . implode(' AND ', $wo) . '
           ORDER BY ' . $sortSql
@@ -378,11 +418,11 @@ function aktion_uebungs_auswahl(array $eingabe): never {
     json_ok([
         'exercises' => $treffer,
         'facetten'  => auswahl_facetten($gruppeSql, $gruppeWerte, $geraetSql, $geraetWerte),
-        // Ein zweiter Tab kann den Dialog oeffnen, nachdem der Benutzer im
-        // ersten ein Training gestartet hat. add_exercise antwortet dann mit
-        // 409; die Auswahl sagt es vorher.
-        'gesperrt'  => $plan['split_user_id'] !== null
-                       && hat_offene_einheit((int)$plan['split_user_id']),
+        // Seit 1.4.2 immer false: Hinzufuegen ist von der Struktursperre
+        // ausgenommen (siehe aktion_uebung_hinzufuegen()). Das Feld bleibt im
+        // Vertrag stehen, damit eine alte, noch im Cache liegende plans.js
+        // nicht ueber ein fehlendes Feld stolpert -- sie liest es aus.
+        'gesperrt'  => false,
     ]);
 }
 
@@ -453,7 +493,16 @@ function aktion_uebung_hinzufuegen(array $eingabe): never {
     }
 
     $plan = plan_zugriff($planId);
-    struktur_sperre_pruefen(to_int_or_null($plan['split_user_id']));
+
+    // HINZUFUEGEN ist von der Struktursperre ausgenommen -- als einzige der
+    // drei Strukturaktionen (§7.6, seit 1.4.2). Der Grund fuer die Sperre ist,
+    // dass sich "x/n" unter einer laufenden Anzeige nicht verschieben soll;
+    // beim Umsortieren und beim Entfernen trifft das zu und bleibt gesperrt.
+    // Eine Uebung ans ENDE zu haengen verschiebt dagegen keine bestehende
+    // Position: Kein plan_exercise_id aendert sich, die Warteschlange behaelt
+    // ihre Schluessel, und dass "n" um eins waechst, hat der Benutzer gerade
+    // selbst ausgeloest und sieht es.
+    $einheitId = einheit_der_anfrage($eingabe, $planId);
 
     $stmt = db()->prepare('SELECT name_de, archived FROM exercises WHERE id = ?');
     $stmt->execute([$exerciseId]);
@@ -469,24 +518,36 @@ function aktion_uebung_hinzufuegen(array $eingabe): never {
     // Dieselbe Uebung zweimal im selben Plan waere in v1 nicht darstellbar:
     // der Fortschritt zaehlt Planpositionen, und zwei identische Positionen
     // waeren in der Ansicht nicht auseinanderzuhalten.
+    //
+    // Geprueft wird im FENSTER der Anfrage: Wer nur fuer heute hinzufuegt,
+    // stolpert auch ueber die Position von heute -- wer dauerhaft hinzufuegt,
+    // ebenfalls, denn beide staenden nebeneinander in derselben Liste. Deshalb
+    // in beiden Faellen dieselbe Bedingung wie in plan_positionen().
     $stmt = db()->prepare(
-        'SELECT COUNT(*) FROM plan_exercises WHERE plan_id = ? AND exercise_id = ?'
+        'SELECT COUNT(*) FROM plan_exercises
+          WHERE plan_id = ? AND exercise_id = ?
+            AND (session_id IS NULL OR session_id = ?)'
     );
-    $stmt->execute([$planId, $exerciseId]);
+    $stmt->execute([$planId, $exerciseId, $einheitId]);
     if ((int)$stmt->fetchColumn() > 0) {
         json_err('„' . $uebung['name_de'] . '“ steht bereits in diesem Plan.', 409);
     }
 
+    // Ans Ende, und zwar hinter ALLES -- auch hinter die Positionen anderer
+    // Einheiten. Sonst bekaeme eine spaeter dauerhaft hinzugefuegte Uebung
+    // dieselbe sort_order wie eine aeltere Tagesposition, und die Reihenfolge
+    // haenge an der id.
     $stmt = db()->prepare('SELECT COALESCE(MAX(sort_order), 0) FROM plan_exercises WHERE plan_id = ?');
     $stmt->execute([$planId]);
     $max = (int)$stmt->fetchColumn();
 
     $stmt = db()->prepare(
-        'INSERT INTO plan_exercises (plan_id, exercise_id, sort_order) VALUES (?, ?, ?)'
+        'INSERT INTO plan_exercises (plan_id, exercise_id, session_id, sort_order)
+         VALUES (?, ?, ?, ?)'
     );
-    $stmt->execute([$planId, $exerciseId, $max + 10]);
+    $stmt->execute([$planId, $exerciseId, $einheitId, $max + 10]);
 
-    json_ok(['id' => (int)db()->lastInsertId()]);
+    json_ok(['id' => (int)db()->lastInsertId(), 'nur_einheit' => $einheitId !== null]);
 }
 
 /**
@@ -497,7 +558,8 @@ function aktion_uebung_hinzufuegen(array $eingabe): never {
  */
 function position_zugriff(int $peId): array {
     $stmt = db()->prepare(
-        'SELECT pe.id, pe.plan_id, pe.exercise_id, p.split_id, p.sort_order AS plan_sort,
+        'SELECT pe.id, pe.plan_id, pe.exercise_id, pe.session_id,
+                p.split_id, p.sort_order AS plan_sort,
                 sp.user_id AS split_user_id
            FROM plan_exercises pe
            JOIN plans  p  ON p.id  = pe.plan_id
@@ -547,6 +609,20 @@ function aktion_uebung_verschieben(array $eingabe): never {
 
     $position = position_zugriff($peId);
     struktur_sperre_pruefen(to_int_or_null($position['split_user_id']));
+
+    // Derselbe Riegel wie beim Entfernen (§7.6): Eine Position, die nur zu
+    // einer Einheit gehoert, gehoert in keinen anderen Plan. Sie bliebe zwar
+    // erhalten, verschwaende aber aus jeder Ansicht -- plan_positionen()
+    // sucht sie unter dem Plan der laufenden Einheit, und dort waere sie nicht
+    // mehr. Ueber die Oberflaeche nicht erreichbar; der Riegel steht wegen des
+    // zweiten Tabs.
+    if ($position['session_id'] !== null) {
+        json_err(
+            'Diese Übung gehört nur zu einer einzelnen Trainingseinheit und lässt '
+            . 'sich nicht in einen anderen Plan verschieben.',
+            409
+        );
+    }
 
     // Der Nachbar in der Rotationsreihenfolge. Die id als zweites Kriterium,
     // weil zwei Plaene dieselbe sort_order tragen koennen -- dieselbe
@@ -611,6 +687,22 @@ function aktion_uebung_entfernen(array $eingabe): never {
 
     $position = position_zugriff($peId);
     struktur_sperre_pruefen(to_int_or_null($position['split_user_id']));
+
+    // Eine Position, die nur zu einer Einheit gehoert (§7.6), gehoert nicht
+    // hierher -- und ueber die Oberflaeche kommt sie auch nicht: Die
+    // Planverwaltung zeigt sie nicht an, und waehrend der Einheit greift schon
+    // die Struktursperre darueber. Der Riegel steht trotzdem, weil die Folge
+    // schwer waere: Das DELETE darunter leert workout_log.plan_exercise_id
+    // (ON DELETE SET NULL), und damit verloere genau der Eintrag seine
+    // Zuordnung, fuer den die Position ueberhaupt angelegt wurde. Sie
+    // verschwindet ohnehin von selbst -- mit dem Loeschen ihrer Einheit.
+    if ($position['session_id'] !== null) {
+        json_err(
+            'Diese Übung gehört nur zu einer einzelnen Trainingseinheit und lässt '
+            . 'sich hier nicht entfernen.',
+            409
+        );
+    }
 
     // Der workout_log bleibt erhalten -- plan_exercise_id wird per
     // ON DELETE SET NULL geleert, die Historie zeigt weiter auf exercise_id (§4.1).
@@ -724,7 +816,12 @@ function aktion_uebungen_sortieren(array $eingabe): never {
 
     $platzhalter = implode(',', array_fill(0, count($ids), '?'));
     $stmt = db()->prepare(
-        "SELECT COUNT(*) FROM plan_exercises WHERE id IN ($platzhalter) AND plan_id = ?"
+        // session_id IS NULL: Umsortiert wird der PLAN. Eine Tagesposition
+        // (§7.6) steht in keiner Liste, aus der eine Reihenfolge kaeme -- die
+        // Bedingung haelt einen gebastelten Aufruf davon ab, ihre sort_order
+        // stillschweigend mitzuschreiben.
+        "SELECT COUNT(*) FROM plan_exercises
+          WHERE id IN ($platzhalter) AND plan_id = ? AND session_id IS NULL"
     );
     $stmt->execute([...$ids, $planId]);
     if ((int)$stmt->fetchColumn() !== count($ids)) {
