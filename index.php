@@ -69,11 +69,9 @@ foreach ($plaene as $p) {
     }
 }
 
-$experte = (int)($benutzer['expert_mode'] ?? 0) === 1;
-
 $positionen = ($planId === null)
     ? []
-    : plan_positionen($userId, $planId, $offen === null ? null : (int)$offen['id'], $experte);
+    : plan_positionen($userId, $planId, $offen === null ? null : (int)$offen['id']);
 $erledigt   = count(array_filter($positionen, static fn(array $z): bool => $z['erledigt']));
 $gesamt     = count($positionen);
 
@@ -363,7 +361,6 @@ require __DIR__ . '/lib/view_header.php';
         <ul id="uebungen" class="liste-schlicht"
             data-user="<?= $userId ?>"
             data-session="<?= $offen === null ? '' : (int)$offen['id'] ?>"
-            data-experte="<?= $experte ? '1' : '' ?>"
             <?php // Welches der beiden Verfahren aus SATZ_VORLAGE gilt (§7.4).
                   // Wird beim Seitenaufbau festgeschrieben und aendert sich
                   // waehrend der Sitzung nicht -- wer auf der Kontoseite
@@ -403,17 +400,16 @@ require __DIR__ . '/lib/view_header.php';
                     data-pe="<?= $z['plan_exercise_id'] ?>"
                     data-eintrag="<?= $z['hat_eintrag'] ? '1' : '' ?>"
                     data-erfassung="<?= $ausdauer ? 'ausdauer' : 'kraft' ?>"
-                    <?php if ($experte): ?>
-                        data-saetze="<?= h(json_encode($z['saetze'])) ?>"
-                        data-letzte-saetze="<?= h(json_encode($z['letzte_saetze'])) ?>"
-                        <?php // Rueckfall fuer den ersten Satz einer Uebung, die noch
-                              // nie satzgenau protokolliert wurde -- wer aus dem
-                              // einfachen Modus kommt, hat hier trotzdem eine Zahl.
-                              // Bei Ausdauer dasselbe mit den beiden anderen Werten. ?>
-                        data-letztes-gewicht="<?= h(format_decimal($z['letztes_gewicht'])) ?>"
-                        data-letzte-distanz="<?= $z['letzte_distanz_m'] === null ? '' : (int)$z['letzte_distanz_m'] ?>"
-                        data-letzte-dauer="<?= h(dauer_mmss($z['letzte_dauer_s'])) ?>"
-                    <?php endif; ?>>
+                    data-saetze="<?= h(json_encode($z['saetze'])) ?>"
+                    data-letzte-saetze="<?= h(json_encode($z['letzte_saetze'])) ?>"
+                    <?php // Rueckfall fuer den ersten Satz einer Uebung, die noch nie
+                          // satzgenau protokolliert wurde -- etwa weil sie vor 1.4.3 im
+                          // damaligen einfachen Modus gelaufen ist. Dann steht hier
+                          // trotzdem eine Zahl. Bei Ausdauer dasselbe mit den beiden
+                          // anderen Werten. ?>
+                    data-letztes-gewicht="<?= h(format_decimal($z['letztes_gewicht'])) ?>"
+                    data-letzte-distanz="<?= $z['letzte_distanz_m'] === null ? '' : (int)$z['letzte_distanz_m'] ?>"
+                    data-letzte-dauer="<?= h(dauer_mmss($z['letzte_dauer_s'])) ?>">
 
                     <?php // Die Nummer der Uebung, oben links in der Ecke der Karte
                           // (Ansage des Benutzers am 2026-08-25). Nur die Ziffer, ohne
@@ -505,9 +501,9 @@ require __DIR__ . '/lib/view_header.php';
                           // vergessen? Ein Satz beantwortet das, und die Karten behalten
                           // dieselbe Hoehe. ?>
                     <p class="matt letzter-wert">
-                        <?php if ($experte && $z['letzte_saetze'] !== []): ?>
-                            <?php // Im Expertenmodus ist die Satzfolge vom letzten Mal
-                                  // die nuetzlichere Auskunft als eine einzelne Zahl --
+                        <?php if ($z['letzte_saetze'] !== []): ?>
+                            <?php // Die Satzfolge vom letzten Mal ist die nuetzlichere
+                                  // Auskunft als eine einzelne Zahl --
                                   // sie ist zugleich das, was der Knopf "+ Satz" gleich
                                   // vorschlaegt. Gleiche Form wie die Zusammenfassung im
                                   // Satzblock darunter, damit man beides ohne Umdenken
@@ -535,74 +531,32 @@ require __DIR__ . '/lib/view_header.php';
                         <?php endif; ?>
                     </p>
 
-                    <?php if ($experte): ?>
-                        <?php $eigene = $z['saetze']; ?>
-                        <details class="saetze-block"
-                                 <?= $z['plan_exercise_id'] === $aktivePosition ? 'open' : '' ?>>
-                            <summary class="summary-knopf saetze-kopf">
-                                <span class="saetze-zusammenfassung"><?=
-                                    h(saetze_zusammenfassung(
-                                        $eigene,
-                                        $ausdauer ? 'ausdauer' : 'kraft'
-                                    ))
-                                ?></span>
-                            </summary>
+                    <?php $eigene = $z['saetze']; ?>
+                    <details class="saetze-block"
+                             <?= $z['plan_exercise_id'] === $aktivePosition ? 'open' : '' ?>>
+                        <summary class="summary-knopf saetze-kopf">
+                            <span class="saetze-zusammenfassung"><?=
+                                h(saetze_zusammenfassung(
+                                    $eigene,
+                                    $ausdauer ? 'ausdauer' : 'kraft'
+                                ))
+                            ?></span>
+                        </summary>
 
-                            <?php // Wird von index.js aus data-saetze gefuellt. ?>
-                            <ol class="satz-liste"></ol>
+                        <?php // Wird von index.js aus data-saetze gefuellt. ?>
+                        <ol class="satz-liste"></ol>
 
-                            <?php // Vor dem Start gesperrt (§7.6): Ein Satz waere die
-                                  // erste Eingabe, und die legte frueher stillschweigend
-                                  // eine Einheit an. Wer den Plan nur durchsieht, soll
-                                  // mit einem Fehlgriff kein Training beginnen.
-                                  // api/log.php lehnt es ohnehin ab; der graue Knopf ist
-                                  // die Bequemlichkeit davor. ?>
-                            <button type="button" class="satz-hinzu"
-                                    <?= $laeuft ? '' : 'disabled title="Erst das Training starten"' ?>><?=
-                                $ausdauer ? '+ Intervall' : '+ Satz'
-                            ?></button>
-                        </details>
-                    <?php endif; ?>
-
-                    <?php // Die zwei Werte einer Ausdauerposition im EINFACHEN Modus
-                          // -- das Gegenstueck zum Gewichtsfeld, das in der Aktionszeile
-                          // darunter sitzt.
-                          //
-                          // Eine EIGENE Zeile und nicht die mittlere Spalte der
-                          // Aktionszeile: Dort steht bei Kraft genau ein schmales Feld,
-                          // und zwei davon plus "Tauschen" plus "Erledigt" passen bei
-                          // 390 px nicht mehr nebeneinander. Dieselbe Ueberlegung wie
-                          // bei den Wartungsknoepfen, die unter ihrem Text stehen.
-                          //
-                          // type="text" mit inputmode, nicht type="number": am Handy
-                          // bricht der Doppelpunkt der Zeitangabe sonst genauso weg wie
-                          // sonst das Dezimalkomma. ?>
-                    <?php if ($ausdauer && !$experte): ?>
-                        <p class="wert-zeile">
-                            <span class="wert-feld">
-                                <label for="d<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
-                                    Distanz in Metern
-                                </label>
-                                <input type="text" inputmode="numeric" pattern="[0-9]*"
-                                       id="d<?= $z['plan_exercise_id'] ?>" class="distanz"
-                                       value="<?= $z['distanz_m'] === null ? '' : (int)$z['distanz_m'] ?>"
-                                       placeholder="—" enterkeyhint="next"
-                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
-                                <span class="wert-einheit" aria-hidden="true">m</span>
-                            </span>
-
-                            <span class="wert-feld">
-                                <label for="t<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
-                                    Zeit als Minuten und Sekunden
-                                </label>
-                                <input type="text" inputmode="numeric" pattern="[0-9:]*"
-                                       id="t<?= $z['plan_exercise_id'] ?>" class="dauer"
-                                       value="<?= h(dauer_mmss($z['dauer_s'])) ?>"
-                                       placeholder="mm:ss" enterkeyhint="done"
-                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
-                            </span>
-                        </p>
-                    <?php endif; ?>
+                        <?php // Vor dem Start gesperrt (§7.6): Ein Satz waere die
+                              // erste Eingabe, und die legte frueher stillschweigend
+                              // eine Einheit an. Wer den Plan nur durchsieht, soll
+                              // mit einem Fehlgriff kein Training beginnen.
+                              // api/log.php lehnt es ohnehin ab; der graue Knopf ist
+                              // die Bequemlichkeit davor. ?>
+                        <button type="button" class="satz-hinzu"
+                                <?= $laeuft ? '' : 'disabled title="Erst das Training starten"' ?>><?=
+                            $ausdauer ? '+ Intervall' : '+ Satz'
+                        ?></button>
+                    </details>
 
                     <?php // Die Pace, sobald eine Ausdaueruebung im Spiel ist.
                           //
@@ -650,33 +604,20 @@ require __DIR__ . '/lib/view_header.php';
                             Tauschen
                         </button>
 
-                        <?php // Im Expertenmodus steht das Gewicht in jedem Satz --
-                              // ein zusätzliches Feld für die ganze Übung wäre eine
-                              // zweite Wahrheit neben der Satzliste. ?>
-                        <?php if (!$experte && !$ausdauer): ?>
-                            <span class="wert-feld">
-                                <label for="w<?= $z['plan_exercise_id'] ?>" class="nur-lesbar">
-                                    Gewicht in kg
-                                </label>
-                                <?php // type="text" mit inputmode: type="number" bricht am
-                                      // Handy am Dezimalkomma.
-                                      //
-                                      // readonly, sobald abgehakt (§7.4): Wer den Wert ändern
-                                      // will, entfernt das Häkchen, korrigiert und hakt neu ab
-                                      // -- derselbe Weg wie beim Tausch (§7.5). ?>
-                                <input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
-                                       id="w<?= $z['plan_exercise_id'] ?>" class="gewicht"
-                                       value="<?= h(format_decimal($z['weight'])) ?>"
-                                       placeholder="—" enterkeyhint="done"
-                                       <?php // Vor dem Start ebenfalls gesperrt: Das Feld
-                                             // allein speichert zwar nichts -- gespeichert
-                                             // wird erst mit dem Haekchen --, aber ein Wert,
-                                             // den man eintippt und der beim Neuladen weg
-                                             // ist, sieht wie Datenverlust aus. ?>
-                                       <?= $z['erledigt'] || !$laeuft ? 'readonly' : '' ?>>
-                                <span class="wert-einheit" aria-hidden="true">kg</span>
-                            </span>
-                        <?php endif; ?>
+                        <?php // Zwischen Tauschen und Erledigt bleibt die mittlere
+                              // Spalte des Rasters LEER -- und das ist Absicht, kein
+                              // Rest. Bis 1.4.2 stand dort im einfachen Modus das
+                              // Gewichtsfeld; seit es den Modus nicht mehr gibt (§7.4),
+                              // steht das Gewicht in jedem Satz, und ein zusaetzliches
+                              // Feld fuer die ganze Uebung waere eine zweite Wahrheit
+                              // neben der Satzliste.
+                              //
+                              // Der Platz bleibt trotzdem reserviert: Das Raster in
+                              // .position-aktionen ist weiterhin 1fr auto 1fr, damit
+                              // "Tauschen" links und "Erledigt" rechts stehen und die
+                              // Mitte fuer eine spaetere Angabe frei ist (Wunsch des
+                              // Benutzers, 2026-08-30). Eine leere auto-Spalte ist
+                              // 0 px breit und kostet nichts. ?>
 
                         <?php // Vor dem Start gesperrt (§7.6). Das Haekchen war der
                               // urspruengliche Ausloeser einer Einheit -- genau das soll

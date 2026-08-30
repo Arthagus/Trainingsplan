@@ -578,15 +578,9 @@ function pace_text(?int $meter, ?int $sekunden): string {
  *    steht in workout_log.exercise_id die Ersatzuebung; ohne
  *    plan_exercise_id waere "x/n" nicht zaehlbar (§4).
  *
- * @param int|null $sessionId  Offene Einheit, oder null wenn noch keine laeuft
- * @param bool     $mitSaetzen Expertenmodus: Satzliste und Satzvorlage mitladen
+ * @param int|null $sessionId Offene Einheit, oder null wenn noch keine laeuft
  */
-function plan_positionen(
-    int $userId,
-    int $planId,
-    ?int $sessionId,
-    bool $mitSaetzen = false
-): array {
+function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
     $stmt = db()->prepare(
         'SELECT pe.id            AS plan_exercise_id,
                 pe.sort_order,
@@ -629,10 +623,8 @@ function plan_positionen(
     );
 
     // Einmal fuer die ganze Einheit, nicht je Position. Ohne laufende Einheit
-    // und ausserhalb des Expertenmodus gibt es nichts zu holen.
-    $saetzeDerEinheit = ($mitSaetzen && $sessionId !== null)
-        ? saetze_der_einheit($sessionId)
-        : [];
+    // gibt es nichts zu holen.
+    $saetzeDerEinheit = $sessionId !== null ? saetze_der_einheit($sessionId) : [];
 
     $ergebnis = [];
     foreach ($zeilen as $z) {
@@ -697,9 +689,7 @@ function plan_positionen(
             // Die Saetze vom LETZTEN Mal -- Anzeige und Vorbelegung. Die
             // laufende Einheit ist ausgeschlossen, sonst zeigte "letztes Mal"
             // auf das, was man gerade selbst eingetragen hat.
-            'letzte_saetze'    => $mitSaetzen
-                ? letzte_saetze($userId, $exerciseId, $sessionId)
-                : [],
+            'letzte_saetze'    => letzte_saetze($userId, $exerciseId, $sessionId),
         ];
     }
 
@@ -1109,13 +1099,35 @@ function einheiten_verlauf(int $userId, int $limit = 50): array {
                 sp.name AS split_name,
                 (SELECT COUNT(*) FROM workout_log wl
                   WHERE wl.session_id = s.id AND wl.done = 1) AS erledigt,
-                -- Das "n" der EINHEIT, nicht das des heutigen Plans: Eine
-                -- Position, die nur zu dieser Einheit gehoerte, zaehlt hier mit
-                -- (§7.6). Ohne den zweiten Zweig stuende im Verlauf "4/3" --
-                -- protokolliert ist sie ja.
-                (SELECT COUNT(*) FROM plan_exercises pe
-                  WHERE pe.plan_id = s.plan_id
-                    AND (pe.session_id IS NULL OR pe.session_id = s.id)) AS gesamt
+                -- Das "n" der EINHEIT, nicht das des heutigen Plans -- und
+                -- das ist schwieriger, als es aussieht: Wie viele Positionen
+                -- der Plan DAMALS hatte, steht nirgends. Wird eine Uebung
+                -- spaeter aus dem Plan genommen, setzt ON DELETE SET NULL ihre
+                -- plan_exercise_id auf NULL (§4.1); die Protokollzeile bleibt
+                -- und zaehlt in "x" mit, waehrend der Zaehler darunter nur die
+                -- verbliebenen Positionen sieht. Genau so entstand "10/8".
+                --
+                -- Deshalb das GROESSERE von beidem: die Zahl der
+                -- Protokollzeilen dieser Einheit und die der Planpositionen.
+                --
+                --   Alles protokolliert, Plan seither geschrumpft -> 10/10
+                --   Zwei ausgelassen, Plan unveraendert           ->  6/8
+                --
+                -- Damit kann "x" nie ueber "n" laufen -- jede erledigte Zeile
+                -- ist eine Protokollzeile, und die zaehlen mit. Der Fall, den
+                -- auch das nicht loest: Ein Plan, der seither GEWACHSEN ist,
+                -- laesst eine alte Einheit zu niedrig aussehen. Dafuer muesste
+                -- "n" beim Beenden in der Einheit gespeichert werden, und das
+                -- huelfe der Vergangenheit ohnehin nicht.
+                --
+                -- Die zweite Haelfte des ODER traegt weiterhin die Positionen,
+                -- die nur zu DIESER Einheit gehoerten (§7.6).
+                MAX(
+                    (SELECT COUNT(*) FROM workout_log wl2 WHERE wl2.session_id = s.id),
+                    (SELECT COUNT(*) FROM plan_exercises pe
+                      WHERE pe.plan_id = s.plan_id
+                        AND (pe.session_id IS NULL OR pe.session_id = s.id))
+                ) AS gesamt
            FROM sessions s
            LEFT JOIN plans  p  ON p.id  = s.plan_id
            LEFT JOIN splits sp ON sp.id = p.split_id

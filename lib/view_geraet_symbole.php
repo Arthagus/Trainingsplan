@@ -158,6 +158,18 @@ require_once __DIR__ . '/geraete.php';
         <path d="M4.5 16.5v3.5M19.5 16.5v3.5"></path>
     </symbol>
 
+    <?php // Treppenstufen im Profil -- drei grosse Stufen statt vier kleiner:
+          // Bei rund 19 px Kantenlaenge verschmelzen feinere Zacken zu einer
+          // Diagonalen, und dann sieht es aus wie ein Diagramm. Ein Handlauf
+          // waere naheliegend und macht die Zeichnung in dieser Groesse nur
+          // unruhig; das Stufenprofil kommt in keinem anderen Symbol vor und
+          // traegt allein. ?>
+    <symbol id="geraet-stairmaster" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.5 20h5v-5h5v-5h5V5h1.5"></path>
+    </symbol>
+
 </defs></svg>
 
 <?php // Die Beschriftungen fuer das JS. Kein <script> mit Zuweisung, sondern

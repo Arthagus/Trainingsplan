@@ -1,60 +1,13 @@
 'use strict';
 
 /**
- * Konto: Passwortwechsel, Benutzername und Trainingsansicht (§7.7).
+ * Konto: Passwortwechsel, Benutzername, Satz-Vorbelegung und Geräte (§7.7).
  */
 
 (() => {
-    // --- Expertenmodus -----------------------------------------------------
-
-    const experte = qs('#experte');
-    if (experte) {
-        const experteHinweis = qs('#experte-fehler');
-
-        experte.addEventListener('change', async () => {
-            const gewuenscht = experte.checked;
-            experteHinweis.hidden = true;
-            experte.disabled = true;
-
-            try {
-                await apiFetch('api/auth.php', {
-                    body: { action: 'set_expert_mode', expert_mode: gewuenscht },
-                });
-                meldung(
-                    gewuenscht
-                        ? 'Expertenmodus eingeschaltet — Sätze werden einzeln erfasst.'
-                        : 'Expertenmodus ausgeschaltet — ein Gewicht je Übung.',
-                    'gut'
-                );
-            } catch (fehler) {
-                // Der Schalter springt zurueck: Eine Anzeige, die etwas
-                // anderes behauptet als der Server, waere schlimmer als die
-                // Fehlermeldung.
-                experte.checked = !gewuenscht;
-                experteHinweis.textContent = fehler.message;
-                experteHinweis.hidden = false;
-            } finally {
-                experte.disabled = false;
-                vorlageFreigeben();
-            }
-        });
-    }
-
     // --- Vorbelegung neuer Sätze (§7.4) ------------------------------------
 
     const vorlage = qs('.vorlage-wahl');
-
-    /**
-     * Gibt die Auswahl frei oder blendet sie ab, je nach Expertenmodus.
-     *
-     * Muss es geben, weil der Expertenschalter die Seite NICHT neu lädt: Ohne
-     * das bliebe die Auswahl nach dem Einschalten grau stehen und sähe kaputt
-     * aus, bis jemand von sich aus neu lädt. Serverseitig entscheidet dieselbe
-     * Bedingung beim Rendern — hier wird sie nur nachgeführt.
-     */
-    function vorlageFreigeben() {
-        if (vorlage && experte) vorlage.disabled = !experte.checked;
-    }
 
     if (vorlage) {
         const vorlageHinweis = qs('#vorlage-fehler');
@@ -80,7 +33,6 @@
                 vorlageHinweis.hidden = false;
             } finally {
                 vorlage.disabled = false;
-                vorlageFreigeben();
             }
         });
     }

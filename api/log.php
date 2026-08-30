@@ -105,6 +105,21 @@ function position_laden(int $peId): array {
 /**
  * Prueft die Gewichtseingabe. Sie darf leer sein -- "Erledigt" funktioniert
  * auch ohne Gewichtsangabe, etwa bei Bauch- oder Koerpergewichtsuebungen (§7.4).
+ *
+ * **Diese Funktion sieht nach einfachem Modus aus und darf trotzdem NICHT
+ * weg** (seit 1.4.3, als es den einfachen Modus nicht mehr gibt). Sie traegt
+ * zwei Faelle, die es beide weiterhin gibt:
+ *
+ * 1. **Abhaken ohne Werte.** Wer nur das Haekchen setzt, schickt eine leere
+ *    Satzliste; saetze_pruefen() liefert dafuer null, und der Weg laeuft hier
+ *    entlang. `weight` fehlt in der Nutzlast, das Ergebnis ist null -- genau
+ *    richtig, die Position ist erledigt und traegt keine Zahl.
+ * 2. **Wartende Eintraege von VOR 1.4.3.** Wer beim Rollout gerade im
+ *    einfachen Modus trainierte, hat Eintraege im localStorage mit `weight`
+ *    und ohne `sets`. Solange es diese Funktion gibt, werden sie beim
+ *    Nachholen korrekt gespeichert; ohne sie waere das Gewicht stillschweigend
+ *    weg. Genau deshalb konnte der Warteschlangen-Schluessel auf `-v3`
+ *    bleiben, statt beim Umbau alle wartenden Eingaben zu verwerfen.
  */
 function gewicht_pruefen(array $eingabe): ?float {
     $roh = $eingabe['weight'] ?? null;
@@ -127,7 +142,8 @@ function gewicht_pruefen(array $eingabe): ?float {
  * Ausdaueruebung: die zwei Felder der Karte.
  *
  * Beide duerfen leer sein, aus demselben Grund wie das Gewicht: "Erledigt"
- * funktioniert auch ohne Angabe. Anders als beim Intervall wird hier NICHT
+ * funktioniert auch ohne Angabe. Und sie bleibt aus demselben Grund stehen wie
+ * gewicht_pruefen() darueber -- die beiden Faelle stehen dort. Anders als beim Intervall wird hier NICHT
  * verlangt, dass mindestens eines gefuellt ist -- ein Haekchen ohne Werte ist
  * eine gueltige Aussage ("gemacht, nichts notiert"), waehrend eine leere
  * Intervallzeile nur Platz braucht.

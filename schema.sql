@@ -145,6 +145,10 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash        TEXT    NOT NULL,
     is_admin             INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
     must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
+    -- TOT seit 1.4.3: Es gibt nur noch die satzgenaue Erfassung, der
+    -- einfache Modus ist ersatzlos entfallen (§7.4). Die Spalte bleibt
+    -- stehen wie users.last_plan_id -- ein DROP COLUMN ist destruktiv und
+    -- braechte nichts. NICHT wieder in Betrieb nehmen.
     expert_mode          INTEGER NOT NULL DEFAULT 0 CHECK (expert_mode IN (0, 1)),
     -- Woher die Vorbelegung eines neu hinzugefuegten Satzes kommt (§7.4).
     -- Codeliste SATZ_VORLAGE in lib/training.php, kein CHECK -- dieselbe

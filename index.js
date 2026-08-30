@@ -26,12 +26,6 @@
     const userId    = liste ? Number(liste.dataset.user || 0) : 0;
     const schlange  = warteschlange(userId, sessionId);
 
-    // Expertenmodus: Statt einem Gewicht je Übung wird jeder Satz einzeln
-    // erfasst (§7.4). Die Umschaltung sitzt auf der Kontoseite und ist bei
-    // laufender Einheit gesperrt — hier ist der Wert deshalb für die Dauer der
-    // Seite fest.
-    const experte = liste ? liste.dataset.experte === '1' : false;
-
     // Änderungen an Sätzen werden gebündelt geschickt: Wer dreimal auf „+"
     // tippt, soll einen Aufruf auslösen und nicht drei.
     const SATZ_SPEICHER_VERZUG_MS = 800;
@@ -43,7 +37,7 @@
      * Die Auskunft kommt aus dem Datenattribut, das index.php aus
      * `exercises.erfassung` setzt — sie wird nirgends im Browser hergeleitet.
      * Ein Plan darf gemischt sein, deshalb hängt sie an der KARTE und nicht an
-     * der Seite; `experte` daneben gilt dagegen für alle Karten gleich.
+     * der Seite.
      */
     function istAusdauer(karte) {
         return karte.dataset.erfassung === 'ausdauer';
@@ -397,8 +391,11 @@
     function hatEintrag(karte) {
         if (istErledigt(karte)) return true;
 
-        const saetze = saetzeFuerServer(karte);
-        if (saetze !== null) return saetze.length > 0;
+        // saetzeFuerServer() liefert seit 1.4.3 immer eine Liste. Ist sie leer,
+        // gilt der serverseitig gerenderte Stand — eine Position kann eine
+        // Protokollzeile haben, ohne dass Sätze darin stehen (abgehakt ohne
+        // Werte, oder aus der Zeit vor 1.4.3).
+        if (saetzeFuerServer(karte).length > 0) return true;
 
         return karte.dataset.eintrag === '1';
     }
@@ -466,30 +463,17 @@
         // ihn beim Tausch auf eine andere Übung umzuschreiben schriebe ein
         // erreichtes Gewicht einer Übung zu, die gar nicht gemacht wurde (§7.5).
         const saetze = saetzeFuerServer(karte);
-        const protokolliert = erledigt || (saetze !== null && saetze.length > 0);
+        const protokolliert = erledigt || saetze.length > 0;
 
         // `data-eintrag` kam vom Server und veraltet, sobald hier etwas
-        // passiert — im einfachen Modus verschwindet die Zeile beim Ab-wählen.
-        // hatEintrag() liest es als Rückfall, also muss es mitwandern.
+        // passiert — ohne Sätze und ohne Häkchen verschwindet die Zeile beim
+        // Ab-wählen. hatEintrag() liest es als Rückfall, muss also mitwandern.
         karte.dataset.eintrag = protokolliert ? '1' : '';
 
         // Abgehakt heißt: Der Wert steht fest. Ändern geht nur über Häkchen
-        // entfernen, korrigieren, neu abhaken (§7.4).
-        //
-        // Im Expertenmodus gibt es dieses Feld nicht, und die Satzliste bleibt
-        // bewusst offen: Dort ist das Nachtragen weiterer Sätze der Normalfall
-        // und nicht die Korrektur — wer nach Satz 1 erst das Häkchen entfernen
-        // müsste, um Satz 2 einzutragen, käme keine drei Übungen weit. Fest
-        // stehen die Werte mit dem Ende der Einheit.
-        const gewicht = qs('.gewicht', karte);
-        if (gewicht) gewicht.readOnly = erledigt || sessionId <= 0;
-
-        // Dieselbe Sperre für die zwei Felder einer Ausdauerposition im
-        // einfachen Modus — sie stehen an derselben Stelle im Ablauf wie das
-        // Gewichtsfeld und dürfen nach dem Abhaken genauso wenig wandern.
-        qsa('.distanz, .dauer', karte).forEach((feld) => {
-            feld.readOnly = erledigt || sessionId <= 0;
-        });
+        // entfernen, korrigieren, neu abhaken (§7.4). Gesperrt werden die
+        // Satzfelder in saetzeSperren(); ein Feld für die ganze Übung gibt es
+        // seit 1.4.3 nicht mehr.
 
         // Aus demselben Grund lässt sich eine abgehakte Position nicht tauschen
         // (§7.5) — der Protokolleintrag hält fest, was tatsächlich gemacht
@@ -498,9 +482,7 @@
         const tausch = qs('.tauschen', karte);
         tausch.disabled = protokolliert;
         if (protokolliert) {
-            tausch.title = experte
-                ? 'Erst die protokollierten Sätze entfernen'
-                : 'Erst das Häkchen entfernen';
+            tausch.title = 'Erst die protokollierten Sätze entfernen';
         } else {
             tausch.removeAttribute('title');
         }
@@ -619,13 +601,16 @@
     /**
      * Die Sätze einer Karte, wie sie gerade im DOM stehen.
      *
-     * Rückgabe null außerhalb des Expertenmodus — das unterscheidet „keine
-     * Satzliste dabei" von „Satzliste, die leer ist", und api/log.php macht
-     * dieselbe Unterscheidung.
+     * Liefert IMMER eine Liste, seit 1.4.3 auch eine leere: Den einfachen Modus
+     * gibt es nicht mehr, also gibt es auch kein „keine Satzliste dabei" mehr.
+     *
+     * `api/log.php` unterscheidet die beiden Fälle weiterhin — eine fehlende
+     * oder leere Liste heißt dort „keine Werte angegeben" und lässt `weight`
+     * auf null. Das ist der Weg, auf dem eine Übung ohne Zahlen abgehakt wird
+     * (Bauch, Dips), und der Weg, auf dem ein wartender Eintrag von vor 1.4.3
+     * beim Nachholen noch sein Gewicht mitbringt.
      */
     function saetzeLesen(karte) {
-        if (!experte) return null;
-
         const ausdauer = istAusdauer(karte);
 
         // Immer ALLE vier Felder, auch die der jeweils anderen Erfassungsart —
@@ -913,8 +898,7 @@
     }
 
     /**
-     * Schreibt die Pace-Zeile fort — im Expertenmodus aus der Intervallliste,
-     * im einfachen aus den beiden Feldern der Karte.
+     * Schreibt die Pace-Zeile fort, aus der Intervallliste der Karte.
      *
      * Die Zeile steht bei Ausdauer IMMER in der Karte (index.php rendert sie
      * mit „—"), hier wird nur ihr Inhalt getauscht. Sie ein- und auszublenden
@@ -924,12 +908,7 @@
         const wert = qs('.pace-wert', karte);
         if (!wert) return;
 
-        wert.textContent = saetze === null
-            ? paceText([{
-                distanz: (qs('.distanz', karte)?.value ?? '').trim(),
-                dauer: (qs('.dauer', karte)?.value ?? '').trim(),
-            }])
-            : paceText(saetze);
+        wert.textContent = paceText(saetze);
     }
 
     /**
@@ -976,8 +955,11 @@
             }
 
             // Das Häkchen bleibt, wie es ist — Sätze einzutragen heißt nicht,
-            // mit der Übung fertig zu sein.
-            await abhaken(karte, istErledigt(karte));
+            // mit der Übung fertig zu sein. Und genau deshalb ist der
+            // bestätigte Zustand hier derselbe und nicht sein Gegenteil:
+            // Scheitert der Aufruf, darf das Häkchen nicht verschwinden.
+            const erledigt = istErledigt(karte);
+            await abhaken(karte, erledigt, erledigt);
         }
     }
 
@@ -1078,43 +1060,16 @@
         const body = {
             action: 'check',
             plan_exercise_id: peId,
-            weight: eintrag.weight,
-            // Die zwei Ausdauerfelder des einfachen Modus reisen als ROHTEXT
-            // mit („5000", „24:30") — der Server parst und weist eine
-            // Fehleingabe mit 422 samt Feldnamen ab. Im Browser zu parsen wäre
-            // kürzer und verschluckte den Vertipper: dauerAusEingabe() liefert
-            // dort null, und die Zeit wäre stillschweigend weg.
-            distanz: eintrag.distanz ?? '',
-            dauer: eintrag.dauer ?? '',
-            // „Fertig mit der Übung" ist ein eigener Zustand — im
-            // Expertenmodus entsteht die Zeile schon mit dem ersten Satz.
+            // „Fertig mit der Übung" ist ein eigener Zustand — die Zeile
+            // entsteht schon mit dem ersten Satz.
             done: eintrag.done !== false,
         };
-        // Nur mitschicken, wenn es eine Satzliste GIBT: Ein fehlendes `sets`
-        // heißt für api/log.php „einfacher Modus", ein leeres Array dasselbe.
+        // Die Satzliste ist die Nutzlast (§7.4). Eine LEERE Liste wird
+        // mitgeschickt und heißt für api/log.php „keine Werte angegeben" —
+        // genau der Fall „abhaken, ohne etwas einzutragen".
         if (eintrag.sets) body.sets = eintrag.sets;
 
         return body;
-    }
-
-    /** Der Wert des Gewichtsfeldes — im Expertenmodus gibt es keines. */
-    function gewichtsWert(karte) {
-        const feld = qs('.gewicht', karte);
-        return feld ? feld.value : '';
-    }
-
-    /**
-     * Die zwei Ausdauerfelder der Karte — nur im einfachen Modus vorhanden.
-     *
-     * Wie gewichtsWert(): Fehlt das Feld, ist der Wert leer. Der Server
-     * unterscheidet „nicht geschickt" nicht von „leer geschickt", weil beides
-     * dasselbe heißt — an dieser Position steht kein Wert.
-     */
-    function ausdauerWerte(karte) {
-        return {
-            distanz: qs('.distanz', karte)?.value ?? '',
-            dauer: qs('.dauer', karte)?.value ?? '',
-        };
     }
 
     /**
@@ -1129,7 +1084,7 @@
         const peId = Number(karte.dataset.pe);
         const kasten = qs('.erledigt', karte);
         const saetze = saetzeFuerServer(karte);
-        const aktiv  = erledigt || (saetze !== null && saetze.length > 0);
+        const aktiv  = erledigt || saetze.length > 0;
         karte.dataset.eintrag = aktiv ? '1' : '';
         fehlerLeeren(karte);
         kasten.disabled = true;
@@ -1139,9 +1094,6 @@
                 wiederholen: true,
                 body: nutzlast(peId, {
                     action: aktiv ? 'check' : 'uncheck',
-                    weight: aktiv ? gewichtsWert(karte) : '',
-                    distanz: aktiv ? ausdauerWerte(karte).distanz : '',
-                    dauer: aktiv ? ausdauerWerte(karte).dauer : '',
                     sets: aktiv ? saetze : null,
                     done: erledigt,
                 }),
@@ -1156,7 +1108,7 @@
             abschlussFrage(daten, brauchtReload);
         } catch (fehler) {
             zustandSetzen(karte, vorher);
-            fehlerZeigen(karte, fehler, () => abhaken(karte, erledigt));
+            fehlerZeigen(karte, fehler, () => abhaken(karte, erledigt, vorher));
         } finally {
             kasten.disabled = false;
         }
@@ -1168,8 +1120,26 @@
      * Bewusst immer ueber die Ablage, auch bei bestem Empfang — ein Weg statt
      * zweier. Nebenbei ueberlebt die Eingabe damit auch einen Absturz oder ein
      * versehentliches Schliessen der App zwischen Tipp und Antwort.
+     *
+     * **`bestaetigt` ist der Zustand, auf den bei einer fachlichen Ablehnung
+     * zurueckgefallen wird — und er hat KEINEN Vorgabewert.** Bis 1.4.2 stand
+     * hier `!erledigt`, also die Annahme, jeder Aufruf schalte das Haekchen um.
+     * Fuer den Klick aufs Haekchen stimmt das; fuer die beiden anderen Aufrufer
+     * nicht:
+     *
+     * - `satzSpeichernJetzt()` speichert Saetze und laesst das Haekchen, wie es
+     *   ist. Bei einer ABGEHAKTEN Uebung entstand damit ein Eintrag mit
+     *   `vorher: false` — und die erste beliebige Ablehnung (409, 422, 404)
+     *   nahm das Haekchen weg, obwohl der Server die Position als erledigt
+     *   fuehrt. Genau so ist im Studio zweimal ein Haken verschwunden.
+     * - Der Wiederholen-Knopf setzt den Zustand des gescheiterten Eintrags neu
+     *   und faellt auf dessen `vorher` zurueck, nicht auf dessen Gegenteil.
+     *
+     * Ein Vorgabewert waere hier die Falle selbst: Er waere fuer einen Aufrufer
+     * richtig und fuer die anderen falsch, und ein neuer Aufrufer bekaeme
+     * stillschweigend die falsche Annahme.
      */
-    async function abhaken(karte, erledigt) {
+    async function abhaken(karte, erledigt, bestaetigt) {
         const peId = Number(karte.dataset.pe);
 
         // Der bestaetigte Zustand, auf den bei einer endgueltigen Ablehnung
@@ -1177,7 +1147,7 @@
         // `vorher` — die Zeile zeigt dann ja bereits Unbestaetigtes, und das
         // Gegenteil der aktuellen Anzeige waere der falsche Bezugspunkt.
         const offen  = schlange.aktiv ? schlange.eintrag(peId) : null;
-        const vorher = offen ? offen.vorher : !erledigt;
+        const vorher = offen ? offen.vorher : bestaetigt;
 
         if (!schlange.aktiv) {
             await abhakenDirekt(karte, erledigt, vorher);
@@ -1191,7 +1161,7 @@
         // Datenbank stehen, auch wenn sie nicht als fertig markiert ist; ohne
         // Saetze und ohne Haekchen gibt es dagegen nichts festzuhalten.
         const saetze = saetzeFuerServer(karte);
-        const aktiv  = erledigt || (saetze !== null && saetze.length > 0);
+        const aktiv  = erledigt || saetze.length > 0;
 
         // Merkt sich, ob es serverseitig eine Zeile zu dieser Position gibt.
         // Nur dafür da, überflüssige Aufrufe zu vermeiden — siehe
@@ -1200,9 +1170,6 @@
 
         schlange.setzen(peId, {
             action: aktiv ? 'check' : 'uncheck',
-            weight: aktiv ? gewichtsWert(karte) : '',
-            distanz: aktiv ? ausdauerWerte(karte).distanz : '',
-            dauer: aktiv ? ausdauerWerte(karte).dauer : '',
             sets: aktiv ? saetze : null,
             done: erledigt,
             vorher: vorher,
@@ -1289,7 +1256,7 @@
                         wartendSetzen(karte, false);
                         zustandSetzen(karte, eintrag.vorher);
                         fehlerZeigen(karte, fehler,
-                            () => abhaken(karte, eintrag.done === true));
+                            () => abhaken(karte, eintrag.done === true, eintrag.vorher));
                     }
                 }
 
@@ -1328,17 +1295,6 @@
             }
 
             if (eintraege[k].action === 'check') {
-                const feld = qs('.gewicht', karte);
-                if (feld) feld.value = eintraege[k].weight || '';
-
-                // Dasselbe für die zwei Ausdauerfelder — ohne sie sähe man
-                // nach einem Neuladen im Funkloch die eigene Distanz und Zeit
-                // wieder verschwinden, während das Häkchen stehen bleibt.
-                const dFeld = qs('.distanz', karte);
-                if (dFeld) dFeld.value = eintraege[k].distanz || '';
-                const tFeld = qs('.dauer', karte);
-                if (tFeld) tFeld.value = eintraege[k].dauer || '';
-                if (dFeld || tFeld) paceSchreiben(karte, null);
                 // Die wartenden Sätze schlagen die serverseitig gerenderten:
                 // Die Seite zeigt den BESTÄTIGTEN Stand, die Ablage den
                 // eingegebenen. Ohne diese Zeile sähe man nach einem Neuladen
@@ -1385,7 +1341,8 @@
         // dokumentieren, was tatsächlich gemacht wurde; sie zu löschen, weil
         // jemand eine Fertig-Markierung zurücknimmt, wäre dieselbe Sorte
         // Fehler wie ein Tausch auf eine abgehakte Position (§7.5).
-        abhaken(karte, e.target.checked);
+        // Umschalten: bestaetigt ist der Zustand VOR dem Klick.
+        abhaken(karte, e.target.checked, !e.target.checked);
 
         if (e.target.checked) weiterZurNaechsten(karte);
     });
@@ -1691,24 +1648,8 @@
     // Die Satzzeilen entstehen hier, aus dem JSON in data-saetze. index.php
     // liefert nur die Werte und die Zusammenfassung; die bedienbare Liste hat
     // genau einen Erzeuger (satzZeileMarkup).
-    if (experte) {
-        qsa('.position-karte', liste).forEach((karte) => {
-            saetzeZeichnen(karte, satzListeAusDaten(karte.dataset.saetze), true);
-        });
-    }
-
-    // Im einfachen Modus zieht die Pace an den zwei Kartenfeldern statt an der
-    // Intervallliste. Sie wird beim Tippen fortgeschrieben und nicht erst beim
-    // Abhaken: Wer die Zeit einträgt, will sofort sehen, ob er schneller war.
-    // `input` und nicht `change` — sonst stünde die Zahl erst da, wenn das Feld
-    // den Fokus verliert, und das ist am Handy nach dem Zuklappen der Tastatur.
-    liste.addEventListener('input', (e) => {
-        if (!e.target.classList.contains('distanz')
-            && !e.target.classList.contains('dauer')) {
-            return;
-        }
-        const karte = e.target.closest('.position-karte');
-        if (karte) paceSchreiben(karte, null);
+    qsa('.position-karte', liste).forEach((karte) => {
+        saetzeZeichnen(karte, satzListeAusDaten(karte.dataset.saetze), true);
     });
 
     // Erst die wartenden Eingaben auf die Zeilen übertragen, dann versuchen,

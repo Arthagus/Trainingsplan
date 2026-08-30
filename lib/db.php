@@ -165,6 +165,12 @@ function apply_migrations(PDO $pdo): void {
     // TABLE IF NOT EXISTS in schema.sql, das bei jedem Start laeuft und sie
     // damit auch auf einer Bestandsdatenbank anlegt. Nur SPALTEN muessen den
     // Umweg ueber PRAGMA table_info nehmen.
+    // SEIT 1.4.3 IST DIE SPALTE TOT -- der einfache Modus ist ersatzlos
+    // entfallen (§7.4), niemand liest sie mehr. Dieser Block bleibt trotzdem
+    // stehen, und zwar nicht aus Ordnungsliebe: Sie ist NOT NULL, und
+    // schema.sql legt mit CREATE TABLE IF NOT EXISTS keine Spalte in einer
+    // bestehenden Tabelle nach. Ohne ihn scheiterte jedes INSERT in users,
+    // sobald jemand eine Sicherung von vor 1.1.0 einspielt.
     if (!column_exists($pdo, 'users', 'expert_mode')) {
         $pdo->exec('ALTER TABLE users ADD COLUMN expert_mode INTEGER NOT NULL DEFAULT 0');
     }

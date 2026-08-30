@@ -40,6 +40,7 @@ korrigieren, nicht zu befolgen. Im Zweifel nachfragen statt raten.
 | `doku/bestand_gruppen_uebungen.md` | Muskelgruppen, Übungen und Pläne im Wortlaut |
 | `doku/rueckmeldungen_praxistest.md` | Rückmeldungen aus dem Studio samt Begründungen |
 | `doku/nginx-vhost.conf` | Kopie der aktiven Server-Konfiguration |
+| `deploy/werkzeuge/` | Einmalskripte für die **Live**-Datenbank (Einheit prüfen, Häkchen setzen). Stehen **nicht** in der Positivliste von `paket_bauen.sh` und liegen deshalb nie im Container — am Live-System wird ihr Inhalt als `php -r`-Einzeiler eingegeben, siehe `deploy/werkzeuge/LIESMICH.md` |
 
 ## Lokale Entwicklung
 
@@ -61,7 +62,7 @@ Werte aus dem Stack; lokal muss man sie selbst setzen:
 php -r 'putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
         require "lib/db.php"; db();
         db()->prepare("UPDATE users SET must_change_password = 0,
-                                        expert_mode = 1")->execute();
+                                        satz_vorlage = \'gleicher_satz\'")->execute();
         db()->prepare("INSERT INTO splits (user_id, name, sort_order, created_at)
                        VALUES (1, \"Test\", 10, ?)")->execute([date("Y-m-d H:i:s")]);
         db()->prepare("UPDATE users SET active_split_id = last_insert_rowid()
@@ -70,9 +71,12 @@ php -r 'putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
 
 Das `UPDATE` ist kein Schönheitsfehler, sondern nötig: Ohne es sperrt
 `require_passwort_gesetzt_api()` **jeden** Endpunkt außer `api/auth.php` (Fallstrick 3),
-und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht. `expert_mode = 1`
-nur, wenn die Satzerfassung geprüft werden soll — im Standardmodus rendert `index.php` gar
-keinen Satzblock, und man sucht den Fehler an der falschen Stelle.
+und der erste `curl`-Test läuft in ein 403, das wie ein Fehler aussieht.
+
+**`expert_mode` braucht hier nichts mehr.** Bis `1.4.2` musste die Spalte auf 1 stehen,
+sonst rendete `index.php` gar keinen Satzblock und man suchte den Fehler an der falschen
+Stelle. Seit `1.4.3` gibt es nur noch die satzgenaue Erfassung; die Spalte ist tot
+(Fallstrick 32). In älteren Notizen steht das `UPDATE` deshalb noch.
 
 **Der Split ist seit `1.2.0` genauso nötig.** Ohne ihn steht die Trainingsansicht auf
 „Noch kein Workout-Split gewählt" und verweist auf `splits.php` — man sucht den Fehler dann
@@ -277,7 +281,7 @@ Training, Verlauf und Sätze führt kein Weg an einem Plan mit Positionen vorbei
 php -r '
 putenv("ADMIN_USER=tester"); putenv("ADMIN_PASSWORD=geheim12345");
 require "lib/db.php"; db(); $p = db(); $n = date("Y-m-d H:i:s");
-$p->prepare("UPDATE users SET must_change_password = 0, expert_mode = 1")->execute();
+$p->prepare("UPDATE users SET must_change_password = 0")->execute();
 $g = (int)$p->query("SELECT id FROM muscle_groups LIMIT 1")->fetchColumn();
 $p->prepare("INSERT INTO splits (user_id,name,sort_order,created_at) VALUES (1,?,1,?)")->execute(["Push/Pull",$n]);
 $split = (int)$p->lastInsertId();
@@ -341,9 +345,32 @@ Erfassungsfilter bleibt ungeprüft. Genau daran lief die erste Gegenprobe am 202
 Leere: Beide Listen kamen leer zurück, und das sah nach einem Befund aus.
 
 ```php
-$p->prepare("INSERT INTO exercises (name_de,equipment,erfassung,created_at)
-             VALUES (?,?,?,?)")->execute(["Laufband","laufband","ausdauer",$n]);
+$g    = (int)$p->query("SELECT id FROM muscle_groups LIMIT 1")->fetchColumn();
+$plan = (int)$p->query("SELECT id FROM plans LIMIT 1")->fetchColumn();
+$max  = (int)$p->query("SELECT MAX(sort_order) FROM plan_exercises")->fetchColumn();
+// Eine Ausdauerübung IM Plan (gemischte Einheit), eine DANEBEN (Tausch-Gegenprobe) --
+// beide mit derselben Primaergruppe wie die Kraftuebungen.
+foreach ([["Laufband","laufband",true], ["Crosstrainer","crosstrainer",false]] as [$name,$ger,$imPlan]) {
+    $p->prepare("INSERT INTO exercises (name_de,equipment,erfassung,created_at)
+                 VALUES (?,?,'ausdauer',?)")->execute([$name,$ger,$n]);
+    $e = (int)$p->lastInsertId();
+    $p->prepare("INSERT INTO exercise_muscle_groups (exercise_id,muscle_group_id,is_primary)
+                 VALUES (?,?,1)")->execute([$e,$g]);
+    if ($imPlan) {
+        $p->prepare("INSERT INTO plan_exercises (plan_id,exercise_id,sort_order)
+                     VALUES (?,?,?)")->execute([$plan,$e,++$max]);
+    }
+}
 ```
+
+**Die Muskelgruppe ist der ganze Punkt, und sie fehlte hier bis zum 2026-08-30** — der
+Nachtrag legte die Ausdauerübung ohne `exercise_muscle_groups`-Zeile an. Gemessen mit
+diesem Bestand: `tausch_vorschlaege()` liefert für Bankdrücken zwei Kraftübungen — und
+liefert **dieselben zwei, wenn man den Erfassungsfilter aus `lib/training.php` entfernt**.
+Der `JOIN` auf die Muskelgruppe trennt die beiden Arten dann ganz allein, der Filter wird
+nie berührt, und die Gegenprobe bestätigt sich selbst. Mit dem Bestand oben schlägt sie an:
+ohne Filter stehen Laufband und Crosstrainer in der Kraftliste, während die Ausdauerliste
+unverändert bleibt — genau das Erwartete fällt durch, und nur das.
 
 **Ein Benutzer und ein Split beweisen die halbe Fachlichkeit nicht.** Zwei Fragen
 beantwortet dieser Bestand systematisch falsch, weil es nichts zu verwechseln gibt:
@@ -428,7 +455,7 @@ ins `UPDATE`-Statement, bevor man das erste Mal darauf schreibt (Fallstrick 22):
 
 | Endpunkt | Aktionen |
 |---|---|
-| `auth.php` | `login`, `change_password`, `change_name`, `set_expert_mode`, `set_satz_vorlage`, `revoke_device`, `revoke_all` |
+| `auth.php` | `login`, `change_password`, `change_name`, `set_satz_vorlage`, `revoke_device`, `revoke_all` |
 | `exercises.php` | `create`, `update`, `archive`, `unarchive`, `delete` |
 | `log.php` | `check`, `uncheck` |
 | `maintenance.php` | `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`, `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`, `images_recut_check`, `images_recut` |
@@ -503,7 +530,8 @@ Split eines anderen Benutzers. Drei Dinge, die daran hängen:
   stillen Rückfall —, die Regel selbst darf deshalb trotzdem nur einmal dastehen.
 
 **`password.php` heißt „Konto" und trägt VIER Aufgaben** (§7.7): Passwort ändern,
-Benutzername ändern, Trainingsansicht (Expertenmodus und Satz-Vorbelegung) — und seit
+Benutzername ändern, Trainingsansicht (die Satz-Vorbelegung; der Expertenmodus-Umschalter
+ist mit `1.4.3` entfallen) — und seit
 `1.2.3` die **Geräteverwaltung** samt **Abmelden**. Die Geräte lagen bis dahin auf einer
 eigenen Seite `devices.php` mit eigenem Menüpunkt; beide sind ersatzlos entfallen. Damit
 ist auch die alte Verwechslungsgefahr weg: `lib/geraete.php` sind die *Trainings*geräte
@@ -820,6 +848,18 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   dabei etwas anderes: In einem Flex-Container wird **jedes Element** ein eigenes Element
   der Spalte, auch ein `<code>` mitten im Satz — „wenn die `-wal`-Datei groß ist" stand
   danach auf drei Zeilen. Anonyme Textteile werden zusammengefasst, echte Elemente nicht.
+- **Ein Grid füllt seine Spalten der Reihe nach — wer ein Element entfernt, verschiebt alle
+  dahinter.** `justify-self` richtet dann brav aus, nur in der falschen Spalte, und das sieht
+  aus wie ein kaputtes Alignment statt wie eine verrutschte Platzierung.
+
+  In `1.4.3` fiel das Gewichtsfeld aus `.position-aktionen` (`1fr auto 1fr`) weg. „Erledigt"
+  war danach das zweite Kind, landete in der **mittleren** Spalte und stand mit
+  `justify-self: end` am rechten Rand *dieser* Spalte — also mitten in der Zeile. Aus dem
+  Studio gemeldet, in `1.4.4` behoben.
+
+  **Wo eine Spalte absichtlich leer bleibt, gehört die Zuweisung deshalb ausdrücklich hin**
+  (`grid-column: 1` und `grid-column: 3`), nicht der automatischen Platzierung überlassen.
+  Dasselbe gilt umgekehrt: Wer die Mitte später füllt, gibt dem Element `grid-column: 2`.
 - **Mobile-first.** Die Handy-Ansicht ist der Hauptfall, nicht der Sonderfall.
 - **Fehler nie stillschweigend verschlucken:** Schlägt ein Speichern fehl, bleibt das Häkchen
   sichtbar unbestätigt und ein Wiederholen-Knopf erscheint.
@@ -841,7 +881,8 @@ stehen (siehe **11**), statt die folgenden aufrücken zu lassen.
 **1, 2, 13, 17, 18**, an Deployment und Caching mit **12** und **23**, an allem, was einen
 Übungsnamen anzeigt, mit **27**, an Leisten und Meldungen mit **19** und **29**, an allem,
 was Werte erfasst oder auswertet, zusätzlich mit **30**, an allem, was `plan_exercises`
-liest, mit **31**.
+liest, mit **31**, an allem, was aussieht wie ein Rest des einfachen Modus, mit **32**, an „x/n" im
+Verlauf mit **33**.
 
 **Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
 Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
@@ -879,7 +920,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
    **`api/auth.php` ist die Ausnahme nur am DATEIKOPF, nicht in der Sache.** Anmeldung und
    erzwungener Wechsel müssen erreichbar bleiben, deshalb steht dort keine Sperre über
-   allem — aber `change_name`, `set_expert_mode` und `set_satz_vorlage` rufen sie
+   allem — aber `change_name` und `set_satz_vorlage` rufen sie
    ausdrücklich selbst auf. Wer dort eine Aktion ergänzt, entscheidet also bewusst, ob sie
    vor dem Passwortwechsel erreichbar sein darf; der Dateikopf nimmt ihm die Entscheidung
    nicht ab. Die Gegenprobe, die nur echte Aufrufe zählt und keine Kommentare:
@@ -916,7 +957,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    Gesperrt wird **serverseitig**, der deaktivierte Knopf ist nur die Bequemlichkeit.
    **Der Name der Prüffunktion führt in die Irre:** `position_abgehakt()` in `api/swap.php`
    zählt die `workout_log`-Zeilen der Position und sieht `done` überhaupt nicht an. Im
-   einfachen Modus fällt beides zusammen, im Expertenmodus nicht — Einzelheiten in
+   einfachen Modus fiel beides bis `1.4.2` zusammen, mit Sätzen nicht — Einzelheiten in
    Fallstrick 18. Wer sich auf den Namen verlässt, sucht die Sperre am falschen Zustand.
 
    **Dasselbe gilt für Werte:** Geändert wird durch Ab-wählen, nicht durch Bearbeiten
@@ -1019,6 +1060,61 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     **Eine 4xx-Antwort muss den Eintrag aus der Schlange entfernen.** Sie fällt bei jedem
     weiteren Versuch gleich aus; bliebe der Eintrag liegen, blockierte er alle folgenden
     dauerhaft. Nur `err.offline` darf ihn liegen lassen.
+
+    **Und sie setzt die Anzeige auf `eintrag.vorher` zurück — dieser Wert muss der
+    BESTÄTIGTE Zustand sein und darf nicht aus `erledigt` gefolgert werden.** Bis `1.4.2`
+    stand in `abhaken()` `vorher = !erledigt`, also die Annahme, jeder Aufruf schalte das
+    Häkchen um. Für den Klick aufs Häkchen stimmt das. Für die beiden anderen Aufrufer nicht:
+
+    - **`satzSpeichernJetzt()`** speichert Sätze und lässt das Häkchen, wie es ist. Bei einer
+      abgehakten Übung entstand ein Eintrag mit `vorher: false` — und die erste beliebige
+      Ablehnung nahm das Häkchen weg, obwohl der Server die Position als erledigt führt.
+    - **Der Wiederholen-Knopf** fällt auf das `vorher` des gescheiterten Eintrags zurück,
+      nicht auf dessen Gegenteil.
+
+    **Aus dem Anzeigefehler wird ein echter Verlust**, und das ist der eigentliche Grund für
+    die Schärfe hier: Ist das Häkchen erst einmal fälschlich weg, sind die Satzfelder wieder
+    bedienbar (`saetzeSperren()` hängt am Häkchen). Der nächste Satz-Speicher ruft dann
+    `abhaken(karte, istErledigt(karte) === false, …)` und schickt `done: false` — der Server
+    setzt `done = 0`, und die Übung ist auch in der Datenbank nicht mehr erledigt.
+
+    **Gemeldet aus dem Studio am 2026-08-30** („eine bereits abgehakte Übung war auf einmal
+    nicht mehr abgehakt", zweimal). Seit `1.4.3` ist `bestaetigt` ein eigener Parameter von
+    `abhaken()` **ohne Vorgabewert**: Ein Vorgabewert wäre die Falle selbst — richtig für
+    einen Aufrufer, falsch für die anderen, und ein neuer bekäme stillschweigend die falsche
+    Annahme.
+
+    **Serverseitig war nichts verloren.** Nachgemessen: Eine abgehakte Position bleibt
+    `done = 1` samt Gewicht und Sätzen, während an anderen Positionen Sätze geschrieben,
+    abgehakt und ab-gewählt werden — der Upsert ist auf `(session_id, plan_exercise_id)`
+    geschlüsselt. Wer diesen Fehler sucht, sucht ihn im Browser.
+
+    **Der Altbestand trägt die Spuren trotzdem**, und man erkennt sie an einer klaren
+    Signatur: eine `workout_log`-Zeile mit `done = 0`, die Gewicht oder Sätze trägt. Am
+    2026-08-30 fiel dem Benutzer eine Einheit mit „5/6" auf, in der er alles abgehakt hatte.
+    **Verloren ist dabei nur die ZAHL** — nachgemessen: Die Zeile steht mit Gewicht, Sätzen
+    und 1RM in der Tabelle der Einheit, zählt im Übungsverlauf mit und liefert weiterhin
+    „letztes Gewicht" und die Satzvorlage. Allein `einheiten_verlauf()` zählt `done = 1`.
+
+    **Am Live-System nachgewiesen und repariert** (2026-08-30): Einheit 52 vom 29.08. stand
+    auf „5/6". Position 213 „Trizeps Kabel Pushdown" trug `done = 0` bei 45 kg und **vier
+    Sätzen** — die Signatur, wie sie im Buch steht. Nach dem Setzen des Häkchens steht die
+    Einheit auf 6/6, Sätze und Gewicht waren die ganze Zeit da.
+
+    **Über die Oberfläche ist das nicht zu reparieren**, und das ist kein Versehen:
+    `api/log.php` schreibt ausschließlich in eine LAUFENDE Einheit (Fallstrick 1), und
+    `history.php` kann eine Einheit nur löschen. Für den Altbestand liegen zwei
+    Einmalskripte in `deploy/werkzeuge/` — nachsehen und Häkchen setzen. Sie stehen nicht in
+    der Positivliste von `paket_bauen.sh` und gehören nicht ins Image.
+
+    **Wer so etwas repariert, muss ZWEI Zeilenarten auslassen**, und die zweite fiel erst am
+    Live-Bestand auf: eine Zeile ganz **ohne Werte** (sie kann eine bewusst abgebrochene
+    Übung sein), und eine Zeile **ohne `plan_exercise_id`**. Letztere entsteht, wenn die
+    Übung später aus dem Plan genommen wurde (`ON DELETE SET NULL`, §4.1): Sie zählt in „x"
+    mit, während „n" nur die verbliebenen Positionen zählt — ein Häkchen dort ergäbe „7/6"
+    und damit genau den Zustand aus Fallstrick 2. In Einheit 50 vom 27.08. stand eine solche
+    Zeile („Liegende Bizepscurls"), und ein blindes `UPDATE … WHERE done = 0` hätte sie
+    erwischt.
 
     **`navigator.onLine` ist als Verbindungsanzeige unbrauchbar** — es meldet nur, ob eine
     Schnittstelle da ist. Im Studio-WLAN ohne Internet steht es auf `true`, während jeder
@@ -1131,11 +1227,15 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     - **Der Schlüssel steht in der Datenbank, die Beschriftung nur in `GERAETE`.** Eine
       Umbenennung ist eine Textänderung ohne Migration; wer den *Schlüssel* ändert, braucht
       ein `UPDATE`.
-    - **Seit `1.4.0` sind es zehn Werte** — dazu kamen `laufband`, `crosstrainer`,
-      `rudergeraet`. Sie stehen in derselben Liste wie alles andere und sind **kein**
+    - **Die Ausdauergeräte stehen in derselben Liste** — `laufband` und `crosstrainer` seit
+      `1.4.0`, `rudergeraet` ebenfalls, `stairmaster` seit `1.4.3`. Sie sind **kein**
       Sonderfall: Ob eine Übung in Metern protokolliert wird, entscheidet
-      `exercises.erfassung` und nicht das Gerät (Fallstrick 30). Die Zahl „sieben" stand an
-      vier Stellen im Fließtext und ist überall mitgezogen.
+      `exercises.erfassung` und nicht das Gerät (Fallstrick 30).
+    - **Die ANZAHL gehört in keinen Fließtext.** Sie stand als „sieben" an vier Stellen, war
+      ab `1.4.0` falsch, wurde zu „zehn" — und war mit `stairmaster` sofort wieder falsch.
+      Seit `1.4.3` steht sie nirgends mehr; die einzige Quelle ist `GERAETE`. Dieselbe Sorte
+      wie „alle sieben Seiten-Skripte" beim Service Worker: **Eine Zahl, die man von Hand
+      nachziehen muss, zieht niemand nach.**
     - **Das Gerät ist auch beim Bearbeiten Pflicht** — der Mechanismus, über den Altbestand
       seinen Wert bekommt: Die Migration setzt nichts, die Liste mahnt „Gerät fehlt", der
       Filter `GERAET_LEER` findet genau diese Zeilen.
@@ -1147,7 +1247,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       `bild_zuschnitt_klasse()` / `vorschlagMarkup()`; `mitte` liefert bewusst **keine**
       Klasse, das ist der Vorgabewert von `object-position`.
 
-17. **Im Expertenmodus ist die ganze SATZLISTE die Nutzlast, nicht der einzelne Satz**
+17. **Die ganze SATZLISTE ist die Nutzlast, nicht der einzelne Satz**
     (§7.4, `api/log.php`). `check` nimmt sie als Feld `sets` und ersetzt die Sätze der
     Position vollständig — erst `DELETE`, dann `INSERT` von 1 an, in **einer** Transaktion.
     Damit ist der Aufruf idempotent, und genau darauf verlässt sich die Warteschlange. Ein
@@ -1157,9 +1257,11 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     - **Ein `check` OHNE `sets` löscht vorhandene Sätze.** Die Nutzlast beschreibt die Zeile
       vollständig.
-    - **Deshalb ist der Moduswechsel bei laufender Einheit gesperrt** (409). Ein wartender
-      Eintrag aus dem einfachen Modus trägt keine Satzliste — das wäre stiller Datenverlust
-      mitten im Training.
+    - **Bis `1.4.2` war deshalb der Moduswechsel bei laufender Einheit gesperrt** (409):
+      Ein wartender Eintrag aus dem einfachen Modus trug keine Satzliste, und ein `check`
+      ohne Satzliste hätte die Sätze der Position gelöscht. Mit dem Modus ist die Sperre
+      entfallen (Fallstrick 32) — die Überlegung dahinter gilt weiter für jede künftige
+      Einstellung, die die FORM eines Warteschlangen-Eintrags ändert.
     - **`set_satz_vorlage` ist ausdrücklich NICHT gesperrt**, und der Warteschlangen-
       Schlüssel bleibt **`-v3`**: Beide Verfahren schicken dieselbe Satzliste, die *Form*
       eines Eintrags ist unverändert. Ein Sprung würde beim Rollout die wartenden Eingaben
@@ -1192,8 +1294,8 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     roten Fehlerrand ohne Anlass oder eine Zeile, die beim Tippen verschwindet.
 
 18. **„Protokolliert" und „erledigt" sind zwei Zustände** (`workout_log.done`, §7.4). Im
-    einfachen Modus fallen sie zusammen; im Expertenmodus entsteht die Zeile mit dem
-    **ersten Satz**, und da ist man mitten in der Übung.
+    einfachen Modus fielen sie bis `1.4.2` zusammen; seit es nur noch Sätze gibt, entsteht
+    die Zeile mit dem **ersten Satz**, und da ist man mitten in der Übung.
 
     - **`done = 1` zählt „x/n"** — in `fortschritt()` *und* in `einheiten_verlauf()`. Beide,
       sonst heißt „erledigt" im Verlauf etwas anderes als im Training.
@@ -1215,9 +1317,9 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     - **Die Tauschsperre hängt an der EXISTENZ der Zeile**, nicht an `done`: Wer zwei Sätze
       Bankdrücken gemacht hat, kann die Position nicht mehr tauschen. `plan_positionen()`
       liefert dafür `hat_eintrag` neben `erledigt`.
-    - **`done` fehlt in der Nutzlast ⇒ erledigt.** Vorgabe für den einfachen Modus und
-      Rückfall für ältere Nutzlasten.
-    - **Ab-wählen löscht im Expertenmodus keine Sätze**; gelöscht wird die Zeile erst, wenn
+    - **`done` fehlt in der Nutzlast ⇒ erledigt.** Rückfall für ältere Nutzlasten; bis
+      `1.4.2` war es zugleich die Vorgabe des einfachen Modus.
+    - **Ab-wählen löscht keine Sätze**; gelöscht wird die Zeile erst, wenn
       kein Satz mehr übrig und kein Häkchen gesetzt ist.
     - **`done = 1` schreibt die Position fest** (`abgeschlossene_position_schuetzen()`) —
       alles abgelehnt, bis das Häkchen weg ist.
@@ -1341,7 +1443,7 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     — der Weg zurück muss sichtbar bleiben; „Tauschen" ist dort ohnehin gesperrt (§7.5).
 
     **Getönt wird `done = 1`, nicht die bloße Existenz einer Protokollzeile** (Fallstrick 18):
-    Im Expertenmodus tritt die Karte erst mit dem Häkchen zurück, nicht schon mit dem ersten
+    Die Karte tritt erst mit dem Häkchen zurück, nicht schon mit dem ersten
     Satz — am gerenderten HTML nachgesehen, nicht gefolgert.
 
     **(g) Die Tastatur darf die Seite nicht verschieben** — dieselbe Regel wie (a), nur
@@ -2018,6 +2120,92 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     Abfragen entfernen und nachsehen, ob genau das Erwartete durchfällt. Am `1.4.2`-Umbau
     war das der Beweis — ohne den Filter im Zurücksetzen **verschwand** die Tagesposition
     still, und mit ihr die Zuordnung ihres Protokolleintrags.
+
+32. **Den einfachen Modus gibt es nicht mehr — aber zwei Dinge, die nach ihm aussehen,
+    müssen bleiben** (§7.4, seit `1.4.3`). Bis `1.4.2` gab es zwei Erfassungen: ein Gewicht
+    je Übung oder Sätze einzeln, umschaltbar über `users.expert_mode`. Der Modus ist
+    ersatzlos entfallen, auf Entscheidung des Benutzers — niemand benutzte ihn mehr, und er
+    kostete an jeder Stelle, die Werte erfasst, einen zweiten Zweig.
+
+    **Was bleiben MUSS, obwohl es wie toter Code aussieht:**
+
+    - **`gewicht_pruefen()` und `ausdauer_pruefen()` in `api/log.php`.** Sie tragen zwei
+      Fälle, die es weiterhin gibt. Erstens das **Abhaken ohne Werte**: Wer nur das Häkchen
+      setzt, schickt eine leere Satzliste, `saetze_pruefen()` liefert dafür `null`, und der
+      Weg läuft hier entlang — das Ergebnis ist `weight = null`, genau richtig. Zweitens
+      **wartende Einträge von vor `1.4.3`**: Wer beim Rollout im einfachen Modus trainierte,
+      hat Einträge im `localStorage` mit `weight` und ohne `sets`.
+
+      **Gemessen, nicht gefolgert:** Ersetzt man den Aufruf durch `null`, kommt ein solcher
+      Eintrag mit `weight = NULL` an — das Gewicht ist weg, lautlos, mit `ok:true`. Genau
+      deshalb konnte der Warteschlangen-Schlüssel auf **`-v3`** bleiben, statt beim Umbau
+      die Eingaben von jedem zu verwerfen, der gerade trainiert.
+    - **Die Migration für `users.expert_mode` in `apply_migrations()`.** Die Spalte ist tot,
+      aber `NOT NULL`, und `schema.sql` legt mit `CREATE TABLE IF NOT EXISTS` keine Spalte in
+      einer bestehenden Tabelle nach. Ohne den Block scheiterte jedes `INSERT` in `users`,
+      sobald jemand eine Sicherung von vor `1.1.0` einspielt. Dieselbe Lage wie bei
+      `plans.user_id` (Fallstrick 26): tot heißt nicht weglassbar.
+
+    **Was NICHT nachgezogen werden musste — und das ist die eigentliche Entlastung:** der
+    **Verlauf**. `history.php` entscheidet je **EINHEIT**, ob sie Sätze hat (`$mitSaetzen`),
+    nicht je Benutzer. Eine Einheit von vor `1.4.3` steht deshalb unverändert mit den Spalten
+    `Übung | Gewicht` da und nennt ihre Zahl. Wer hier je etwas auf „hat dieser Benutzer
+    Sätze" umstellt, macht den Altbestand unlesbar.
+
+    Ebenfalls unangetastet: **`workout_log.weight`** trägt weiter das Leitgewicht und ist die
+    einzige Quelle für „letztes Gewicht", Gewichtsverlauf und Bestwert (Fallstrick 17).
+    **`done`** bleibt ein eigener Zustand neben „protokolliert" (Fallstrick 18) — die
+    Unterscheidung hing nie am Modus, sie war im einfachen Modus nur unsichtbar.
+
+    **Der Platz in der Mitte der Aktionszeile bleibt frei, und zwar absichtlich.** Dort stand
+    das Gewichtsfeld. Das Raster in `.position-aktionen` ist weiterhin `1fr auto 1fr` —
+    „Tauschen" links, „Erledigt" rechts, die Mitte leer. Eine leere `auto`-Spalte ist 0 px
+    breit und kostet nichts, hält aber den Platz für eine spätere Angabe frei (Wunsch des
+    Benutzers, 2026-08-30). Wer dort etwas einsetzt, gibt ihm `grid-column: 2` und
+    `justify-self: center`.
+
+    **Und genau hier ist es beim ersten Anlauf schiefgegangen:** Ohne das Gewichtsfeld war
+    „Erledigt" das zweite Kind und landete durch die automatische Platzierung in der
+    mittleren Spalte — es stand danach neben „Tauschen" statt rechts. Aus dem Studio
+    gemeldet, in `1.4.4` behoben, indem **beide** Spalten ausdrücklich zugewiesen werden.
+    Die allgemeine Form steht unter *Frontend*.
+
+33. **„x" und „n" einer vergangenen Einheit kommen aus zwei verschiedenen Zeiten** (§7.8).
+    `einheiten_verlauf()` zählt „x" über die **Protokollzeilen der Einheit**, „n" aber über
+    die **heutigen** Planpositionen. Wird eine Übung später aus dem Plan genommen, setzt
+    `ON DELETE SET NULL` ihre `plan_exercise_id` auf `NULL` (§4.1) — die Zeile bleibt und
+    zählt in „x" weiter, während „n" schrumpft. Im Verlauf steht dann **„10/8"**.
+
+    Am 2026-08-30 traf das vier von dreizehn Einheiten eines Benutzers; er hatte seine Pläne
+    oft umgebaut und trug **41** solche Waisenzeilen. Der zweite Benutzer, dessen Plan
+    unverändert war, hatte keine einzige.
+
+    **Der naheliegende Griff ist falsch**, und er war mein erster: die Waisenzeilen zu „n"
+    zu addieren. Eine Einheit mit zehn Zeilen, acht heutigen Positionen und sieben Waisen
+    stünde dann auf „10/15" — die acht heutigen Positionen enthalten ja bereits welche, die
+    es damals gar nicht gab.
+
+    **Wie viele Positionen der Plan DAMALS hatte, steht nirgends**, und das ist der Kern.
+    Genommen wird deshalb das **Größere** von „Protokollzeilen dieser Einheit" und
+    „Planpositionen":
+
+    | Lage | Ergebnis |
+    |---|---|
+    | Alles protokolliert, Plan seither geschrumpft | `10/10` |
+    | Zwei ausgelassen, Plan unverändert | `6/8` |
+
+    Damit kann „x" nie über „n" laufen — jede erledigte Zeile ist eine Protokollzeile, und
+    die zählen mit. **Was auch das nicht löst:** Ein seither GEWACHSENER Plan lässt eine alte
+    Einheit zu niedrig aussehen. Dafür müsste „n" beim Beenden in der Einheit gespeichert
+    werden, und das hülfe der Vergangenheit ohnehin nicht.
+
+    **Die Gegenprobe gehört dazu und hat genau eine Erwartung:** Eine Einheit mit wirklich
+    ausgelassenen Übungen muss `2/4` bleiben. Ohne das `MAX()` fällt allein der Fall
+    „Plan geschrumpft" um (`6/4` statt `6/6`) — fällt mehr um, misst der Test etwas anderes.
+
+    **`fortschritt()` in `api/log.php` braucht das nicht.** Dort geht es um die LAUFENDE
+    Einheit, und während einer solchen lässt sich keine Position entfernen — die
+    Struktursperre verhindert es (Fallstrick 31).
 
 ## Deployment
 

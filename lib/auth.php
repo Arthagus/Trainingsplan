@@ -111,7 +111,7 @@ function current_user(): ?array {
     }
 
     $stmt = db()->prepare(
-        'SELECT id, name, is_admin, must_change_password, expert_mode,
+        'SELECT id, name, is_admin, must_change_password,
                 satz_vorlage, blocked_at, created_at
            FROM users WHERE id = ?'
     );

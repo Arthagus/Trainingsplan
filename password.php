@@ -11,12 +11,6 @@ require_login();
 
 $benutzer = current_user();
 $erzwungen = (int)($benutzer['must_change_password'] ?? 0) === 1;
-$experte   = (int)($benutzer['expert_mode'] ?? 0) === 1;
-
-// Umschalten geht nur ausserhalb eines Trainings (§7.4) -- die Begruendung
-// steht in api/auth.php. Hier wird der Schalter deshalb gar nicht erst
-// bedienbar angeboten: Ein Knopf, der sicher in ein 409 laeuft, waere unehrlich.
-$laeuftEinheit = $erzwungen ? false : offene_einheit((int)$benutzer['id']) !== null;
 
 // Die Geraeteverwaltung (§7.7) lag bis 1.2.2 auf einer eigenen Seite
 // devices.php mit eigenem Menuepunkt. Sie steht jetzt hier: Es ist dieselbe
@@ -132,40 +126,18 @@ require __DIR__ . '/lib/view_header.php';
 
     <h2>Trainingsansicht</h2>
 
-    <div class="karte" id="experte-karte">
-        <p id="experte-fehler" class="feld-fehler" role="alert" hidden></p>
-
-        <label class="zeile-wahl">
-            <input type="checkbox" id="experte" <?= $experte ? 'checked' : '' ?>
-                   <?= $laeuftEinheit ? 'disabled' : '' ?>>
-            Sätze einzeln erfassen (Expertenmodus)
-        </label>
-
-        <p class="matt">
-            Statt einem Gewicht je Übung wird jeder Satz mit Wiederholungen und
-            Gewicht eingetragen — etwa 12×40, 10×40, 9×45. Beim Hinzufügen eines
-            Satzes steht schon drin, was du beim letzten Mal gemacht hast.
-        </p>
-        <p class="matt">
-            Bereits protokollierte Trainings bleiben erhalten und lesbar. Im
-            Verlauf steht als Gewicht einer Übung weiterhin eine Zahl — im
-            Expertenmodus der schwerste Satz.
-        </p>
-
-        <?php // Die Wahl der Satz-Vorbelegung (§7.4). Sie steht INNERHALB der
-              // Expertenkarte und eingerückt, weil sie ohne Expertenmodus keine
-              // Wirkung hat -- versteckt wird sie aber nicht: Eine Einstellung,
-              // die nur unter einer Bedingung sichtbar ist, findet niemand.
-              //
-              // Abgeblendet statt versteckt, und die Sperre setzt password.js
-              // beim Umschalten sofort nach: Die Seite laedt dabei nicht neu.
-              //
-              // Die Tabelle ist der eigentliche Erklaertext. An ihr sieht man
-              // den Unterschied in zwei Sekunden; die Saetze darunter muss man
-              // nur lesen, wenn man es genau wissen will. Die Zahlen sind ein
-              // festes Beispiel und nicht die eigenen Daten -- bei einem neuen
-              // Konto staende dort sonst nichts. ?>
-        <fieldset class="vorlage-wahl" <?= $experte ? '' : 'disabled' ?>>
+    <?php // Bis 1.4.2 stand hier zusaetzlich der Schalter "Saetze einzeln
+          // erfassen (Expertenmodus)" und diese Auswahl war ohne ihn
+          // abgeblendet. Den einfachen Modus gibt es nicht mehr (§7.4) --
+          // damit ist die Vorbelegung die einzige Einstellung, die diese
+          // Ueberschrift noch traegt, und sie gilt immer.
+          //
+          // Die Karte bleibt trotzdem eine Karte und die Ueberschrift steht
+          // ueber ihr: Kommt hier je eine zweite Einstellung dazu, ist der
+          // Platz da, und die Gliederung ist dieselbe wie auf allen anderen
+          // Seiten. ?>
+    <div class="karte" id="vorlage-karte">
+        <fieldset class="vorlage-wahl">
             <legend>Vorbelegung neuer Sätze</legend>
 
             <p class="matt">
@@ -211,22 +183,6 @@ require __DIR__ . '/lib/view_header.php';
             <p id="vorlage-fehler" class="feld-fehler" role="alert" hidden></p>
         </fieldset>
 
-        <?php // Steht unabhaengig vom Zustand da und wird nicht ein- und
-              // ausgeblendet: Der Satz stimmt in beiden Faellen, und eine
-              // Zeile, die beim Umschalten erscheint und verschwindet, laesst
-              // die Karte springen. ?>
-        <p class="matt">
-            Die Vorbelegung wirkt nur im Expertenmodus — im einfachen Modus gibt
-            es keine einzelnen Sätze.
-        </p>
-
-        <?php if ($laeuftEinheit): ?>
-            <p class="hinweis-warnung">
-                <strong>Gerade läuft ein Training.</strong>
-                Umschalten geht erst, wenn es beendet ist — sonst gingen Werte
-                verloren, die noch auf dem Weg zum Server sind.
-            </p>
-        <?php endif; ?>
     </div>
 
     <h2>Geräte</h2>

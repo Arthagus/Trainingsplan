@@ -285,8 +285,11 @@ function gruppen_auswahl(array $haupt, array $unter, array $gewaehlt, int $prima
  *
  * Anders als bei den Muskelgruppen ein Dropdown und kein Faecher aus Radios:
  * Dort gibt es eine Mehrfachauswahl mit zwei Rollen und einer Hierarchie, hier
- * genau einen Wert aus zehn. Die leere erste Option ist der Grund, warum das
- * Feld ueberhaupt required sein kann.
+ * genau einen Wert aus einer kurzen, festen Liste. Die leere erste Option ist
+ * der Grund, warum das Feld ueberhaupt required sein kann.
+ *
+ * Wie viele es sind, steht hier bewusst NICHT: Die Zahl ist mit jedem neuen
+ * Geraet falsch, und die einzige Quelle ist GERAETE in lib/geraete.php.
  *
  * @param string  $prefix   Macht die Feld-ID je Formular eindeutig
  * @param ?string $gewaehlt Der bisherige Wert (null bei einer neuen Uebung)

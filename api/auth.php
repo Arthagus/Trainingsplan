@@ -29,7 +29,6 @@ match ($aktion) {
     'login'           => aktion_login($eingabe),
     'change_password' => aktion_passwort_aendern($eingabe),
     'change_name'     => aktion_name_aendern($eingabe),
-    'set_expert_mode' => aktion_expertenmodus($eingabe),
     'set_satz_vorlage' => aktion_satz_vorlage($eingabe),
     'revoke_device'   => aktion_geraet_abmelden($eingabe),
     'revoke_all'      => aktion_alle_geraete_abmelden(),
@@ -209,45 +208,6 @@ function aktion_name_aendern(array $eingabe): never {
     json_ok(['name' => $neu]);
 }
 
-/**
- * Den Expertenmodus ein- oder ausschalten (§7.4, §7.7).
- *
- * OHNE Passwortabfrage -- anders als beim Benutzernamen. Der ist die
- * Anmeldekennung, und wer ihn aendert, kann den Besitzer aussperren. Dieser
- * Schalter aendert nur die Darstellung der eigenen Daten, nimmt niemandem
- * etwas weg und ist mit einem Tipp zurueckgedreht.
- *
- * GESPERRT, SOLANGE EINE EINHEIT LAEUFT, und der Grund ist handfest: Die
- * Warteschlange im localStorage (§7.4) ist auf user_id und session_id
- * geschluesselt und ueberlebt einen Moduswechsel damit unbeschadet. Ein
- * wartender Eintrag aus dem einfachen Modus traegt keine Satzliste -- und ein
- * "check" ohne Satzliste loescht die Saetze der Position (api/log.php,
- * saetze_schreiben()). Das waere stiller Datenverlust mitten im Training. Die
- * Sperre kostet nichts und raeumt die ganze Fallgruppe ab.
- */
-function aktion_expertenmodus(array $eingabe): never {
-    require_login_api();
-    require_passwort_gesetzt_api();
-
-    if (!array_key_exists('expert_mode', $eingabe)) {
-        json_err('Kein Wert angegeben.', 422);
-    }
-    $an = !empty($eingabe['expert_mode']) ? 1 : 0;
-
-    require_once __DIR__ . '/../lib/training.php';
-    if (offene_einheit(current_user_id()) !== null) {
-        json_err(
-            'Das geht nur, wenn gerade kein Training läuft. '
-            . 'Bitte zuerst die laufende Einheit beenden.',
-            409
-        );
-    }
-
-    db()->prepare('UPDATE users SET expert_mode = ? WHERE id = ?')
-        ->execute([$an, current_user_id()]);
-
-    json_ok(['expert_mode' => $an]);
-}
 
 /**
  * Woher die Vorbelegung eines neuen Satzes kommt (§7.4).

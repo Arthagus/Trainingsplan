@@ -13,7 +13,7 @@ require_once __DIR__ . '/helpers.php';
  * **Bewusst eine Codeliste und keine Tabelle.** Anders als bei den
  * Muskelgruppen ist die Menge klein, geschlossen und aendert sich nicht mit dem
  * Datenbestand. Eine Tabelle brauchte eine Verwaltungsseite, eine API und einen
- * Loeschschutz gegen verwaiste Zuordnungen -- fuer zehn feste Werte ist das
+ * Loeschschutz gegen verwaiste Zuordnungen -- fuer elf feste Werte ist das
  * ein schlechtes Geschaeft.
  *
  * **Und bewusst kein CHECK-Constraint auf der Spalte.** SQLite kann eine
@@ -47,6 +47,7 @@ const GERAETE = [
     'laufband'     => 'Laufband',
     'crosstrainer' => 'Crosstrainer',
     'rudergeraet'  => 'Rudergerät',
+    'stairmaster'  => 'Stairmaster',
 ];
 
 /**
@@ -194,7 +195,7 @@ function geraet_label(?string $code): ?string {
  * Das fertige Abzeichen: Symbol plus Beschriftung.
  *
  * Das Symbol traegt aria-hidden -- lesbar ist der Text daneben. Ein Symbol
- * allein spart zwar Platz, verlangt aber, dass man zehn Piktogramme
+ * allein spart zwar Platz, verlangt aber, dass man elf Piktogramme
  * auswendig kennt.
  *
  * Fehlt das Geraet, sagt das Abzeichen das ausdruecklich. Uebungen aus der Zeit
