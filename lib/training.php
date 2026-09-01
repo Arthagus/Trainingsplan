@@ -884,22 +884,99 @@ function einheit_sicherstellen(int $userId, int $planId): int {
 }
 
 /**
- * Beendet die offene Einheit und merkt den Plan fuer die Rotation (§7.6).
+ * Beendet die offene Einheit und traegt fehlende Haekchen nach (§7.6).
+ *
+ * ZWEI Schreibvorgaenge, und deshalb seit 1.4.5 in einer Transaktion: erst das
+ * Sicherheitsnetz aus protokollierte_positionen_abschliessen(), dann das
+ * ended_at. In dieser Reihenfolge, weil eine Einheit, die schon beendet ist,
+ * fachlich nicht mehr angefasst werden darf -- und ein Abbruch dazwischen
+ * duerfte keine geschlossene Einheit mit halb nachgetragenen Haekchen
+ * hinterlassen.
+ *
+ * Die Rotation merkt sich weiterhin nichts: Sie liest ihren Stand in
+ * zuletzt_trainierter_plan() aus der Historie, users.last_plan_id wird weder
+ * gelesen noch geschrieben (Fallstrick 21).
+ *
+ * @return array{id:int,nachgetragen:int}|null null, wenn keine Einheit laeuft.
  */
-function einheit_beenden(int $userId): ?int {
+function einheit_beenden(int $userId): ?array {
     $offen = offene_einheit($userId);
     if ($offen === null) {
         return null;
     }
 
-    // Nur noch ein einziger Schreibvorgang, deshalb ohne Transaktion: Die
-    // Rotation merkt sich nichts mehr, sie liest ihren Stand in
-    // zuletzt_trainierter_plan() aus der Historie. users.last_plan_id wird
-    // damit weder gelesen noch geschrieben.
-    db()->prepare('UPDATE sessions SET ended_at = ? WHERE id = ?')
-        ->execute([now(), $offen['id']]);
+    $sessionId = (int)$offen['id'];
 
-    return (int)$offen['id'];
+    return db_transaction(static function () use ($sessionId): array {
+        $nachgetragen = protokollierte_positionen_abschliessen($sessionId);
+
+        db()->prepare('UPDATE sessions SET ended_at = ? WHERE id = ?')
+            ->execute([now(), $sessionId]);
+
+        return ['id' => $sessionId, 'nachgetragen' => $nachgetragen];
+    });
+}
+
+/**
+ * Das Sicherheitsnetz beim Beenden: Wer Saetze eingetragen hat, hat die Uebung
+ * gemacht (§7.6, Vorgabe des Benutzers vom 2026-09-01).
+ *
+ * Jede Position dieser Einheit mit mindestens EINEM Satz bekommt beim Beenden
+ * `done = 1`. Offen bleibt allein, wozu gar nichts eingetragen wurde -- eine
+ * Uebung, die man ausgelassen hat.
+ *
+ * **Warum es das braucht.** "Protokolliert" und "erledigt" sind zwei Zustaende
+ * (Fallstrick 18), und genau diese Trennung hat zweimal ein Haekchen gekostet:
+ * Die Zeile stand mit Saetzen und `done = 0` in der Datenbank, waehrend auf dem
+ * Bildschirm das Haekchen sass -- einmal, weil eine Ablehnung es zurueckdrehte
+ * (behoben in 1.4.3), einmal, weil die Warteschlange den noch nicht
+ * verschickten Eintrag wegloeschte (behoben in 1.4.5). Beide Male entstand aus
+ * einer Anzeige ein falscher Zaehlstand im Verlauf ("7/8").
+ *
+ * **Warum hier und nicht laufend.** Waehrend der Einheit muss die Trennung
+ * bleiben: Mit dem ersten Satz ist man mitten in der Uebung und nicht fertig
+ * damit. Wuerde `done` schon dort mitlaufen, faerbte sich die Karte sofort
+ * blau, "x/n" zaehlte zu frueh, und die Rueckfrage "Alle Uebungen erledigt --
+ * Training beenden?" kaeme, waehrend man noch am Geraet steht. Beim BEENDEN
+ * ist die Frage dagegen beantwortet: Was Saetze traegt, ist gemacht.
+ *
+ * **Warum serverseitig.** Der Browser ist die Schicht, in der beide Fehler
+ * sassen. Ein Netz, das durch die kaputte Ebene laeuft, ist keines
+ * (Fallstrick 12). Hier greift es unabhaengig davon, was die Oberflaeche
+ * gerade glaubt -- und auch dann, wenn ein Aufruf nie angekommen ist.
+ *
+ * **Die Folge, die man kennen muss:** Eine bewusst abgebrochene Uebung -- zwei
+ * Saetze gemacht, dann aufgehoert -- gilt danach als erledigt. Wer sie offen
+ * halten will, loescht ihre Saetze, bevor er beendet. Das ist die ausdrueckliche
+ * Entscheidung des Benutzers: Ein vergessenes Haekchen ist der haeufigere Fall
+ * und der teurere, weil er den Verlauf dauerhaft falsch zaehlt.
+ *
+ * **Zeilen ohne plan_exercise_id sind ausdruecklich MIT dabei.** Waehrend einer
+ * laufenden Einheit kann keine entstehen -- die Struktursperre verbietet das
+ * Entfernen von Positionen (Fallstrick 31) --, und faende sich doch eine, waere
+ * sie eine Uebung, die damals im Plan stand. Der Zaehler laeuft dadurch nicht
+ * ueber: einheiten_verlauf() nimmt das GROESSERE von Protokollzeilen und
+ * Planpositionen (Fallstrick 33).
+ *
+ * `done = 0` steht in der WHERE-Klausel, damit rowCount() nur die wirklich
+ * nachgetragenen zaehlt und nicht jede ohnehin abgehakte mitrechnet.
+ *
+ * Laeuft ausschliesslich innerhalb der Transaktion aus einheit_beenden().
+ *
+ * @return int Wie viele Haekchen nachgetragen wurden. 0 ist der Normalfall.
+ */
+function protokollierte_positionen_abschliessen(int $sessionId): int {
+    $stmt = db()->prepare(
+        'UPDATE workout_log
+            SET done = 1
+          WHERE session_id = ?
+            AND done = 0
+            AND EXISTS (SELECT 1 FROM workout_sets ws
+                         WHERE ws.workout_log_id = workout_log.id)'
+    );
+    $stmt->execute([$sessionId]);
+
+    return $stmt->rowCount();
 }
 
 /**

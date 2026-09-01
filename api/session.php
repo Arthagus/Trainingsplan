@@ -152,13 +152,24 @@ function aktion_starten(array $eingabe): never {
  * Auch wenn alle Positionen abgehakt sind, schliesst sich nichts von selbst:
  * Die Oberflaeche fragt nach, und erst die Bestaetigung landet hier (§7.6).
  * Sonst waere das Ab-waehlen eines versehentlichen Haekchens undefiniert.
+ *
+ * Beim Beenden traegt einheit_beenden() fehlende Haekchen nach: Was Saetze
+ * traegt, gilt als erledigt (seit 1.4.5). `nachgetragen` sagt, wie viele es
+ * waren -- 0 ist der Normalfall. Die Zahl wird mitgeliefert und NICHT
+ * angezeigt: Ein Netz, das im Regelfall schweigt, ist eines; eine Meldung
+ * nach jedem Training waere die Sorte Anzeige, die man sich abgewoehnt
+ * (Fallstrick 29). Wer wissen will, ob es gegriffen hat, sieht sie in der
+ * Antwort.
  */
 function aktion_beenden(): never {
-    $sessionId = einheit_beenden(current_user_id());
+    $ergebnis = einheit_beenden(current_user_id());
 
-    if ($sessionId === null) {
+    if ($ergebnis === null) {
         json_err('Es läuft gerade keine Trainingseinheit.', 409);
     }
 
-    json_ok(['ended' => $sessionId]);
+    json_ok([
+        'ended'        => $ergebnis['id'],
+        'nachgetragen' => $ergebnis['nachgetragen'],
+    ]);
 }

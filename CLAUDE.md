@@ -1084,6 +1084,42 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     einen Aufrufer, falsch für die anderen, und ein neuer bekäme stillschweigend die falsche
     Annahme.
 
+    **Das war aber nur die HALBE Ursache — die zweite steckte in der Warteschlange und
+    schlug am 2026-08-31 erneut zu** („bei Nele steht 7/8, obwohl alles abgehakt war").
+    `abarbeiten()` nahm den Eintrag nach der Antwort mit einem blanken
+    `schlange.entfernen(peId)` heraus. Währenddessen ist die Oberfläche aber bedienbar, und
+    jeder Tipp schreibt über `schlange.setzen()` einen **neuen** Eintrag unter dieselbe
+    Planposition — den das `entfernen()` dann mit weglöscht. Er ist nie verschickt worden,
+    und **nichts zeigt es an**: Die Zeile trägt bereits den neuen Zustand, die Schlange ist
+    leer, `einheitBeenden()` gibt frei.
+
+    Der Hergang im Studio, Schritt für Schritt:
+
+    | | |
+    |---|---|
+    | letzte Satzzeile ausgefüllt, 800 ms Verzug läuft ab | `check` mit **`done: false`** geht raus |
+    | Aufruf noch unterwegs (schwaches Netz: Sekunden) | Tipp auf *Erledigt* → Eintrag `done: true` in die Schlange |
+    | Antwort auf den ersten Aufruf trifft ein | `entfernen()` löscht den **zweiten** Eintrag |
+    | Ergebnis | Häkchen auf dem Bildschirm, `done = 0` mit Sätzen in der Datenbank |
+
+    Das ist dieselbe Signatur wie oben und deshalb schwer auseinanderzuhalten — die Zeile
+    trägt Werte und `done = 0`. Der Unterschied: Hier verschwindet das Häkchen **nicht
+    sichtbar**, es kommt serverseitig nie an. Wer nur die Anzeige beobachtet, sieht nichts.
+
+    **Seit `1.4.5` entfernt `eintragAbschliessen()` nur, was noch DERSELBE Eintrag ist** —
+    verglichen am `ts`, das `abhaken()` bei jedem Setzen neu vergibt. Liegt ein neuerer vor,
+    bleibt er liegen und die Schleife nimmt ihn im nächsten Durchgang. Dasselbe gilt im
+    Fehlerzweig, dort mit einer zweiten Folge: Eine überholte Ablehnung wird **nicht
+    gemeldet**. Die Nutzlast beschreibt die Zeile vollständig (Fallstrick 17), der neue
+    Eintrag ersetzt den alten also samt seinem Fehler — gemeldet würde sonst ein Urteil über
+    eine Eingabe, die es nicht mehr gibt. Scheitert auch der neue, meldet er sich selbst.
+
+    **Die allgemeine Form, und sie gilt über diese Schlange hinaus: Wer nach einem `await`
+    aufräumt, räumt einen Zustand auf, der sich inzwischen geändert haben kann.** Entfernt
+    wird deshalb nie „der Eintrag zu dieser ID", sondern „genau dieser Eintrag". Dieselbe
+    Falle wie die überholten Dialog-Abrufe in Fallstrick 28 — dort gewinnt die zuletzt
+    eingetroffene Antwort, hier löscht sie die zuletzt gestellte Frage.
+
     **Serverseitig war nichts verloren.** Nachgemessen: Eine abgehakte Position bleibt
     `done = 1` samt Gewicht und Sätzen, während an anderen Positionen Sätze geschrieben,
     abgehakt und ab-gewählt werden — der Upsert ist auf `(session_id, plan_exercise_id)`
@@ -1321,6 +1357,24 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
       `1.4.2` war es zugleich die Vorgabe des einfachen Modus.
     - **Ab-wählen löscht keine Sätze**; gelöscht wird die Zeile erst, wenn
       kein Satz mehr übrig und kein Häkchen gesetzt ist.
+    - **BEIM BEENDEN fallen die beiden Zustände doch zusammen** (seit `1.4.5`,
+      `protokollierte_positionen_abschliessen()` in `lib/training.php`): Jede Position mit
+      mindestens einem Satz bekommt `done = 1`, offen bleibt nur, wozu gar nichts
+      eingetragen wurde. Das ist kein Widerspruch zur Trennung, sondern ihr Ende an genau
+      dem Punkt, an dem die Frage „bin ich fertig?" beantwortet ist — **während** der
+      Einheit muss sie bestehen bleiben, sonst färbte sich die Karte mit dem ersten Satz
+      blau und die Abschlussfrage käme mitten in der Übung.
+
+      Es ist zugleich die dritte Stufe gegen das verschwundene Häkchen (Fallstrick 13):
+      Die ersten beiden verhindern, dass es abhandenkommt, diese fängt auf, wenn es doch
+      passiert — **serverseitig**, weil beide Fehler im Browser saßen. Damit ist
+      `api/log.php` **nicht mehr die einzige Stelle, die `done` schreibt**; wer den Zustand
+      sucht, sucht ab jetzt an zwei Stellen.
+
+      Der Preis steht dazu: Eine bewusst abgebrochene Übung gilt danach als erledigt. Wer
+      sie offen halten will, löscht ihre Sätze vor dem Beenden — ausdrückliche Entscheidung
+      des Benutzers vom 2026-09-01, weil das vergessene Häkchen der häufigere und teurere
+      Fall ist.
     - **`done = 1` schreibt die Position fest** (`abgeschlossene_position_schuetzen()`) —
       alles abgelehnt, bis das Häkchen weg ist.
 

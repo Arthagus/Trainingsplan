@@ -1204,6 +1204,41 @@
     }
 
     /**
+     * Nimmt einen abgearbeiteten Eintrag aus der Schlange -- aber NUR, wenn er
+     * noch derselbe ist.
+     *
+     * Waehrend `apiFetch` laeuft, ist die Oberflaeche bedienbar, und jeder
+     * Tipp schreibt ueber `schlange.setzen()` einen NEUEN Eintrag unter
+     * dieselbe Planposition. Ein blindes `entfernen()` nach der Antwort loescht
+     * dann den neuen mit -- er ist nie verschickt worden, und niemand sieht es:
+     * Die Anzeige zeigt bereits den neuen Stand, die Schlange ist leer, der
+     * Beenden-Knopf gibt frei.
+     *
+     * Genau so verschwindet ein Haekchen. Wer die letzte Satzzeile ausfuellt
+     * und kurz darauf auf „Erledigt" tippt, schickt zuerst `done: false`
+     * (die Saetze) und setzt das Haekchen, WAEHREND dieser Aufruf noch
+     * unterwegs ist. Der zweite Eintrag traegt `done: true`, wird aber von der
+     * Antwort des ersten weggeraeumt -- die Zeile steht danach mit Saetzen und
+     * `done = 0` in der Datenbank, waehrend auf dem Bildschirm das Haekchen
+     * sitzt. Im Studio-Netz ist das Zeitfenster Sekunden gross. Gemeldet am
+     * 2026-08-31 („7/8", obwohl alles abgehakt war), Fallstrick 13.
+     *
+     * Unterschieden wird am Zeitstempel: `ts` wird in `abhaken()` bei jedem
+     * Setzen neu vergeben und ist damit die Kennung genau eines Standes.
+     *
+     * @return {boolean} true, wenn wirklich entfernt wurde -- dann ist die
+     *   Position fertig abgearbeitet. false heisst: Es liegt bereits ein
+     *   neuerer Stand vor, und die Schleife nimmt ihn im naechsten Durchgang.
+     */
+    function eintragAbschliessen(peId, eintrag) {
+        const jetzt = schlange.eintrag(peId);
+        if (jetzt && jetzt.ts !== eintrag.ts) return false;
+
+        schlange.entfernen(peId);
+        return true;
+    }
+
+    /**
      * Schickt die wartenden Eintraege der Reihe nach zum Server.
      *
      * Nacheinander, nicht parallel: Die Eingaben sollen in der Reihenfolge
@@ -1236,8 +1271,13 @@
 
                 try {
                     letzte = await apiFetch('api/log.php', { body: nutzlast(peId, eintrag) });
-                    schlange.entfernen(peId);
-                    if (karte) wartendSetzen(karte, false);
+
+                    // Nur abhaken, was noch derselbe Stand ist: Waehrend des
+                    // Aufrufs kann ein Tipp einen neueren Eintrag gesetzt
+                    // haben, und der muss noch raus.
+                    if (eintragAbschliessen(peId, eintrag) && karte) {
+                        wartendSetzen(karte, false);
+                    }
                 } catch (fehler) {
                     if (fehler.offline) {
                         // Netz weg: Der Eintrag bleibt liegen, die Zeile bleibt
@@ -1250,8 +1290,17 @@
                     // Eine fachliche Ablehnung (404, 409, 422) faellt bei jedem
                     // weiteren Versuch gleich aus. Der Eintrag MUSS deshalb
                     // raus, sonst blockiert er die ganze Schlange dauerhaft.
-                    schlange.entfernen(peId);
                     letzte = null;
+
+                    // Liegt inzwischen ein NEUERER Stand vor, ist diese
+                    // Ablehnung gegenstandslos: Die Nutzlast beschreibt die
+                    // Zeile vollstaendig (§7.4), der neue Eintrag ersetzt den
+                    // alten also mitsamt seinem Fehler. Gemeldet wird dann
+                    // nichts -- scheitert auch der neue, meldet er sich selbst.
+                    // Verschluckt wird damit kein Fehler, sondern ein Urteil
+                    // ueber eine Eingabe, die es nicht mehr gibt.
+                    if (!eintragAbschliessen(peId, eintrag)) continue;
+
                     if (karte) {
                         wartendSetzen(karte, false);
                         zustandSetzen(karte, eintrag.vorher);

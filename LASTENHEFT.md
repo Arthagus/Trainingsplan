@@ -1661,8 +1661,34 @@ getrennt** weiter (§7.6).
   2. **Manuell** über den **„Training beendet"-Button** — nötig, wenn absichtlich Übungen
      ausgelassen werden (z. B. aus Zeitmangel).
 
-  Beim Ende wird `ended_at` = jetzt gesetzt. Sonst nichts — die Rotation merkt sich nichts,
-  sie liest die Historie (siehe unten).
+  Beim Ende wird `ended_at` = jetzt gesetzt — und **fehlende Häkchen werden nachgetragen**
+  (seit `1.4.5`, siehe gleich). Sonst nichts: Die Rotation merkt sich nichts, sie liest die
+  Historie (siehe unten).
+
+  **Nachtragen beim Beenden — die Sicherheitsstufe.** Jede Position dieser Einheit, die
+  **mindestens einen Satz** trägt, wird beim Beenden als erledigt gespeichert. Offen bleibt
+  ausschließlich, wozu **gar nichts** eingetragen wurde — eine Übung, die man ausgelassen
+  hat.
+
+  - **Warum:** „Protokolliert" und „erledigt" sind zwei Zustände (§7.4), und genau diese
+    Trennung hat zweimal ein Häkchen gekostet — die Zeile stand mit Sätzen und ohne Häkchen
+    in der Datenbank, während der Bildschirm es zeigte. Der Verlauf zählte danach dauerhaft
+    falsch („7/8"). Beide Ursachen sind behoben (`1.4.3`, `1.4.5`); diese Regel ist die
+    Stufe darunter und greift auch dann, wenn ein Aufruf gar nicht erst angekommen ist.
+  - **Warum erst beim Ende und nicht laufend:** Während der Einheit muss die Trennung
+    bleiben. Mit dem ersten Satz ist man mitten in der Übung und nicht fertig — die Karte
+    dürfte nicht blau werden, „x/n" nicht zu früh zählen und die Abschluss-Bestätigung nicht
+    kommen, während man noch am Gerät steht. Beim Beenden ist die Frage beantwortet.
+  - **Warum serverseitig:** Beide Fehler saßen im Browser. Ein Auffangnetz, das durch die
+    fehleranfällige Ebene läuft, ist keines; es sitzt deshalb in `einheit_beenden()` und
+    nicht in der Oberfläche.
+  - **Die Folge, die dazugehört:** Eine bewusst abgebrochene Übung — zwei Sätze gemacht,
+    dann aufgehört — gilt danach als erledigt. Wer sie offen halten will, löscht ihre Sätze,
+    bevor er beendet. Das ist bewusst so entschieden: Ein vergessenes Häkchen ist der
+    häufigere Fall und der teurere, weil er den Verlauf dauerhaft falsch zählt.
+  - **Gemeldet wird nichts.** Im Regelfall trägt die Regel null Häkchen nach; eine Meldung
+    nach jedem Training wäre die Sorte Anzeige, die man sich abgewöhnt (§7.4). Die Anzahl
+    steht in der Antwort von `api/session.php → end` (`nachgetragen`).
 
   **Danach steht die Seite ganz oben und ohne `?plan=`** (seit `1.2.15`). Beides gehört
   zusammen und hängt an demselben Umstand: Was nach dem Beenden erscheint, ist nicht mehr das
