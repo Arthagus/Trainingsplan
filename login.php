@@ -22,8 +22,16 @@ require __DIR__ . '/lib/view_header.php';
     <p id="anmelde-fehler" class="feld-fehler" role="alert" hidden></p>
 
     <label for="name">Benutzername</label>
+    <?php // KEIN autofocus -- der Fokus wird in login.js gesetzt, und nur am
+          // Zeigegeraet. Firefox auf Android stellt fuer ein Feld, das schon
+          // beim Laden den Fokus hat, gar keine Autofill-Anfrage: Der
+          // Passwortmanager bekommt nie eine Gelegenheit, sich zu melden.
+          // Gemeldet am 2026-09-02 (Proton Pass auf einem Pixel 10) -- es kam
+          // nicht einmal das Symbol ueber der Tastatur, waehrend es auf
+          // anderen Seiten erscheint. Am Desktop faellt es nicht auf, weil
+          // dort die Erweiterung ins DOM sieht statt am Fokus zu haengen. ?>
     <input type="text" id="name" name="name" autocomplete="username"
-           autocapitalize="none" autocorrect="off" required autofocus>
+           autocapitalize="none" autocorrect="off" required>
     <p class="feld-fehler" data-fehler-fuer="name" hidden></p>
 
     <label for="password">Passwort</label>

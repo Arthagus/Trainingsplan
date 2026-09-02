@@ -78,6 +78,14 @@
     const knopf   = qs('#speichern');
     const hinweis = qs('#passwort-fehler');
 
+    // Wie auf login.php: der Fokus nur am Zeigegeraet, damit der
+    // Passwortmanager am Handy ueberhaupt gefragt wird. Begruendung dort und
+    // unter *Frontend* in CLAUDE.md.
+    if (!window.matchMedia('(pointer: coarse)').matches) {
+        const erstes = qs('#current');
+        if (erstes) erstes.focus();
+    }
+
     formular.addEventListener('submit', async (e) => {
         e.preventDefault();
         hinweis.hidden = true;

@@ -57,8 +57,13 @@ require __DIR__ . '/lib/view_header.php';
     <p id="passwort-fehler" class="feld-fehler" role="alert" hidden></p>
 
     <label for="current">Aktuelles Passwort</label>
+    <?php // KEIN autofocus, aus demselben Grund wie auf login.php: Firefox auf
+          // Android meldet ein beim Laden schon fokussiertes Feld nicht an
+          // Androids Autofill-Dienst, und der Passwortmanager kommt gar nicht
+          // erst zum Zug. Gesetzt wird der Fokus in password.js, nur am
+          // Zeigegeraet. ?>
     <input type="password" id="current" name="current"
-           autocomplete="current-password" required autofocus>
+           autocomplete="current-password" required>
     <p class="feld-fehler" data-fehler-fuer="current" hidden></p>
 
     <label for="new">Neues Passwort</label>

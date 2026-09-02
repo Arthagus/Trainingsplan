@@ -777,6 +777,21 @@ Die Punkte aus `LASTENHEFT.md` §5 sind harte Anforderungen. Was am ehesten übe
   `assets/app.js` vor jedem `innerHTML`.
 - **Zahleneingaben:** `type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"` —
   nicht `type="number"`, sonst bricht das Dezimalkomma am Handy.
+- **`autofocus` schaltet am Handy den Passwortmanager ab.** Firefox auf Android meldet ein
+  Feld, das beim Laden bereits den Fokus hat, **nicht** an Androids Autofill-Dienst — über
+  der Tastatur erscheint nicht einmal das Symbol des Managers, und das sieht aus, als kenne
+  er die Seite nicht. Gemeldet am 2026-09-02 (Proton Pass auf einem Pixel 10, `login.php`);
+  am Desktop fällt es nie auf, weil der Manager dort eine **Erweiterung** ist und das DOM
+  liest, statt am Fokus zu hängen — dieselbe Sorte Trugschluss wie „auf meinem Gerät ruhig"
+  bei Fallstrick 19d und 19g.
+
+  Wo ein Feld den Fokus tragen soll, wird er deshalb **in JS gesetzt und nur am
+  Zeigegerät**: `if (!window.matchMedia('(pointer: coarse)').matches)` in `login.js` und
+  `password.js`. `pointer: coarse` fragt den **primären** Zeiger ab, ein Notebook mit
+  Touchscreen und Maus behält den Fokus also. Es gibt im ganzen Projekt **kein**
+  `autofocus` mehr; wer eines ergänzt, nimmt einem Anmelde- oder Passwortfeld am Handy den
+  Manager.
+
 - **Das aufgeklappte `<select>` am Handy ist mit CSS NICHT gestaltbar** — nachgemessen am
   2026-08-23, nicht gefolgert. Chrome auf Android zeigt es als Dialog mit Auswahlknöpfen,
   und dessen Schrift kommt aus den **Android-Systemeinstellungen**; sie ist deutlich größer
