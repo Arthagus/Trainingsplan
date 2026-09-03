@@ -7,6 +7,7 @@ require_once __DIR__ . '/../lib/helpers.php';
 require_once __DIR__ . '/../lib/training.php';
 require_once __DIR__ . '/../lib/geraete.php';
 require_once __DIR__ . '/../lib/splits.php';
+require_once __DIR__ . '/../lib/muskelgruppen.php';
 
 bootstrap_session();
 require_login_api();
@@ -344,17 +345,23 @@ function aktion_uebungs_auswahl(array $eingabe): never {
     if ($gruppeSql !== null) { $wo[] = $gruppeSql; }
     if ($geraetSql !== null) { $wo[] = $geraetSql; }
 
-    // Wie in der Uebungsverwaltung: Bei gesetztem Gruppenfilter zuerst die
-    // Uebungen, deren PRIMAERE Gruppe passt. Sonst stuende bei "Brust" eine
-    // Trizeps-Uebung obenan, die Brust nur mittrainiert.
-    $sortSql = 'e.name_de';
+    // Wie in der Uebungsverwaltung, und wortgleich aus demselben Baustein: Die
+    // Reihenfolge der MUSKELGRUPPEN ordnet die Liste (lib/muskelgruppen.php),
+    // der Name erst innerhalb einer Gruppe. Wer den Dialog oeffnet, sucht am
+    // Geraet nach einer bestimmten Uebung -- er soll sie dort finden, wo sie
+    // auch in der Verwaltung steht.
+    //
+    // Bei gesetztem Gruppenfilter davor: zuerst die Uebungen, deren PRIMAERE
+    // Gruppe passt. Sonst stuende bei "Brust" eine Trizeps-Uebung obenan, die
+    // Brust nur mittrainiert.
+    $sortSql = MG_SORT_ORDER . ', e.name_de';
     if ($gruppe !== null) {
         $sortSql = 'CASE WHEN EXISTS (SELECT 1 FROM exercise_muscle_groups emg
                                         JOIN muscle_groups pmg ON pmg.id = emg.muscle_group_id
                                        WHERE emg.exercise_id = e.id AND emg.is_primary = 1
                                          AND (pmg.id = ? OR pmg.parent_id = ?))
                          THEN 0 ELSE 1 END,
-                    e.name_de';
+                    ' . MG_SORT_ORDER . ', e.name_de';
         $werte[] = $gruppe;
         $werte[] = $gruppe;
     }
@@ -373,7 +380,7 @@ function aktion_uebungs_auswahl(array $eingabe): never {
                 EXISTS (SELECT 1 FROM plan_exercises pe
                          WHERE pe.plan_id = ? AND pe.exercise_id = e.id
                            AND (pe.session_id IS NULL OR pe.session_id = ?)) AS im_plan
-           FROM exercises e
+           FROM exercises e' . MG_SORT_JOIN . '
           WHERE ' . implode(' AND ', $wo) . '
           ORDER BY ' . $sortSql
     );

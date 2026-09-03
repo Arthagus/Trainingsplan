@@ -176,8 +176,8 @@ require __DIR__ . '/lib/view_header.php';
             <?php gruppen_zeile($hg, $haupt); ?>
             <?php $unter = $kinder[(int)$hg['id']] ?? []; ?>
             <?php if ($unter !== []): ?>
-                <li class="untergruppen-halter">
-                    <ul class="liste-schlicht untergruppen" data-parent="<?= (int)$hg['id'] ?>">
+                <li class="untergruppen-halter" data-parent="<?= (int)$hg['id'] ?>">
+                    <ul class="liste-schlicht untergruppen">
                         <?php foreach ($unter as $ug): ?>
                             <?php gruppen_zeile($ug, $haupt); ?>
                         <?php endforeach; ?>

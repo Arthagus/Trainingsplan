@@ -60,24 +60,77 @@
      *
      * Tiefensuche über den Baum: erst die Hauptgruppe, dann ihre Untergruppen.
      * Der Server vergibt fortlaufende Werte, die Anzeige gruppiert anschließend
-     * wieder nach Hauptgruppe — damit bleibt beides stimmig.
+     * wieder nach Hauptgruppe — damit bleibt beides stimmig. Genau deshalb muss
+     * eine Hauptgruppe zusammen mit ihrem Halter wandern (siehe block()): Bliebe
+     * er stehen, stünde in der gesendeten Folge eine Untergruppe vor ihrer
+     * eigenen Hauptgruppe.
      */
     async function reihenfolgeSpeichern() {
         const ids = qsa('.gruppe', liste).map((li) => Number(li.dataset.id));
-        try {
-            await apiFetch('api/muscle_groups.php', {
-                body: { action: 'reorder', ids },
-            });
-            meldung('Reihenfolge gespeichert.', 'gut');
-        } catch (fehler) {
-            meldung(fehler.message, 'fehler');
-            window.location.reload();
-        }
+        await apiFetch('api/muscle_groups.php', {
+            body: { action: 'reorder', ids },
+        });
     }
+
+    /**
+     * Der Block, den ein Pfeil bewegt: die Karte selbst und — bei einer
+     * Hauptgruppe — der Halter mit ihren Untergruppen.
+     *
+     * Eine Hauptgruppe allein zu verschieben ließe ihre Untergruppen unter der
+     * fremden Überschrift darüber zurück.
+     */
+    function block(zeile) {
+        const teile = [zeile];
+        const halter = zeile.nextElementSibling;
+        // Der Halter „Ohne Hauptgruppe" am Listenende trägt kein data-parent
+        // und gehört niemandem — er darf nicht mitwandern.
+        if (halter && halter.dataset.parent === zeile.dataset.id) {
+            teile.push(halter);
+        }
+        return teile;
+    }
+
+    /**
+     * Die nächste Gruppenkarte in dieser Richtung, Halter übersprungen.
+     *
+     * Auf oberster Ebene liegt zwischen zwei Hauptgruppen das <li> mit den
+     * Untergruppen der ersten. previousElementSibling zeigte dort also auf
+     * etwas, das gar keine Gruppe ist — und der Griff daneben war der ganze
+     * Fehler: insertBefore() bekam einen Nachbarn aus einer anderen Liste
+     * gereicht und warf, ohne dass es jemand sah.
+     */
+    function nachbarGruppe(el, hoch) {
+        let n = hoch ? el.previousElementSibling : el.nextElementSibling;
+        while (n && !n.classList.contains('gruppe')) {
+            n = hoch ? n.previousElementSibling : n.nextElementSibling;
+        }
+        return n;
+    }
+
+    /**
+     * Randpfeile sperren: je Ebene oben kein „↑", unten kein „↓".
+     *
+     * Steht hier und nicht im Server-Rendering, weil ein geglückter Zug die
+     * Seite NICHT neu lädt: Die Karten wandern im DOM, und eine serverseitig
+     * gesetzte Sperre gehörte danach zur falschen Karte (Fallstrick 28). Eine
+     * Regel, eine Stelle — und ein Pfeil, der sichtbar nichts kann, ist besser
+     * als einer, der stumm nichts tut.
+     */
+    function pfeileNachziehen() {
+        [liste, ...qsa('.untergruppen', liste)].forEach((ebene) => {
+            const zeilen = qsa(':scope > .gruppe', ebene);
+            zeilen.forEach((zeile, i) => {
+                qs('.hoch', zeile).disabled = i === 0;
+                qs('.runter', zeile).disabled = i === zeilen.length - 1;
+            });
+        });
+    }
+
+    pfeileNachziehen();
 
     liste.addEventListener('click', async (e) => {
         const knopf = e.target.closest('button');
-        if (!knopf) return;
+        if (!knopf || knopf.disabled) return;
 
         const zeile = knopf.closest('.gruppe');
         const id = Number(zeile.dataset.id);
@@ -86,15 +139,46 @@
         // --- Sortieren -----------------------------------------------------
         if (knopf.classList.contains('hoch') || knopf.classList.contains('runter')) {
             const hoch = knopf.classList.contains('hoch');
-            const nachbar = hoch ? zeile.previousElementSibling : zeile.nextElementSibling;
+            const eigen = block(zeile);
+            const nachbar = nachbarGruppe(hoch ? zeile : eigen[eigen.length - 1], hoch);
             if (!nachbar) return;
 
+            // Verschoben wird IN DER EIGENEN LISTE: eine Untergruppe innerhalb
+            // ihres <ul>, eine Hauptgruppe auf oberster Ebene. Beides ist
+            // dasselbe Elternteil, und nur deshalb stimmt insertBefore().
+            const behaelter = zeile.parentElement;
+            const anker = eigen[eigen.length - 1].nextElementSibling;
+            const nachbarBlock = block(nachbar);
+
             if (hoch) {
-                liste.insertBefore(zeile, nachbar);
+                eigen.forEach((el) => behaelter.insertBefore(el, nachbarBlock[0]));
             } else {
-                liste.insertBefore(nachbar, zeile);
+                nachbarBlock.forEach((el) => behaelter.insertBefore(el, eigen[0]));
             }
-            await reihenfolgeSpeichern();
+            pfeileNachziehen();
+
+            // ALLE Pfeile sperren, bis die Antwort da ist — nicht nur die dieser
+            // Karte. Zwei schnelle Tipps schickten sonst zwei reorder
+            // gleichzeitig los, und weil jeder die GANZE Reihenfolge schreibt,
+            // gewänne die zuletzt eingetroffene Antwort und nicht die zuletzt
+            // gestellte Frage (Fallstrick 28).
+            const pfeile = qsa('.hoch, .runter', liste);
+            pfeile.forEach((k) => { k.disabled = true; });
+
+            try {
+                await reihenfolgeSpeichern();
+                meldung('Reihenfolge gespeichert.', 'gut');
+            } catch (fehler) {
+                // Zurücknehmen statt neu laden: Diese Seite lädt auch im
+                // Erfolgsfall nicht neu, die Ansicht IST der Arbeitsstand — und
+                // ein Neuladen würfe nebenbei jede noch nicht gespeicherte
+                // Namensänderung in den Feldern weg.
+                eigen.forEach((el) => behaelter.insertBefore(el, anker));
+                meldung(fehler.message, 'fehler');
+            } finally {
+                pfeile.forEach((k) => { k.disabled = false; });
+                pfeileNachziehen();
+            }
             return;
         }
 
@@ -140,6 +224,7 @@
                     body: { action: 'delete', id },
                 });
                 zeile.remove();
+                pfeileNachziehen();
                 meldung('Gelöscht.', 'gut');
             } catch (fehler) {
                 // Die Begründung nennt die betroffenen Übungen und ist damit

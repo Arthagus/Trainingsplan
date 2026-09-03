@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/csrf.php';
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/geraete.php';
+require_once __DIR__ . '/lib/muskelgruppen.php';
 
 bootstrap_session();
 require_login();
@@ -105,11 +106,21 @@ if ($filter === 'aktiv') {
 }
 $listeWoSql = $listeWo === [] ? '' : ' WHERE ' . implode(' AND ', $listeWo);
 
-// Bei gesetztem Filter zuerst die Uebungen, deren PRIMAERE Gruppe passt.
-// Sonst stand bei "Brust" eine Trizeps-Uebung obenan, die Brust nur
-// mittrainiert -- gesucht wird aber, was fuer die Brust gemacht wird.
+// Geordnet wird nach der Reihenfolge der MUSKELGRUPPEN (lib/muskelgruppen.php),
+// nicht nach dem Alphabet -- was auf admin_muscle_groups.php sortiert wurde,
+// gilt hier. Der Name entscheidet erst innerhalb einer Gruppe.
+//
+// Davor steht der Zustand: aktive Uebungen vor archivierten. Das ist die
+// staerkere Aussage -- eine archivierte Uebung soll nicht zwischen den
+// benutzbaren stehen, nur weil ihre Gruppe frueh einsortiert ist.
+//
+// Und bei gesetztem Filter davor noch, wessen PRIMAERE Gruppe passt: Sonst
+// stand bei "Brust" eine Trizeps-Uebung obenan, die Brust nur mittrainiert --
+// gesucht wird aber, was fuer die Brust gemacht wird. Die Gruppenordnung wirkt
+// dann INNERHALB der beiden Bloecke, und genau das ist der Fall "auf Ruecken
+// einschraenken": erst die Latissimus-, dann die Trapez-Uebungen.
 $sortWerte = [];
-$sortSql   = 'e.archived, e.name_de';
+$sortSql   = 'e.archived, ' . MG_SORT_ORDER . ', e.name_de';
 if ($gruppeFilter !== null) {
     $sortSql = 'e.archived,
                 CASE WHEN EXISTS (SELECT 1 FROM exercise_muscle_groups emg
@@ -117,7 +128,7 @@ if ($gruppeFilter !== null) {
                                    WHERE emg.exercise_id = e.id AND emg.is_primary = 1
                                      AND (pmg.id = ? OR pmg.parent_id = ?))
                      THEN 0 ELSE 1 END,
-                e.name_de';
+                ' . MG_SORT_ORDER . ', e.name_de';
     $sortWerte = [$gruppeFilter, $gruppeFilter];
 }
 
@@ -126,7 +137,7 @@ $stmt = db()->prepare(
             e.erfassung,
             e.image_path, e.image_crop, e.archived, e.archived_at, e.created_at,
             (SELECT COUNT(*) FROM workout_log wl WHERE wl.exercise_id = e.id) AS log_anzahl
-       FROM exercises e' . $listeWoSql . '
+       FROM exercises e' . MG_SORT_JOIN . $listeWoSql . '
       ORDER BY ' . $sortSql
 );
 $stmt->execute([...$listeWerte, ...$sortWerte]);

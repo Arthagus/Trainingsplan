@@ -429,6 +429,7 @@ haben je eine `.htaccess` mit `Require all denied`.
 | `lib/training.php` | Die Fachlichkeit aus §7: Rotation, Positionen, Tausch, Sätze, Verlauf, Codeliste `SATZ_VORLAGE` |
 | `lib/splits.php` | Workout-Splits (§6.4): Katalog, Kopieren, aktiver Split, Textausgabe `split_texte()`, **die zentrale Rechteregel** `split_darf_bearbeiten()` samt ihrem API-Zwilling `split_zugriff_api()` — dazu der Vorlagenabgleich aus `1.2.11` (`vorlage_stand()`, `split_zuruecksetzen()`), `fremde_splits()` für den Adminbereich und den Fingerabdruck `signaturen_bauen()` mit seinen **zwei Feldern** `inhalt`/`namen`, siehe Fallstrick 24 |
 | `lib/geraete.php` | Codelisten `GERAETE`, `ZUSCHNITT` und **`ERFASSUNG`**, `geraet_abzeichen()`, `ist_ausdauer()` |
+| `lib/muskelgruppen.php` | `MG_SORT_JOIN` und `MG_SORT_ORDER` — die **eine** Stelle, an der steht, in welcher Reihenfolge ein Übungs*katalog* erscheint (§6.2, Fallstrick 9). Zwei SQL-Bausteine, keine Funktionen; der Alias der Übungstabelle muss `e` heißen |
 | `lib/backup.php` | Sichern über `VACUUM INTO`, Prüfen, Wiederherstellen |
 | `lib/upload.php` | Bildannahme mit MIME-Prüfung und GD-Re-Enkodierung — dazu `verwaiste_bilder()`/`verwaiste_bilder_loeschen()`, die einzige Stelle, die Dateien ohne Übung findet |
 | `lib/healthcheck.php` | Was der HEALTHCHECK im `Dockerfile` startet — fasst die Datenbank an und **begründet** ein „unhealthy" |
@@ -1006,6 +1007,34 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    Gliederungsüberschrift; sonst gäbe es zwei Wege für dieselbe Aussage. Ein Hinweistext
    erklärt die Tauschregel — ohne ihn überrascht es, dass man `Trizeps` anhakt und
    Bizeps-Übungen vorgeschlagen bekommt.
+
+   **Ihre Reihenfolge ordnet auch die ÜBUNGEN** (seit `1.4.7`, Ansage des Benutzers vom
+   2026-09-03). Was auf `admin_muscle_groups.php` sortiert wurde, gilt überall dort, wo der
+   Katalog aufgeblättert wird: in der Übungsverwaltung und in der Übungsauswahl. Vorher
+   stand dort das Alphabet, und die mühsam sortierte Gruppenliste hatte außerhalb ihrer
+   eigenen Seite keine Wirkung. Die Regel steht **einmal**, als `MG_SORT_JOIN` und
+   `MG_SORT_ORDER` in `lib/muskelgruppen.php`; die Aufrufstelle hängt nur `e.name_de` an.
+
+   Drei Dinge daran, jedes am Bestand nachgemessen:
+
+   - **Sortiert wird nach der PRIMÄRgruppe.** Die sekundären bleiben außen vor: Eine Übung
+     steht an genau einer Stelle der Liste, und welche das ist, darf nicht davon abhängen,
+     welche Nebengruppe zufällig früher einsortiert ist.
+   - **`LEFT JOIN`, und das ist Pflicht.** Eine Ausdauerübung hat seit `1.4.1` gar keine
+     Muskelgruppe (Fallstrick 30). Ein innerer Verbund lässt Laufband und Crosstrainer
+     **lautlos** aus der Übungsliste verschwinden — gegengeprüft: genau die eine Zeile fiel
+     weg, sonst nichts, und es sah aus, als sei die Übung gelöscht.
+   - **Geordnet wird erst nach der WURZEL, dann innerhalb** — dieselbe Bildung wie im
+     Seitenaufbau, nicht das bloße `sort_order` der Gruppe. Nach einem Umsortieren steht
+     darin zwar die Tiefensuche, eine **neu angelegte** Untergruppe bekommt aber `MAX + 10`
+     (`api/muscle_groups.php`) und hängt damit global ganz hinten, während die Seite sie
+     längst unter ihrer Hauptgruppe zeigt. Ihre Übungen ständen sonst am Ende der Liste
+     statt bei den Geschwistern.
+
+   **Nicht betroffen sind Listen, die aus einem anderen Grund geordnet sind:** die
+   Positionen eines Plans (Planreihenfolge), die Tauschvorschläge (nächstliegender Ersatz
+   zuerst — sie folgen `mg.sort_order` ohnehin schon) und der Verlauf (zuletzt trainiert
+   zuerst).
 
 10. **Genau eine Primärgruppe je Übung** (`exercise_muscle_groups`, §4), abgesichert durch
     den partiellen Unique-Index `idx_emg_one_primary`. Primär = die Gruppe, **wegen der**
@@ -1975,6 +2004,29 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     nicht in eine Warteschlange legen ist eine Entscheidung des Benutzers (2026-08-26): Ein
     Pfeil, der sich kurz nicht drücken lässt, ist ehrlicher als einer, der Tipps sammelt, die
     man nicht mehr sieht.
+
+    **Und die vierte, an einer VERSCHACHTELTEN Liste: Eingefügt wird in der Liste, in der
+    die Karte wirklich steht — nicht in der, die man in der Hand hält.** Die Muskelgruppen
+    (`admin_muscle_groups.php`) sind zweistufig: Eine Untergruppe steht in einem eigenen
+    `<ul>` innerhalb eines `<li class="untergruppen-halter">`. `admin_muscle_groups.js`
+    rief trotzdem `liste.insertBefore(zeile, nachbar)` gegen die **oberste** Liste auf, und
+    `insertBefore()` wirft, wenn der Bezugsknoten dort kein Kind ist. Ergebnis: Die Pfeile
+    an jeder Untergruppe taten **nichts** — kein Fehler auf dem Bildschirm, nur eine
+    abgewiesene Zusage in einem `async`-Handler, den niemand abfängt. Aus dem Live-System
+    gemeldet am 2026-09-03, behoben in `1.4.7` über `zeile.parentElement`.
+
+    Zwei Dinge hängen daran, und beide gelten für jede Liste mit Zwischenelementen:
+
+    - **`previousElementSibling` ist nicht der Nachbar, sondern nur der Nachbarknoten.**
+      Zwischen zwei Hauptgruppen liegt der Halter mit den Untergruppen der ersten. Wer ihn
+      nicht überspringt, tauscht eine Hauptgruppe mit einem `<li>`, das gar keine Gruppe
+      ist — sie stand danach zwischen ihrem Vorgänger und dessen Kindern. Derselbe Klick
+      sah dabei so aus, als sei nichts passiert.
+    - **Wer einen Knoten verschiebt, verschiebt seinen Anhang mit.** Eine Hauptgruppe ohne
+      ihren Halter zu bewegen stellt die Untergruppen unter die falsche Überschrift — und
+      die gesendete Reihenfolge ist eine Tiefensuche, in der eine Untergruppe **vor** ihrer
+      Hauptgruppe steht. Der Server nimmt das widerspruchslos an, mit `ok:true`; sichtbar
+      wird es erst beim nächsten Seitenaufbau, der den Baum neu gruppiert.
 
 29. **Eine Anzeige, die im Sekundentakt kommt und geht, sagt nichts — sie kostet nur
     Aufmerksamkeit.** Die Verbindungsleiste meldete bis `1.2.14` auch den flüchtigen
