@@ -2378,3 +2378,49 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 @media (hover: hover) {
     .admin-kachel:hover { border-color: var(--akzent); background: var(--grund-tief); }
 }
+
+/* --- Verlauf: Eingrenzen, Gruppen, Einzelansicht (1.4.8) ------------------ */
+
+/* Das Auswahlfeld der Einheit trägt Datum, Plan und Split und ist damit das
+   längste der Leiste. Am Handy nimmt es die ganze Breite, damit der Text im
+   geschlossenen Feld nicht abgeschnitten wird; die Sortierung steht darunter. */
+.verlauf-filter { margin-left: 0; }
+
+@media (max-width: 40rem) {
+    .verlauf-filter,
+    .verlauf-filter select { width: 100%; }
+}
+
+/* Der Übungsname in der Einheitentabelle ist ein Link. Nur der deutsche Name
+   trägt die Akzentfarbe — der englische bleibt matt darunter, sonst stünden zwei
+   blaue Zeilen da, die man als zwei Links liest. */
+.uebung-link { text-decoration: none; color: inherit; }
+.uebung-link strong { color: var(--akzent); }
+
+@media (hover: hover) {
+    .uebung-link:hover strong { text-decoration: underline; }
+}
+
+/* Das Datum in der Übungstabelle führt zur Einheit zurück; die Farbe genügt
+   als Hinweis, eine Unterstreichung zöge sich durch Datum UND Uhrzeit. */
+.datum-spalte a { text-decoration: none; }
+
+/* Die Zeile der gewählten Einheit. Eine Fläche statt fetter Schrift: Fett
+   verbreiterte die Zahlen, und die rechtsbündige Spalte spränge. */
+.verlauf-tabelle tr.zeile-gewaehlt td { background: var(--grund-tief); }
+
+/* Zwischenüberschriften bei "Nach Muskelgruppe" — über dem Kasten, nicht darin
+   (CLAUDE.md, Frontend). */
+.gruppen-titel { margin-bottom: 0.25rem; }
+
+.gruppen-untertitel {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--schrift-matt);
+    margin: 0.75rem 0 0.35rem;
+}
+
+.verlauf-zurueck { margin: 0 0 0.75rem; }
+
+/* Ziel des Datums-Links: Die Einheit soll nicht an der Oberkante kleben. */
+.einheit-karte { scroll-margin-top: 1rem; }

@@ -4,6 +4,45 @@
  * Trainingshistorie (§7.8).
  */
 
+// Filter der Übungsansicht: Jede Änderung zeigt sofort an, ohne eigenen Knopf —
+// dasselbe Verhalten wie die Filter der Übungsverwaltung.
+(() => {
+    const form = qs('.verlauf-filter');
+    if (!form) return;
+
+    const sortierung = form.elements.sort;
+
+    form.addEventListener('change', (e) => {
+        // Wer die Einheit wechselt, ohne die Sortierung je angefasst zu haben,
+        // bekommt die Vorgabe der Seite: eine gewählte Einheit steht in ihrer
+        // Trainingsreihenfolge. Das Feld zeigt dann nur den bisherigen
+        // Vorgabewert an — ihn mitzuschicken hieße, eine Wahl zu übermitteln,
+        // die niemand getroffen hat. Deaktivierte Felder schickt ein Formular
+        // nicht mit.
+        if (e.target === form.elements.einheit && sortierung
+            && sortierung.hasAttribute('data-vorgabe')) {
+            sortierung.disabled = true;
+        }
+        // Das Muskelgruppen-Feld gilt nur bei "alle Einheiten" und "Nach
+        // Muskelgruppe". Wer eines der beiden anderen Felder ändert, verlässt
+        // diesen Zustand (oder bleibt ohnehin darin, dann ist "alle" richtig):
+        // Der Server liest den Wert dann nicht, und in der Adresse hätte er
+        // nichts verloren.
+        const gruppe = form.elements.gruppe;
+        if (gruppe && e.target !== gruppe) {
+            gruppe.disabled = true;
+        }
+        form.submit();
+    });
+
+    // Zurück-Taste: Der Browser stellt die Seite aus seinem Cache wieder her,
+    // samt dem eben deaktivierten Feld — es ließe sich dann nicht mehr bedienen.
+    window.addEventListener('pageshow', () => {
+        if (sortierung) sortierung.disabled = false;
+        if (form.elements.gruppe) form.elements.gruppe.disabled = false;
+    });
+})();
+
 (() => {
     const liste = qs('.liste-schlicht');
     if (!liste) return;

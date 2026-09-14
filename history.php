@@ -32,12 +32,115 @@ if (!in_array($ansicht, ['einheiten', 'uebungen'], true)) {
 }
 
 $einheiten = einheiten_verlauf($userId);
-$uebungen  = uebungen_mit_verlauf($userId);
 $offen     = offene_einheit($userId);
 
 // Nur wenn es mehrere Splits gibt, ist der Splitname im Verlauf eine
 // Information -- bei einem einzigen waere er in jeder Zeile dasselbe Wort.
 $mehrereSplits = count(splits_von($userId)) > 1;
+
+// --- Eingrenzung der Uebungsansicht (§7.8) ---------------------------------
+//
+// ?einheit= grenzt auf die Uebungen EINER Einheit ein, ?uebung= auf eine
+// einzige Uebung (die Einzelansicht, in die ein Klick aus "Einheiten" fuehrt),
+// ?sort= ordnet. Alle drei sind reine Anzeige und werden an jeder Stelle
+// gegen den eigenen Bestand geprueft:
+//
+//   - einheit nur, wenn sie in $einheiten steht -- dieselbe Liste, die das
+//     Auswahlfeld fuellt. Wie $erlaubt in index.php ist die Liste hier der
+//     IDOR-Schutz; eine fremde oder unbekannte ID faellt still auf "alle
+//     Einheiten" zurueck. Die Abfrage prueft die user_id zusaetzlich selbst.
+//   - uebung ist ohnehin nur ein weiterer Filter in einer Abfrage, die per
+//     user_id auf den eigenen Verlauf beschraenkt ist.
+$einheitId = to_int_or_null($_GET['einheit'] ?? null);
+$gewaehlteEinheit = null;
+foreach ($einheiten as $kandidat) {
+    if ((int)$kandidat['id'] === $einheitId) {
+        $gewaehlteEinheit = $kandidat;
+        break;
+    }
+}
+if ($gewaehlteEinheit === null) {
+    $einheitId = null;
+}
+$uebungId = to_int_or_null($_GET['uebung'] ?? null);
+
+// Ohne ausdrueckliche Wahl ordnet eine gewaehlte Einheit in ihrer eigenen
+// Reihenfolge -- so, wie man sie trainiert hat und wie "Einheiten" sie zeigt.
+$sortGewaehlt = to_str($_GET['sort'] ?? '');
+$sortierung   = $sortGewaehlt !== '' ? $sortGewaehlt : ($einheitId !== null ? 'einheit' : 'zuletzt');
+if (!array_key_exists($sortierung, VERLAUF_SORTIERUNG)
+    || ($sortierung === 'einheit' && $einheitId === null)) {
+    $sortierung = 'zuletzt';
+}
+
+// ?gruppe= grenzt auf eine Muskelgruppe ein -- aber NUR bei "alle Einheiten"
+// und "Nach Muskelgruppe" (Vorgabe des Benutzers, 2026-09-14). Nur dort wird
+// das Auswahlfeld angeboten, und nur dort gilt der Wert: Wer die Sortierung
+// oder die Einheit wechselt, schickt das Feld noch mit, weil es im Moment des
+// Absendens im Formular steht. Wirkte der Wert dann weiter, stuende die Liste
+// eingegrenzt da, ohne dass irgendwo ein Feld zeigte, wodurch.
+//
+// Die Muskelgruppen sind dieselbe zweistufige Liste wie in der Uebungsauswahl
+// (lib/view_uebung_waehlen_dialog.php): Hauptgruppen in ihrer Reihenfolge,
+// darunter eingerueckt die Untergruppen. Eine unbekannte ID faellt auf "alle".
+$gruppeFilterAktiv = $ansicht === 'uebungen' && $einheitId === null && $sortierung === 'muskel';
+$hauptGruppen = [];
+$unterGruppen = [];
+$gruppeId     = null;
+if ($gruppeFilterAktiv) {
+    $alleGruppen = db()->query(
+        'SELECT id, name_de, parent_id FROM muscle_groups ORDER BY sort_order, name_de'
+    )->fetchAll();
+    foreach ($alleGruppen as $g) {
+        if ($g['parent_id'] === null) {
+            $hauptGruppen[] = $g;
+        } else {
+            $unterGruppen[(int)$g['parent_id']][] = $g;
+        }
+    }
+    $gruppeWunsch = to_int_or_null($_GET['gruppe'] ?? null);
+    if (in_array($gruppeWunsch, array_map(static fn(array $g): int => (int)$g['id'], $alleGruppen), true)) {
+        $gruppeId = $gruppeWunsch;
+    }
+}
+
+$uebungen = uebungen_mit_verlauf($userId, $sortierung, $einheitId, $uebungId, $gruppeId);
+// Die Zahl in der Umschaltleiste nennt immer den ganzen Bestand -- eine Zahl,
+// die mit dem Filter schrumpft, liest sich dort wie ein verlorener Verlauf.
+$uebungenGesamt = ($einheitId === null && $uebungId === null && $gruppeId === null)
+    ? count($uebungen)
+    : count(uebungen_mit_verlauf($userId));
+
+// Die Einheit ?offen= steht in der Ansicht "Einheiten" aufgeklappt -- das Ziel
+// des Datums-Links aus der Uebungstabelle.
+$offenId = to_int_or_null($_GET['offen'] ?? null);
+
+/**
+ * Baut eine Adresse dieser Seite. Leere Werte fallen heraus, damit die Adresse
+ * nur traegt, was wirklich gewaehlt ist.
+ */
+function verlauf_url(array $parameter, string $anker = ''): string {
+    $parameter = array_filter($parameter, static fn($w): bool => $w !== null && $w !== '');
+    return '?' . http_build_query($parameter) . ($anker === '' ? '' : '#' . $anker);
+}
+
+/**
+ * Die Beschriftung einer Einheit im Auswahlfeld: Datum und Uhrzeit, Plan und
+ * -- wie in der Ansicht "Einheiten" -- der Split nur, wenn es mehrere gibt.
+ *
+ * Kurzes Datum, weil das aufgeklappte <select> am Handy nach rund 32 Zeichen
+ * umbricht und sich dagegen nicht gestalten laesst (CLAUDE.md, Frontend). Die
+ * Uhrzeit bleibt trotzdem: Zwei Einheiten desselben Plans am selben Tag waeren
+ * sonst nicht zu unterscheiden.
+ */
+function einheit_beschriftung(array $e, bool $mitSplit): string {
+    $teile = [format_datum_kurz($e['started_at']) . ' ' . format_zeit($e['started_at'])];
+    $teile[] = $e['plan_name'] === null ? 'gelöschter Plan' : (string)$e['plan_name'];
+    if ($mitSplit && $e['split_name'] !== null) {
+        $teile[] = (string)$e['split_name'];
+    }
+    return implode(' · ', $teile);
+}
 
 /**
  * Baut die Zelle „Saetze" als umbrechendes Gitter statt als eine Zeile.
@@ -147,9 +250,62 @@ require __DIR__ . '/lib/view_header.php';
             Einheiten (<?= count($einheiten) ?>)
         </a>
         <a href="?ansicht=uebungen" class="<?= $ansicht === 'uebungen' ? 'aktiv' : '' ?>">
-            Übungen (<?= count($uebungen) ?>)
+            Übungen (<?= $uebungenGesamt ?>)
         </a>
     </span>
+
+    <?php // Die Filter nur, wenn es ueberhaupt etwas zu ordnen gibt. ?>
+    <?php if ($ansicht === 'uebungen' && $uebungenGesamt > 0): ?>
+        <form method="get" class="filter-form verlauf-filter">
+            <input type="hidden" name="ansicht" value="uebungen">
+
+            <label for="verlauf-einheit" class="nur-lesbar">Einheit</label>
+            <select id="verlauf-einheit" name="einheit">
+                <option value="">alle Einheiten</option>
+                <?php foreach ($einheiten as $e): ?>
+                    <option value="<?= (int)$e['id'] ?>" <?= $einheitId === (int)$e['id'] ? 'selected' : '' ?>>
+                        <?= h(einheit_beschriftung($e, $mehrereSplits)) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+
+            <?php // data-vorgabe: Die Sortierung ist nicht ausdruecklich gewaehlt.
+                  // history.js schickt sie beim Wechsel der Einheit dann nicht mit,
+                  // damit eine neu gewaehlte Einheit in ihrer Trainingsreihenfolge
+                  // erscheint -- statt in "Zuletzt trainiert", nur weil das Feld
+                  // diesen Wert anzeigte. ?>
+            <label for="verlauf-sort" class="nur-lesbar">Sortierung</label>
+            <select id="verlauf-sort" name="sort"<?= $sortGewaehlt === '' ? ' data-vorgabe' : '' ?>>
+                <?php foreach (VERLAUF_SORTIERUNG as $code => $label): ?>
+                    <?php if ($code === 'einheit' && $einheitId === null) continue; ?>
+                    <option value="<?= h($code) ?>" <?= $sortierung === $code ? 'selected' : '' ?>>
+                        <?= h($label) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+
+            <?php if ($gruppeFilterAktiv): ?>
+                <?php // Dasselbe Markup wie in der Uebungsauswahl: kein <optgroup>,
+                      // weil die Hauptgruppe selbst waehlbar sein muss, und das
+                      // vorangestellte "–" als Einrueckung der Untergruppen. ?>
+                <label for="verlauf-gruppe" class="nur-lesbar">Muskelgruppe</label>
+                <select id="verlauf-gruppe" name="gruppe">
+                    <option value="">alle Muskelgruppen</option>
+                    <?php foreach ($hauptGruppen as $hg): ?>
+                        <option value="<?= (int)$hg['id'] ?>" <?= $gruppeId === (int)$hg['id'] ? 'selected' : '' ?>>
+                            <?= h((string)$hg['name_de']) ?>
+                        </option>
+                        <?php foreach ($unterGruppen[(int)$hg['id']] ?? [] as $ug): ?>
+                            <option value="<?= (int)$ug['id'] ?>" <?= $gruppeId === (int)$ug['id'] ? 'selected' : '' ?>>
+                                – <?= h((string)$ug['name_de']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
+                </select>
+            <?php endif; ?>
+            <noscript><button type="submit">Anzeigen</button></noscript>
+        </form>
+    <?php endif; ?>
 </nav>
 
 <?php if ($offen !== null): ?>
@@ -198,8 +354,9 @@ require __DIR__ . '/lib/view_header.php';
                     }
                 }
                 ?>
-                <li class="karte einheit-karte" data-session="<?= (int)$e['id'] ?>">
-                    <details>
+                <li class="karte einheit-karte" id="einheit-<?= (int)$e['id'] ?>"
+                    data-session="<?= (int)$e['id'] ?>">
+                    <details<?= $offenId === (int)$e['id'] ? ' open' : '' ?>>
                         <summary class="einheit-kopf">
                             <span class="einheit-datum">
                                 <?= h(format_datetime($e['started_at'])) ?>
@@ -269,7 +426,19 @@ require __DIR__ . '/lib/view_header.php';
                                     <?php $zeilenSaetze = $saetze[(int)$z['log_id']] ?? []; ?>
                                     <tr>
                                         <td>
-                                            <?= uebung_name((string)$z['name_de'], $z['name_en']) ?>
+                                            <?php // Der Name fuehrt in die Einzelansicht der Uebung
+                                                  // -- mit ALLEN bisherigen Einheiten und dieser hier
+                                                  // markiert. Die Einheit reist mit, damit man von
+                                                  // dort zu ihren uebrigen Uebungen weiterkommt.
+                                                  //
+                                                  // Das <strong> bleibt unangetastet im Link: Es
+                                                  // traegt weiterhin nur den deutschen Namen
+                                                  // (Fallstrick 27). ?>
+                                            <a class="uebung-link" href="<?= h(verlauf_url([
+                                                'ansicht' => 'uebungen',
+                                                'einheit' => (int)$e['id'],
+                                                'uebung'  => (int)$z['exercise_id'],
+                                            ])) ?>"><?= uebung_name((string)$z['name_de'], $z['name_en']) ?></a>
                                             <?php // Nach einem Tausch steht im Log die Ersatzübung;
                                                   // ohne diesen Hinweis wirkt der Plan verändert. ?>
                                             <?php if ($z['plan_uebung_name'] !== null
@@ -351,7 +520,37 @@ require __DIR__ . '/lib/view_header.php';
 
 <?php else: ?>
 
-    <?php if ($uebungen === []): ?>
+
+    <?php if ($uebungId !== null): ?>
+        <?php // Der Weg zurueck aus der Einzelansicht -- ohne ihn stuende man
+              // nach einem Klick aus "Einheiten" in einer Liste mit genau einer
+              // Karte und saehe keinen Grund dafuer. ?>
+        <p class="verlauf-zurueck">
+            <?php if ($einheitId !== null): ?>
+                <a href="<?= h(verlauf_url(['ansicht' => 'uebungen', 'einheit' => $einheitId])) ?>">
+                    Alle Übungen dieser Einheit</a>
+                ·
+                <a href="<?= h(verlauf_url(['ansicht' => 'einheiten', 'offen' => $einheitId], 'einheit-' . $einheitId)) ?>">
+                    Zur Einheit</a>
+                ·
+            <?php endif; ?>
+            <a href="<?= h(verlauf_url(['ansicht' => 'uebungen'])) ?>">Alle Übungen</a>
+        </p>
+    <?php endif; ?>
+
+    <?php if ($uebungen === [] && $uebungenGesamt > 0): ?>
+        <div class="karte">
+            <p><strong><?= $uebungId !== null
+                ? 'Für diese Übung ist kein Wert protokolliert.'
+                : ($gruppeId !== null
+                    ? 'Zu dieser Muskelgruppe ist keine Übung mit Werten protokolliert.'
+                    : 'In dieser Einheit ist keine Übung mit Werten protokolliert.') ?></strong></p>
+            <p class="matt">
+                Übungen, die ohne Gewicht, Distanz oder Zeit abgehakt wurden, haben
+                keinen Verlauf.
+            </p>
+        </div>
+    <?php elseif ($uebungen === []): ?>
         <div class="karte">
             <p><strong>Noch nichts protokolliert.</strong></p>
             <p class="matt">
@@ -361,15 +560,53 @@ require __DIR__ . '/lib/view_header.php';
             </p>
         </div>
     <?php else: ?>
-        <ul class="liste-schlicht">
+        <?php
+        // Bei "Nach Muskelgruppe" steht ueber jeder Hauptgruppe und jeder
+        // Untergruppe eine Ueberschrift, und jede Gruppe ist eine eigene Liste
+        // -- eine Ueberschrift darf nicht IN einer <ul> stehen. Bei den anderen
+        // Sortierungen gibt es genau eine Liste.
+        $mitGruppen    = $sortierung === 'muskel' && $uebungId === null;
+        $letzteHaupt   = false;
+        $letzteGruppe  = false;
+        $listeOffen    = false;
+        ?>
             <?php foreach ($uebungen as $u): ?>
                 <?php
+                $hauptKey  = $u['hauptgruppe_name'] ?? null;
+                $gruppeKey = $u['gruppe_id'] ?? null;
+                if (!$listeOffen || ($mitGruppen && $gruppeKey !== $letzteGruppe)):
+                    if ($listeOffen) {
+                        echo '</ul>';
+                    }
+                    if ($mitGruppen && $hauptKey !== $letzteHaupt) {
+                        echo '<h2 class="gruppen-titel">'
+                            . ($hauptKey === null ? 'Ohne Muskelgruppe' : h((string)$hauptKey))
+                            . '</h2>';
+                    }
+                    // Die Untergruppe nur, wo die Uebung an einer haengt --
+                    // eine direkt an der Hauptgruppe haette sonst dieselbe
+                    // Ueberschrift zweimal untereinander.
+                    if ($mitGruppen && $u['gruppe_parent_id'] !== null) {
+                        echo '<h3 class="gruppen-untertitel">' . h((string)$u['gruppe_name']) . '</h3>';
+                    }
+                    echo '<ul class="liste-schlicht">';
+                    $listeOffen   = true;
+                    $letzteHaupt  = $hauptKey;
+                    $letzteGruppe = $gruppeKey;
+                endif;
+
                 $ausdauer = ist_ausdauer($u['erfassung'] ?? null);
+                // Die Einzelansicht zeigt den GANZEN Verlauf, die Liste die
+                // juengsten 60 je Uebung -- bei vielen Uebungen mit langer
+                // Historie wuerde die Seite sonst mit jedem Monat schwerer.
+                $verlaufGrenze = $uebungId !== null ? null : 60;
                 $verlauf  = gewichts_verlauf(
                     $userId,
                     (int)$u['exercise_id'],
-                    $ausdauer ? 'ausdauer' : 'kraft'
+                    $ausdauer ? 'ausdauer' : 'kraft',
+                    $verlaufGrenze
                 );
+                $gekappt = $verlaufGrenze !== null && count($verlauf) >= $verlaufGrenze;
 
                 // Die Leitzahl der Kopfzeile: bei Kraft das Gewicht, bei
                 // Ausdauer die Distanz. Beides ist die Zahl, an der man den
@@ -407,8 +644,10 @@ require __DIR__ . '/lib/view_header.php';
                 }
                 $hatSaetze = $saetzeJeLog !== [];
                 ?>
-                <li class="karte">
-                    <details>
+                <li class="karte" id="uebung-<?= (int)$u['exercise_id'] ?>">
+                    <?php // In der Einzelansicht aufgeklappt: Man kommt genau fuer die
+                          // Details hierher, ein weiterer Tipp waere nur ein Hindernis. ?>
+                    <details<?= $uebungId !== null ? ' open' : '' ?>>
                         <summary class="einheit-kopf">
                             <?php // Einzeilig: Der Kopf ist eine Flex-Zeile mit Kurve und
                                   // Eckdaten daneben -- ein Umbruch im Namen schoebe sie
@@ -505,13 +744,27 @@ require __DIR__ . '/lib/view_header.php';
                             </thead>
                             <tbody>
                             <?php foreach (array_reverse($verlauf) as $v): ?>
-                                <tr>
+                                <?php $vSession = $v['session_id'] === null ? null : (int)$v['session_id']; ?>
+                                <?php // Die Zeile der gewaehlten Einheit ist markiert -- dafuer
+                                      // grenzt man ein: um diese eine Einheit mit den
+                                      // uebrigen zu vergleichen. ?>
+                                <tr<?= $einheitId !== null && $vSession === $einheitId ? ' class="zeile-gewaehlt"' : '' ?>>
                                     <?php // Datum und Uhrzeit als zwei Elemente, damit das
                                           // Stylesheet sie am Handy untereinander und auf
-                                          // breiten Schirmen nebeneinander setzen kann. ?>
+                                          // breiten Schirmen nebeneinander setzen kann.
+                                          //
+                                          // Das Datum fuehrt zur Einheit zurueck, aufgeklappt --
+                                          // das Gegenstueck zum Link am Uebungsnamen dort. ?>
                                     <td class="datum-spalte">
+                                        <?php if ($vSession !== null): ?>
+                                            <a href="<?= h(verlauf_url(
+                                                ['ansicht' => 'einheiten', 'offen' => $vSession],
+                                                'einheit-' . $vSession
+                                            )) ?>">
+                                        <?php endif; ?>
                                         <span class="datum-tag"><?= h(format_datum_kurz($v['performed_at'])) ?></span>
                                         <span class="datum-zeit"><?= h(format_zeit($v['performed_at'])) ?></span>
+                                        <?php if ($vSession !== null): ?></a><?php endif; ?>
                                     </td>
                                     <?php if ($ausdauer): ?>
                                         <?php
@@ -571,6 +824,17 @@ require __DIR__ . '/lib/view_header.php';
                             </tbody>
                         </table>
                         </div>
+
+                        <?php if ($gekappt && (int)$u['anzahl'] > count($verlauf)): ?>
+                            <p class="matt">
+                                Die letzten <?= count($verlauf) ?> von <?= (int)$u['anzahl'] ?> Einheiten —
+                                <a href="<?= h(verlauf_url([
+                                    'ansicht' => 'uebungen',
+                                    'einheit' => $einheitId,
+                                    'uebung'  => (int)$u['exercise_id'],
+                                ])) ?>">alle anzeigen</a>
+                            </p>
+                        <?php endif; ?>
 
                         <p class="matt">
                             <?php // Bestwert heisst bei Ausdauer die WEITESTE Strecke einer

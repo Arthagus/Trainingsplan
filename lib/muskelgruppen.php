@@ -19,6 +19,9 @@ declare(strict_types=1);
  * Positionen eines Plans (dort zaehlt die Planreihenfolge), die
  * Tauschvorschlaege (naechstliegender Ersatz zuerst -- die machen es ueber
  * mg.sort_order ohnehin schon) und der Verlauf (zuletzt trainiert zuerst).
+ *
+ * Der Verlauf bietet die Muskelgruppen-Ordnung seit 1.4.8 als WAHL an
+ * (uebungen_mit_verlauf(), 'muskel') -- ueber genau diese beiden Bausteine.
  */
 
 /**

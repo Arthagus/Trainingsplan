@@ -1036,6 +1036,23 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
    zuerst — sie folgen `mg.sort_order` ohnehin schon) und der Verlauf (zuletzt trainiert
    zuerst).
 
+   **Der Verlauf kann seit `1.4.8` WAHLWEISE nach Muskelgruppe ordnen** (`?sort=muskel` in
+   der Übungsansicht, `VERLAUF_SORTIERUNG` in `lib/training.php`) — und benutzt dafür
+   dieselben zwei Bausteine, keine dritte Fassung. Die Vorgabe dort bleibt „zuletzt
+   trainiert".
+
+   **Der Muskelgruppen-FILTER dort (`?gruppe=`, seit `1.4.9`) prüft die Primärgruppe über
+   `pgrp` aus `MG_SORT_JOIN` — und damit bewusst NICHT wie die Übungsauswahl**, wo jede
+   Zuordnung zählt. In `1.4.9` stand hier die Regel der Übungsauswahl, und „Brust" lieferte
+   die Abschnitte „Schultern" und „Arme" mit (gemeldet 2026-09-14). **Die allgemeine Form:
+   Ein Filter über einer gegliederten Liste muss nach DEMSELBEN Merkmal filtern, nach dem
+   die Liste gegliedert ist.** Dasselbe Auswahlfeld an zwei Stellen heißt nicht dieselbe
+   Frage — in der Auswahl sucht man Ersatz, im Verlauf einen Abschnitt.
+
+   **Prüfen lässt sich das nur mit Nebengruppen im Bestand**, die in eine ANDERE
+   Hauptgruppe zeigen (etwa Schulterdrücken mit Nebengruppe Brust). Ohne sie liefern beide
+   Regeln dieselbe Menge, und genau so kam `1.4.9` durch die Prüfung.
+
 10. **Genau eine Primärgruppe je Übung** (`exercise_muscle_groups`, §4), abgesichert durch
     den partiellen Unique-Index `idx_emg_one_primary`. Primär = die Gruppe, **wegen der**
     man die Übung macht. Beim Umsetzen erst alle auf 0, dann die neue auf 1 — **in einer

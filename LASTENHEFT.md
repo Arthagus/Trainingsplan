@@ -1817,6 +1817,41 @@ eine Filterleiste umschaltbar:
   als Tabelle mit Datum und Gewicht, dazu die Veränderung gegenüber dem ersten Eintrag und
   der Bestwert. Übungen ganz ohne Werte erscheinen nicht.
 
+**Zwischen beiden Ansichten führen Links** (seit `1.4.8`):
+
+- **Ein Übungsname in einer Einheit** öffnet die **Einzelansicht** dieser Übung: aufgeklappt,
+  mit **allen** bisherigen Einheiten (die Liste zeigt je Übung nur die jüngsten 60 und
+  verweist sonst mit „alle anzeigen" dorthin), die Zeile der Einheit, aus der man kam,
+  hinterlegt. Darüber die Wege zurück: *Alle Übungen dieser Einheit*, *Zur Einheit*, *Alle
+  Übungen*.
+- **Das Datum in der Übungstabelle** führt zurück zur Einheit, dort aufgeklappt.
+
+**Die Übungsansicht lässt sich ordnen und eingrenzen** (seit `1.4.8`), über zwei
+Auswahlfelder in der Filterleiste, die ohne eigenen Knopf sofort anzeigen:
+
+- **Einheit**: *alle Einheiten* oder eine bestimmte, beschriftet wie in der Ansicht
+  Einheiten — Datum und Uhrzeit, Plan, der Split nur bei mehreren Splits. Gezeigt werden dann
+  nur die Übungen dieser Einheit, **mit ihrem ganzen Verlauf** — Kopfzahlen und Tabelle
+  bleiben ungefiltert, denn der Vergleich mit den übrigen Einheiten ist der Zweck; die Zeile
+  der gewählten Einheit ist hinterlegt. Zur Auswahl stehen dieselben Einheiten wie in der
+  Ansicht Einheiten.
+- **Sortierung**: *Zuletzt trainiert* (Vorgabe), *Am häufigsten* (nach der Zahl „n×" im
+  Kopf, also Einheiten mit einem Wert), *Nach Muskelgruppe* (Reihenfolge wie im
+  Übungskatalog, §6.2, mit Überschriften für Haupt- und Untergruppe; Übungen ohne
+  Muskelgruppe zuletzt) und — nur mit gewählter Einheit — *Reihenfolge im Training*, die
+  dann auch die Vorgabe ist, solange die Sortierung nicht ausdrücklich gewählt wurde.
+- **Muskelgruppe** (seit `1.4.9`): ein drittes Auswahlfeld, **nur bei *alle Einheiten* und
+  *Nach Muskelgruppe***. Es ist aufgebaut wie in der Übungsauswahl (§6.4): *alle
+  Muskelgruppen*, darunter die Hauptgruppen in ihrer Reihenfolge und eingerückt ihre
+  Untergruppen. **Gefiltert wird nach der Primärgruppe** (seit `1.4.10`), und eine
+  Hauptgruppe schließt ihre Untergruppen ein: Unter „Brust" stehen nur Übungen, deren
+  Primärgruppe Brust oder eine ihrer Untergruppen ist. Das ist bewusst **enger als in der
+  Übungsauswahl**, wo jede Zuordnung zählt — dort sucht man Ersatz, hier ist die Liste nach
+  Muskelgruppe gegliedert, und der Filter muss dieselbe Menge liefern wie die Gliederung,
+  sonst erscheinen Abschnitte, die man nicht gewählt hat. Wechselt man Einheit oder
+  Sortierung, verschwindet das Feld, und der Filter gilt nicht mehr.
+- Die Zahl „Übungen (n)" in der Umschaltleiste nennt immer den ganzen Bestand.
+
 **Satzgenau protokollierte Einheiten** (§7.4) zeigen zusätzlich:
 
 - In der Ansicht **Einheiten** eine Spalte **„Sätze"** mit der vollen Folge

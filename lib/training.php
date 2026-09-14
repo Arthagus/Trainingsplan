@@ -7,6 +7,9 @@ require_once __DIR__ . '/helpers.php';
 // durchgehend zwischen Kraft und Ausdauer, und wer training.php hat, hat damit
 // auch die Codeliste -- index.php, history.php, api/log.php, api/swap.php.
 require_once __DIR__ . '/geraete.php';
+// Wegen MG_SORT_JOIN/MG_SORT_ORDER: Der Verlauf laesst sich nach Muskelgruppe
+// ordnen, und zwar in genau der Reihenfolge des Uebungskatalogs.
+require_once __DIR__ . '/muskelgruppen.php';
 
 /**
  * Trainingslogik: Plan-Rotation, offene Einheiten, Vorbelegung von Gewichten.
@@ -1260,25 +1263,141 @@ function einheit_eintraege(int $sessionId, int $userId): array {
  * welcher gilt, entscheidet die Anzeige anhand von erfassung. Eine einzige
  * Spalte mit einem CASE waere kuerzer und in der Antwort nicht mehr deutbar.
  */
-function uebungen_mit_verlauf(int $userId): array {
+function uebungen_mit_verlauf(
+    int $userId,
+    string $sortierung = 'zuletzt',
+    ?int $sessionId = null,
+    ?int $exerciseId = null,
+    ?int $gruppeId = null
+): array {
+    if (!array_key_exists($sortierung, VERLAUF_SORTIERUNG)) {
+        $sortierung = 'zuletzt';
+    }
+    // "Reihenfolge im Training" gibt es nur mit einer Einheit, an der sie
+    // haengt -- ohne faellt sie auf den Standard zurueck, statt eine Liste in
+    // zufaelliger Folge zu liefern.
+    if ($sortierung === 'einheit' && $sessionId === null) {
+        $sortierung = 'zuletzt';
+    }
+
+    // Die Zahlen im Kopf (anzahl, bestwert, zuletzt) laufen IMMER ueber den
+    // ganzen Verlauf der Uebung. Der Einheitsfilter waehlt nur aus, WELCHE
+    // Uebungen erscheinen -- sonst stuende bei jeder Uebung "1×", und der
+    // Vergleich mit frueheren Einheiten, um den es beim Eingrenzen geht, waere
+    // weg. Deshalb als Unterabfrage auf die exercise_id und nicht als
+    // Bedingung an wl.session_id.
+    //
+    // Die Unterabfrage traegt die user_id selbst: Eine fremde session_id
+    // liefert damit keine Zeilen, statt fremde Uebungs-IDs zu verraten (§5).
+    $bedingung = '';
+    $werte     = [$userId];
+    if ($sessionId !== null) {
+        $bedingung .= ' AND wl.exercise_id IN (SELECT w2.exercise_id FROM workout_log w2
+                                                 WHERE w2.session_id = ? AND w2.user_id = ?)';
+        $werte[] = $sessionId;
+        $werte[] = $userId;
+    }
+    if ($exerciseId !== null) {
+        $bedingung .= ' AND wl.exercise_id = ?';
+        $werte[] = $exerciseId;
+    }
+    if ($gruppeId !== null) {
+        // Gefiltert wird nach der PRIMAERgruppe -- und zwar ueber genau die
+        // Spalten, nach denen die Seite ihre Ueberschriften setzt (`pgrp` aus
+        // MG_SORT_JOIN). Eine Hauptgruppe schliesst ihre Untergruppen ein.
+        //
+        // In 1.4.9 zaehlte hier JEDE Zuordnung, wortgleich zur Uebungsauswahl
+        // (api/plans.php). Das war falsch fuer diese Ansicht: Wer "Brust"
+        // waehlte, bekam darunter die Ueberschriften "Schultern" und "Arme" --
+        // Uebungen, an denen die Brust nur Nebengruppe ist. Gemeldet am
+        // 2026-09-14. Die Liste ist hier nach Muskelgruppe GEGLIEDERT, und ein
+        // Filter, der eine andere Menge liefert als die Gliederung, zeigt
+        // Abschnitte, die man nicht gewaehlt hat. In der Uebungsauswahl bleibt
+        // die weitere Regel richtig: Dort sucht man einen Ersatz, und eine
+        // Nebengruppe ist ein Grund, eine Uebung zu finden.
+        //
+        // Kein COALESCE um die Spalten, also bleibt die Integer-Affinitaet
+        // erhalten und der gebundene Wert wird richtig verglichen.
+        $bedingung .= ' AND (pgrp.id = ? OR pgrp.parent_id = ?)';
+        $werte[] = $gruppeId;
+        $werte[] = $gruppeId;
+    }
+
+    // Die Muskelgruppen-Ordnung ist dieselbe wie im Uebungskatalog
+    // (lib/muskelgruppen.php, Fallstrick 9) -- LEFT JOIN, damit eine
+    // Ausdaueruebung ohne Muskelgruppe nicht lautlos aus dem Verlauf faellt.
+    // Die Gruppennamen kommen mit, weil die Seite bei dieser Sortierung
+    // Zwischenueberschriften setzt.
+    $ordnung = match ($sortierung) {
+        'haeufig' => 'anzahl DESC, zuletzt DESC, e.name_de',
+        'muskel'  => MG_SORT_ORDER . ', e.name_de',
+        default   => 'zuletzt DESC, e.name_de',
+    };
+
     $stmt = db()->prepare(
         'SELECT wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung,
+                pgrp.id        AS gruppe_id,
+                pgrp.name_de   AS gruppe_name,
+                pgrp.parent_id AS gruppe_parent_id,
+                pwurz.name_de  AS hauptgruppe_name,
                 COUNT(*)          AS anzahl,
                 MAX(wl.weight)    AS bestwert,
                 MAX(wl.distanz_m) AS bestdistanz,
                 MAX(wl.performed_at) AS zuletzt
            FROM workout_log wl
            JOIN exercises e ON e.id = wl.exercise_id
+           ' . MG_SORT_JOIN . '
           WHERE wl.user_id = ?
             AND (wl.weight IS NOT NULL
                  OR wl.distanz_m IS NOT NULL
-                 OR wl.dauer_s IS NOT NULL)
-          GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung
-          ORDER BY zuletzt DESC, e.name_de'
+                 OR wl.dauer_s IS NOT NULL)' . $bedingung . '
+          GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung,
+                   pgrp.id, pgrp.name_de, pgrp.parent_id, pgrp.sort_order,
+                   pwurz.name_de, pwurz.sort_order
+          ORDER BY ' . $ordnung
     );
-    $stmt->execute([$userId]);
-    return $stmt->fetchAll();
+    $stmt->execute($werte);
+    $zeilen = $stmt->fetchAll();
+
+    if ($sortierung !== 'einheit') {
+        return $zeilen;
+    }
+
+    // Die Reihenfolge der Einheit ist genau die, in der die Ansicht
+    // "Einheiten" sie zeigt -- deshalb aus einheit_eintraege() gelesen und
+    // nicht ein zweites Mal in SQL nachgebaut. Zwei Fassungen derselben
+    // Reihenfolge liefen auseinander, sobald eine davon angefasst wird.
+    $rang = [];
+    foreach (einheit_eintraege($sessionId, $userId) as $i => $eintrag) {
+        $rang[(int)$eintrag['exercise_id']] ??= $i;
+    }
+    usort($zeilen, static fn(array $a, array $b): int =>
+        ($rang[(int)$a['exercise_id']] ?? PHP_INT_MAX) <=> ($rang[(int)$b['exercise_id']] ?? PHP_INT_MAX));
+    return $zeilen;
 }
+
+/**
+ * Wie die Uebungsliste im Verlauf geordnet werden kann (§7.8).
+ *
+ * Codeliste wie SATZ_VORLAGE: klein, geschlossen, eine weitere Sortierung soll
+ * eine Zeile hier kosten. Der Schluessel steht in der Adresse, die
+ * Beschriftung nur hier.
+ *
+ * 'haeufig' zaehlt dieselbe Zahl, die im Kopf jeder Karte als "n×" steht --
+ * die Einheiten mit einem Wert. Eine andere Zaehlung (etwa auch Positionen,
+ * die ohne Werte abgehakt wurden) ergaebe eine Reihenfolge, die man an den
+ * sichtbaren Zahlen nicht nachvollziehen kann.
+ *
+ * 'einheit' ist nur zusammen mit einer gewaehlten Einheit sinnvoll; die Seite
+ * bietet sie nur dann an, und uebungen_mit_verlauf() faellt ohne Einheit auf
+ * 'zuletzt' zurueck.
+ */
+const VERLAUF_SORTIERUNG = [
+    'zuletzt' => 'Zuletzt trainiert',
+    'haeufig' => 'Am häufigsten',
+    'muskel'  => 'Nach Muskelgruppe',
+    'einheit' => 'Reihenfolge im Training',
+];
 
 /**
  * Der Wertverlauf einer Uebung, aelteste zuerst (fuer die Kurve).
@@ -1301,19 +1420,22 @@ function gewichts_verlauf(
     int $userId,
     int $exerciseId,
     string $erfassung = ERFASSUNG_VORGABE,
-    int $limit = 60
+    ?int $limit = 60
 ): array {
     $filter = ist_ausdauer($erfassung)
         ? '(wl.distanz_m IS NOT NULL OR wl.dauer_s IS NOT NULL)'
         : 'wl.weight IS NOT NULL';
 
+    // session_id, damit die Seite die Zeile der gewaehlten Einheit markieren
+    // und auf sie zurueckverweisen kann. $limit = null heisst: der ganze
+    // Verlauf -- die Einzelansicht einer Uebung zeigt ALLE Einheiten.
     $stmt = db()->prepare(
-        'SELECT wl.id AS log_id, wl.weight, wl.distanz_m, wl.dauer_s,
+        'SELECT wl.id AS log_id, wl.session_id, wl.weight, wl.distanz_m, wl.dauer_s,
                 wl.performed_at
            FROM workout_log wl
           WHERE wl.user_id = ? AND wl.exercise_id = ? AND ' . $filter . '
-          ORDER BY wl.performed_at DESC, wl.id DESC
-          LIMIT ' . (int)$limit
+          ORDER BY wl.performed_at DESC, wl.id DESC'
+        . ($limit === null ? '' : ' LIMIT ' . (int)$limit)
     );
     $stmt->execute([$userId, $exerciseId]);
 
