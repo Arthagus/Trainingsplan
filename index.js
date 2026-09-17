@@ -43,6 +43,16 @@
         return karte.dataset.erfassung === 'ausdauer';
     }
 
+    /**
+     * Wird das Gewicht dieser Position als Unterstützung gelesen (Fallstrick 34)?
+     * Ebenfalls aus dem Datenattribut, und zwar für die tatsächlich
+     * ausgeführte Übung — nach einem Tausch die Ersatzübung. Wirkt hier nur auf
+     * die Beschriftung; welcher Satz zählt, entscheidet der Server.
+     */
+    function istUnterstuetzt(karte) {
+        return karte.dataset.gewichtWirkung === 'unterstuetzung';
+    }
+
     const satzWartend = new Set();
     let satzUhr = null;
 
@@ -541,7 +551,7 @@
      * Zeile ist ein Bedienelement, das sich im Betrieb ständig ändert; zwei
      * Fassungen davon wären irgendwann verschieden.
      */
-    function satzZeileMarkup(satz, nr, ausdauer) {
+    function satzZeileMarkup(satz, nr, ausdauer, unterstuetzt) {
         if (ausdauer) {
             // Zwei Textfelder und KEIN Stepper: ±1 Meter ist keine sinnvolle
             // Schrittweite, und ein zweiter Schrittwert (±100 m? ±10 s?) wäre
@@ -589,7 +599,8 @@
             + '<span class="wert-feld">'
             + '<input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"'
             + ' class="satz-gewicht" enterkeyhint="done" placeholder="—"'
-            + ' aria-label="Satz ' + nr + ': Gewicht in kg"'
+            + ' aria-label="Satz ' + nr + ': '
+            + (unterstuetzt ? 'Unterstützung' : 'Gewicht') + ' in kg"'
             + ' value="' + escapeHtml(satz.weight) + '">'
             + '<span class="wert-einheit" aria-hidden="true">kg</span>'
             + '</span>'
@@ -746,6 +757,7 @@
         if (!block) return;
 
         const ausdauer = istAusdauer(karte);
+        const unterstuetzt = istUnterstuetzt(karte);
 
         // Die Zeilen NUR neu bauen, wenn sich ihre Anzahl geändert hat. Beim
         // Tippen und beim Stepper stehen die Felder schon richtig — sie über
@@ -753,7 +765,7 @@
         // Cursorposition mitten aus der Eingabe.
         if (zeilenNeu) {
             qs('.satz-liste', block).innerHTML =
-                saetze.map((s, i) => satzZeileMarkup(s, i + 1, ausdauer)).join('');
+                saetze.map((s, i) => satzZeileMarkup(s, i + 1, ausdauer, unterstuetzt)).join('');
         }
 
         const zusammen = qs('.saetze-zusammenfassung', block);

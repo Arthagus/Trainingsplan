@@ -327,6 +327,17 @@ function apply_migrations(PDO $pdo): void {
         $pdo->exec('ALTER TABLE plan_exercises ADD COLUMN session_id INTEGER');
     }
 
+    // 2026-09-15: Wirkung des eingestellten Gewichts (§4, §6.3, Fallstrick 34).
+    //
+    // 'last' als Vorgabe ist -- wie bei erfassung -- kein geratener Wert: Bis
+    // 1.4.10 kannte die App nur Gewicht als Zusatzlast, jede Bestandsuebung
+    // wurde also genau so ausgewertet. Rein additiv, am Verhalten des Bestands
+    // aendert sich nichts. Ohne CHECK aus demselben Grund wie bei erfassung;
+    // gebunden wird der Wert in api/exercises.php gegen GEWICHT_WIRKUNG.
+    if (!column_exists($pdo, 'exercises', 'gewicht_wirkung')) {
+        $pdo->exec("ALTER TABLE exercises ADD COLUMN gewicht_wirkung TEXT NOT NULL DEFAULT 'last'");
+    }
+
     // Die Indizes gehoeren hierher und nicht in schema.sql: Dort liefen sie vor
     // den ALTER oben und scheiterten auf einer Bestandsdatenbank an der noch
     // fehlenden Spalte -- was den gesamten Start abbraeche. Hier steht die

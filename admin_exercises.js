@@ -76,11 +76,20 @@
         const formular = feld.closest('form');
         const block = formular ? qs('[data-gruppen-wahl]', formular) : null;
         if (!block) return;
+        // „Gewicht bedeutet" (Fallstrick 34) folgt derselben Regel: Ausdauer
+        // hat kein Gewicht. Hier ist das `disabled` am Auswahlfeld selbst, weil
+        // der Behälter ein <div> ist und kein <fieldset>.
+        const wirkung = qs('[data-wirkung-wahl]', formular);
+        const wirkungFeld = wirkung ? qs('select[name="gewicht_wirkung"]', wirkung) : null;
 
         function nachziehen() {
             const aus = feld.value === 'ausdauer';
             block.hidden = aus;
             block.disabled = aus;
+            if (wirkung && wirkungFeld) {
+                wirkung.hidden = aus;
+                wirkungFeld.disabled = aus;
+            }
         }
 
         feld.addEventListener('change', nachziehen);

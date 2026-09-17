@@ -591,7 +591,7 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
                 COALESCE(sw.replacement_exercise_id, pe.exercise_id) AS exercise_id,
                 sw.replacement_exercise_id IS NOT NULL AS getauscht,
                 e.name_de, e.name_en, e.description, e.focus, e.equipment,
-                e.erfassung,
+                e.erfassung, e.gewicht_wirkung,
                 e.image_path, e.image_crop, e.archived,
                 orig.name_de     AS plan_uebung_name,
                 orig.name_en     AS plan_uebung_name_en,
@@ -662,6 +662,10 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
             'focus'            => $z['focus'],
             'equipment'        => $z['equipment'],
             'erfassung'        => $ausdauer ? 'ausdauer' : 'kraft',
+            // Die Wirkung der AUSGEFUEHRTEN Uebung (e = nach dem Tausch), wie
+            // api/log.php sie beim Speichern benutzt (Fallstrick 34).
+            'gewicht_wirkung'  => !$ausdauer && ist_unterstuetzt($z['gewicht_wirkung'])
+                ? 'unterstuetzung' : 'last',
             'image_path'       => $z['image_path'],
             'image_crop'       => $z['image_crop'],
             'archived'         => (int)$z['archived'] === 1,
@@ -1230,7 +1234,7 @@ function einheit_eintraege(int $sessionId, int $userId): array {
     $stmt = db()->prepare(
         'SELECT wl.id AS log_id, wl.exercise_id, wl.weight, wl.performed_at,
                 wl.distanz_m, wl.dauer_s,
-                e.name_de, e.name_en, e.erfassung,
+                e.name_de, e.name_en, e.erfassung, e.gewicht_wirkung,
                 pe.sort_order,
                 pe.exercise_id AS plan_uebung_id,
                 orig.name_de   AS plan_uebung_name,
@@ -1336,12 +1340,17 @@ function uebungen_mit_verlauf(
 
     $stmt = db()->prepare(
         'SELECT wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung,
+                e.gewicht_wirkung,
                 pgrp.id        AS gruppe_id,
                 pgrp.name_de   AS gruppe_name,
                 pgrp.parent_id AS gruppe_parent_id,
                 pwurz.name_de  AS hauptgruppe_name,
                 COUNT(*)          AS anzahl,
                 MAX(wl.weight)    AS bestwert,
+                -- Bei Unterstuetzung ist der Bestwert das NIEDRIGSTE Gewicht
+                -- (Fallstrick 34); welches von beiden gilt, entscheidet die
+                -- Seite anhand von gewicht_wirkung.
+                MIN(wl.weight)    AS bestwert_min,
                 MAX(wl.distanz_m) AS bestdistanz,
                 MAX(wl.performed_at) AS zuletzt
            FROM workout_log wl
@@ -1352,6 +1361,7 @@ function uebungen_mit_verlauf(
                  OR wl.distanz_m IS NOT NULL
                  OR wl.dauer_s IS NOT NULL)' . $bedingung . '
           GROUP BY wl.exercise_id, e.name_de, e.name_en, e.image_path, e.erfassung,
+                   e.gewicht_wirkung,
                    pgrp.id, pgrp.name_de, pgrp.parent_id, pgrp.sort_order,
                    pwurz.name_de, pwurz.sort_order
           ORDER BY ' . $ordnung

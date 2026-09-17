@@ -115,6 +115,48 @@ $uebungenGesamt = ($einheitId === null && $uebungId === null && $gruppeId === nu
 // des Datums-Links aus der Uebungstabelle.
 $offenId = to_int_or_null($_GET['offen'] ?? null);
 
+// ?bearbeiten= zeigt EINE abgeschlossene Einheit zum Korrigieren ihrer Saetze
+// (§7.8, Fallstrick 35). Wie ?einheit= nur, wenn sie in $einheiten steht --
+// die Liste enthaelt ausschliesslich eigene, beendete Einheiten und ist damit
+// der IDOR-Schutz der Anzeige; api/log.php prueft beim Speichern selbst.
+$bearbeitenId = to_int_or_null($_GET['bearbeiten'] ?? null);
+$bearbeiteteEinheit = null;
+foreach ($einheiten as $kandidat) {
+    if ($ansicht === 'einheiten' && (int)$kandidat['id'] === $bearbeitenId) {
+        $bearbeiteteEinheit = $kandidat;
+        break;
+    }
+}
+
+/**
+ * Die Satzliste, mit der eine Zeile in der Bearbeitung beginnt.
+ *
+ * Eine Zeile ohne workout_sets, aber mit Leitwert -- protokolliert vor 1.1.0
+ * bzw. im einfachen Modus bis 1.4.2 -- bekommt ihren Wert als EINEN Satz
+ * vorbelegt. Sonst stuende sie mit leerer Liste da, und wer daneben etwas
+ * aendert und speichert, liesse ihr Gewicht verschwinden. Unveraendert
+ * geschickt wird sie nie (history.js vergleicht mit dem Anfangsstand).
+ */
+function korrektur_saetze(array $zeile, array $saetze): array {
+    if ($saetze !== []) {
+        return $saetze;
+    }
+    $leer = ['satz_nr' => 1, 'reps' => null, 'weight' => null, 'distanz_m' => null, 'dauer_s' => null];
+    if (ist_ausdauer($zeile['erfassung'] ?? null)) {
+        if ($zeile['distanz_m'] === null && $zeile['dauer_s'] === null) {
+            return [];
+        }
+        return [array_merge($leer, [
+            'distanz_m' => $zeile['distanz_m'] === null ? null : (int)$zeile['distanz_m'],
+            'dauer_s'   => $zeile['dauer_s'] === null ? null : (int)$zeile['dauer_s'],
+        ])];
+    }
+    if ($zeile['weight'] === null) {
+        return [];
+    }
+    return [array_merge($leer, ['weight' => (float)$zeile['weight']])];
+}
+
 /**
  * Baut eine Adresse dieser Seite. Leere Werte fallen heraus, damit die Adresse
  * nur traegt, was wirklich gewaehlt ist.
@@ -172,7 +214,7 @@ function satz_gitter(array $saetze, string $erfassung): string {
     foreach ($saetze as $s) {
         if (ist_ausdauer($erfassung)) {
             $m = $s['distanz_m'] === null ? '—' : $s['distanz_m'] . ' m';
-            $t = $s['dauer_s']   === null ? '—' : dauer_mmss($s['dauer_s']);
+            $t = $s['dauer_s']   === null ? '—' : dauer_hms($s['dauer_s']);
             $teile[] = '<span>' . h($m . '/' . $t) . '</span>';
             continue;
         }
@@ -196,10 +238,16 @@ function satz_gitter(array $saetze, string $erfassung): string {
  * und 1RM gibt es nur fuer satzgenau protokollierte Einheiten, und eine 0 riss
  * in die Kurve einen Einbruch, den es nie gegeben hat.
  *
- * @param array  $punkte Aufsteigend nach Zeit
- * @param string $feld   Welcher Wert gezeichnet wird
+ * **`$umgedreht` spiegelt die Hoehe** (Fallstrick 34): Bei einer Uebung mit
+ * Unterstuetzung ist weniger Gewicht besser, und die Kurve soll wie ueberall
+ * nach OBEN laufen, wenn es vorangeht. Die Zahlen daneben bleiben die echten kg
+ * -- gedreht wird nur die Zeichnung (Entscheidung des Benutzers, 2026-09-15).
+ *
+ * @param array  $punkte    Aufsteigend nach Zeit
+ * @param string $feld      Welcher Wert gezeichnet wird
+ * @param bool   $umgedreht Kleinster Wert oben statt unten
  */
-function verlauf_kurve(array $punkte, string $feld = 'weight'): void {
+function verlauf_kurve(array $punkte, string $feld = 'weight', bool $umgedreht = false): void {
     $werte = [];
     foreach ($punkte as $p) {
         if (($p[$feld] ?? null) !== null) {
@@ -223,7 +271,11 @@ function verlauf_kurve(array $punkte, string $feld = 'weight'): void {
     $koord = [];
     foreach ($werte as $i => $w) {
         $x = count($werte) === 1 ? 0.0 : ($i / (count($werte) - 1)) * $b;
-        $y = $h - $rand - (($w - $min) / $spanne) * ($h - 2 * $rand);
+        $anteil = ($w - $min) / $spanne;
+        if ($umgedreht) {
+            $anteil = 1.0 - $anteil;
+        }
+        $y = $h - $rand - $anteil * ($h - 2 * $rand);
         $koord[] = round($x, 2) . ',' . round($y, 2);
     }
     $letzte = end($koord);
@@ -319,7 +371,69 @@ require __DIR__ . '/lib/view_header.php';
     </div>
 <?php endif; ?>
 
-<?php if ($ansicht === 'einheiten'): ?>
+<?php if ($bearbeiteteEinheit !== null): ?>
+    <?php
+    $be        = $bearbeiteteEinheit;
+    $beId      = (int)$be['id'];
+    $beZeilen  = einheit_eintraege($beId, $userId);
+    $beSaetze  = saetze_zu_logs(array_column($beZeilen, 'log_id'));
+    $zurueck   = verlauf_url(['ansicht' => 'einheiten', 'offen' => $beId], 'einheit-' . $beId);
+    ?>
+    <div class="karte korrektur-kopf">
+        <p>
+            <strong>Einheit bearbeiten</strong><br>
+            <?= h(format_datetime($be['started_at'])) ?> ·
+            <?= $be['plan_name'] === null ? 'gelöschter Plan' : h((string)$be['plan_name']) ?>
+        </p>
+        <p class="matt">
+            Sätze ändern, nachtragen oder entfernen. Übungen lassen sich hier weder
+            hinzufügen noch entfernen — auch keine, die in dieser Einheit übersprungen
+            wurde. Die Änderungen zählen ab dem Speichern für Verlauf, Bestwerte und
+            die Vorbelegung im nächsten Training.
+        </p>
+    </div>
+
+    <?php if ($beZeilen === []): ?>
+        <div class="karte"><p class="matt">In dieser Einheit ist keine Übung protokolliert.</p></div>
+    <?php else: ?>
+        <ul class="liste-schlicht korrektur-liste" data-session="<?= $beId ?>"
+            data-zurueck="<?= h($zurueck) ?>">
+            <?php foreach ($beZeilen as $z): ?>
+                <?php
+                $zAusdauer = ist_ausdauer($z['erfassung'] ?? null);
+                $zUnterst  = !$zAusdauer && ist_unterstuetzt($z['gewicht_wirkung'] ?? null);
+                ?>
+                <?php // Die Satzzeilen baut history.js aus data-saetze -- sie muessen
+                      // sich ohnehin im Browser hinzufuegen und entfernen lassen. ?>
+                <li class="karte korrektur-position"
+                    data-log="<?= (int)$z['log_id'] ?>"
+                    data-erfassung="<?= $zAusdauer ? 'ausdauer' : 'kraft' ?>"
+                    data-unterstuetzt="<?= $zUnterst ? '1' : '0' ?>"
+                    data-saetze="<?= h(json_encode(
+                        korrektur_saetze($z, $beSaetze[(int)$z['log_id']] ?? [])
+                    )) ?>">
+                    <div class="uebung-text"><?= uebung_name((string)$z['name_de'], $z['name_en']) ?></div>
+                    <?php if ($zUnterst): ?>
+                        <p class="matt">Gewicht bedeutet hier: Unterstützung.</p>
+                    <?php endif; ?>
+                    <ul class="satz-liste"></ul>
+                    <button type="button" class="leise satz-hinzu">
+                        + <?= $zAusdauer ? 'Intervall' : 'Satz' ?>
+                    </button>
+                    <p class="feld-fehler zeilen-fehler" role="alert" hidden></p>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+
+    <p class="einheit-aktionen korrektur-aktionen">
+        <?php if ($beZeilen !== []): ?>
+            <button type="button" class="korrektur-speichern">Änderungen speichern</button>
+        <?php endif; ?>
+        <a class="knopf zweit" href="<?= h($zurueck) ?>">Abbrechen</a>
+    </p>
+
+<?php elseif ($ansicht === 'einheiten'): ?>
 
     <?php if ($einheiten === []): ?>
         <div class="karte">
@@ -347,10 +461,15 @@ require __DIR__ . '/lib/view_header.php';
                 // gemeinsamen Kopf -- "1RM" waere dort fuer die halbe Tabelle
                 // schlicht falsch.
                 $mitAusdauer = false;
+                // Dasselbe fuer eine Uebung mit Unterstuetzung (Fallstrick 34):
+                // Sie hat kein 1RM, in ihrer Zeile steht das Leitgewicht -- also
+                // ebenfalls der gemeinsame Kopf "Kennzahl".
+                $mitUnterstuetzung = false;
                 foreach ($eintraege as $pruef) {
                     if (ist_ausdauer($pruef['erfassung'] ?? null)) {
                         $mitAusdauer = true;
-                        break;
+                    } elseif (ist_unterstuetzt($pruef['gewicht_wirkung'] ?? null)) {
+                        $mitUnterstuetzung = true;
                     }
                 }
                 ?>
@@ -417,7 +536,9 @@ require __DIR__ . '/lib/view_header.php';
                                               // Spalte nur fuer die Pace waere bei einer reinen
                                               // Kraft-Einheit dauerhaft leer. ?>
                                         <th class="spalte-zahl"><?=
-                                            $mitAusdauer ? 'Kennzahl' : ($mitSaetzen ? '1RM' : 'Gewicht')
+                                            ($mitAusdauer || ($mitSaetzen && $mitUnterstuetzung))
+                                                ? 'Kennzahl'
+                                                : ($mitSaetzen ? '1RM' : 'Gewicht')
                                         ?></th>
                                     </tr>
                                 </thead>
@@ -449,6 +570,8 @@ require __DIR__ . '/lib/view_header.php';
                                             <?php endif; ?>
                                         </td>
                                         <?php $zeileAusdauer = ist_ausdauer($z['erfassung'] ?? null); ?>
+                                        <?php $zeileUnterstuetzt = !$zeileAusdauer
+                                            && ist_unterstuetzt($z['gewicht_wirkung'] ?? null); ?>
                                         <?php if ($mitSaetzen): ?>
                                             <td class="satz-spalte">
                                                 <?= satz_gitter(
@@ -457,7 +580,7 @@ require __DIR__ . '/lib/view_header.php';
                                                 ) ?>
                                             </td>
                                         <?php endif; ?>
-                                        <?php $e1rm = $mitSaetzen && !$zeileAusdauer
+                                        <?php $e1rm = $mitSaetzen && !$zeileAusdauer && !$zeileUnterstuetzt
                                             ? saetze_e1rm($zeilenSaetze)
                                             : null; ?>
                                         <td class="spalte-zahl">
@@ -472,6 +595,15 @@ require __DIR__ . '/lib/view_header.php';
                                                     $z['distanz_m'] === null ? null : (int)$z['distanz_m'],
                                                     $z['dauer_s']   === null ? null : (int)$z['dauer_s']
                                                 )) ?></span>
+                                            <?php elseif ($zeileUnterstuetzt): ?>
+                                                <?php // Kein 1RM: kg × Wdh ergaebe bei abgenommener
+                                                      // Last eine Zahl, die mit dem Fortschritt
+                                                      // SINKT. Stattdessen das Leitgewicht, also der
+                                                      // leichteste Satz (Fallstrick 34). ?>
+                                                <?= $z['weight'] === null
+                                                    ? '<span class="matt">—</span>'
+                                                    : h(format_decimal((float)$z['weight'])) . ' kg'
+                                                      . ' <span class="matt">Unterst.</span>' ?>
                                             <?php elseif ($mitSaetzen): ?>
                                                 <?= $e1rm === null
                                                     ? '<span class="matt">—</span>'
@@ -507,6 +639,14 @@ require __DIR__ . '/lib/view_header.php';
                               // trainiert, Testdaten. Ohne diesen Weg blieben solche
                               // Zeilen dauerhaft stehen. ?>
                         <p class="einheit-aktionen">
+                            <?php // Nur, wenn es etwas zu bearbeiten gibt: Uebungen
+                                  // kommen hier nicht dazu (Fallstrick 35). ?>
+                            <?php if ($eintraege !== []): ?>
+                                <a class="knopf zweit einheit-bearbeiten" href="<?= h(verlauf_url([
+                                    'ansicht'    => 'einheiten',
+                                    'bearbeiten' => (int)$e['id'],
+                                ])) ?>">Einheit bearbeiten</a>
+                            <?php endif; ?>
                             <button type="button" class="gefahr einheit-loeschen">
                                 Einheit löschen
                             </button>
@@ -596,6 +736,9 @@ require __DIR__ . '/lib/view_header.php';
                 endif;
 
                 $ausdauer = ist_ausdauer($u['erfassung'] ?? null);
+                // Weniger ist besser (Fallstrick 34): Kurve gespiegelt, Farbe der
+                // Differenz vertauscht, kein Volumen und kein 1RM.
+                $unterstuetzt = !$ausdauer && ist_unterstuetzt($u['gewicht_wirkung'] ?? null);
                 // Die Einzelansicht zeigt den GANZEN Verlauf, die Liste die
                 // juengsten 60 je Uebung -- bei vielen Uebungen mit langer
                 // Historie wuerde die Seite sonst mit jedem Monat schwerer.
@@ -643,6 +786,9 @@ require __DIR__ . '/lib/view_header.php';
                     $verlauf[$i]['e1rm']    = saetze_e1rm($s);
                 }
                 $hatSaetze = $saetzeJeLog !== [];
+                // Ob die Differenz im Kopf gut oder schlecht ist, haengt an der
+                // Richtung: Bei Unterstuetzung ist ein Minus der Fortschritt.
+                $diffGut = $unterstuetzt ? $diff < 0 : $diff > 0;
                 ?>
                 <li class="karte" id="uebung-<?= (int)$u['exercise_id'] ?>">
                     <?php // In der Einzelansicht aufgeklappt: Man kommt genau fuer die
@@ -659,12 +805,15 @@ require __DIR__ . '/lib/view_header.php';
                                   // den Spaltennamen als Parameter und musste dafuer nicht
                                   // angefasst werden. ?>
                             <span class="verlauf-kurve-halter"><?php
-                                verlauf_kurve($verlauf, $ausdauer ? 'distanz_m' : 'weight');
+                                verlauf_kurve($verlauf, $ausdauer ? 'distanz_m' : 'weight', $unterstuetzt);
                             ?></span>
                             <span class="matt einheit-eckdaten">
                                 <?= h(format_decimal($letzter)) ?><?= $ausdauer ? ' m' : ' kg' ?>
                                 <?php if (abs($diff) >= 0.01): ?>
-                                    <span class="<?= $diff > 0 ? 'diff-plus' : 'diff-minus' ?>">
+                                    <?php // Das Vorzeichen bleibt ehrlich, die Farbe sagt,
+                                          // ob es gut ist -- bei Unterstuetzung ist ein
+                                          // Minus gruen. ?>
+                                    <span class="<?= $diffGut ? 'diff-plus' : 'diff-minus' ?>">
                                         <?= $diff > 0 ? '+' : '−' ?><?= h(format_decimal(abs($diff))) ?>
                                     </span>
                                 <?php endif; ?>
@@ -693,7 +842,7 @@ require __DIR__ . '/lib/view_header.php';
                                     <?php verlauf_kurve($verlauf, 'zeit'); ?>
                                 </span>
                             </p>
-                        <?php elseif ($hatSaetze): ?>
+                        <?php elseif ($hatSaetze && !$unterstuetzt): ?>
                             <p class="kurven-zeile">
                                 <span class="kurve-titel">Volumen</span>
                                 <span class="verlauf-kurve-halter">
@@ -732,6 +881,9 @@ require __DIR__ . '/lib/view_header.php';
                                         <th class="spalte-zahl">Distanz</th>
                                         <th class="spalte-zahl">Zeit</th>
                                         <th class="spalte-zahl">Pace</th>
+                                    <?php elseif ($hatSaetze && $unterstuetzt): ?>
+                                        <th>Sätze</th>
+                                        <th class="spalte-zahl">Unterstützung</th>
                                     <?php elseif ($hatSaetze): ?>
                                         <th>Sätze</th>
                                         <th class="spalte-zahl">Volumen</th>
@@ -785,7 +937,7 @@ require __DIR__ . '/lib/view_header.php';
                                         <td class="spalte-zahl">
                                             <?= $vt === null
                                                 ? '<span class="matt">—</span>'
-                                                : h(dauer_mmss($vt)) ?>
+                                                : h(dauer_hms($vt)) ?>
                                         </td>
                                         <td class="spalte-zahl pace-spalte">
                                             <?php if ($v['tempo'] === null || $vjeKm === null): ?>
@@ -795,7 +947,7 @@ require __DIR__ . '/lib/view_header.php';
                                                     h(format_decimal(round($v['tempo'], 1)))
                                                 ?> km/h</span>
                                                 <span class="pace-jekm"><?=
-                                                    h(dauer_mmss($vjeKm))
+                                                    h(dauer_hms($vjeKm))
                                                 ?> /km</span>
                                             <?php endif; ?>
                                         </td>
@@ -804,6 +956,8 @@ require __DIR__ . '/lib/view_header.php';
                                             <td class="satz-spalte">
                                                 <?= satz_gitter($v['saetze'], 'kraft') ?>
                                             </td>
+                                        <?php endif; ?>
+                                        <?php if ($hatSaetze && !$unterstuetzt): ?>
                                             <td class="spalte-zahl">
                                                 <?= $v['volumen'] === null
                                                     ? '<span class="matt">—</span>'
@@ -842,9 +996,12 @@ require __DIR__ . '/lib/view_header.php';
                                   // beste Pace waere die naheliegende Alternative und
                                   // irrefuehrend: Sie ist auf 400 m fast immer besser als
                                   // auf 10 km. ?>
+                            <?php // Bei Unterstuetzung das NIEDRIGSTE Gewicht (Fallstrick 34). ?>
                             Bestwert <?= $ausdauer
                                 ? h((string)(int)($u['bestdistanz'] ?? 0)) . ' m'
-                                : h(format_decimal((float)$u['bestwert'])) . ' kg' ?>
+                                : ($unterstuetzt
+                                    ? h(format_decimal((float)$u['bestwert_min'])) . ' kg Unterstützung'
+                                    : h(format_decimal((float)$u['bestwert'])) . ' kg') ?>
                         </p>
 
                         <?php // Der Vorbehalt gehört sichtbar an die Zahl und nicht in
@@ -868,6 +1025,15 @@ require __DIR__ . '/lib/view_header.php';
                                 zwei Intervalle zu 1000 m sind 2000 gelaufene Meter. Die
                                 Pace bezieht sich deshalb auch auf die ganze Einheit und
                                 nicht auf das schnellste Intervall.
+                            </p>
+                        <?php elseif ($unterstuetzt): ?>
+                            <p class="matt">
+                                <strong>Unterstützung</strong> ist die Last, die die
+                                Maschine abnimmt — <em>weniger ist besser</em>, bei 0 kg
+                                geht die Übung ohne Hilfe. Je Einheit zählt der leichteste
+                                Satz, und die Kurve steigt, wenn die Unterstützung sinkt.
+                                Volumen und 1RM entfallen: Mit abgenommener Last gerechnet
+                                sänken sie mit dem Fortschritt.
                             </p>
                         <?php elseif ($hatSaetze): ?>
                             <p class="matt">

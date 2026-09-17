@@ -328,7 +328,7 @@ function format_decimal(?float $v): string {
 }
 
 /**
- * Formatiert eine Dauer in Sekunden als "5:30" bzw. "1:02:45".
+ * Formatiert eine Dauer in Sekunden als "5:30" bzw. "73:25".
  *
  * Das Gegenstueck heisst dauerMMSS() in assets/app.js und muss zeichengleich
  * antworten -- die Zeit steht am Handy server-gerendert ("zuletzt ...") direkt
@@ -336,8 +336,10 @@ function format_decimal(?float $v): string {
  * dort als Unterschied in der Sache.
  *
  * Die Minuten laufen ohne fuehrende Null, die Sekunden immer mit -- "5:30" und
- * nicht "05:30", aber auch nicht "5:3". Erst ab einer Stunde kommt ein drittes
- * Feld dazu; darunter waere "0:05:30" nur breiter.
+ * nicht "05:30", aber auch nicht "5:3". Es gibt KEIN Stundenfeld, auch nicht
+ * ueber 60 Minuten (seit 1.5.1, Wunsch des Benutzers): Das ist die Form der
+ * EINGABE ("73:25"), und in der Trainingsansicht steht die Zeit in genau dieser
+ * Form. Der Verlauf nimmt dauer_hms() und zeigt ab einer Stunde "1:13:25".
  *
  * Bewusst KEIN Gegenstueck zu dauer_text() (lib/training.php): Das nimmt zwei
  * Zeitstempel und beantwortet "wie lange dauerte die Einheit", hier steht eine
@@ -348,21 +350,45 @@ function dauer_mmss(?int $sekunden): string {
         return '';
     }
 
-    $s = $sekunden % 60;
-    $m = intdiv($sekunden, 60) % 60;
+    return intdiv($sekunden, 60) . ':'
+        . str_pad((string)($sekunden % 60), 2, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Formatiert eine Dauer in Sekunden fuer den VERLAUF: "5:30" bzw. "1:13:40".
+ *
+ * Die Schwester von dauer_mmss(), und die Trennung ist Absicht (1.5.1, Wunsch
+ * des Benutzers): Eingegeben wird in Minuten und Sekunden ("73:40"), im
+ * Verlauf darf die Zeit ab einer Stunde mit Stundenfeld stehen. In der
+ * Trainingsansicht bleibt es bei dauer_mmss() -- dort steht die Zeit direkt
+ * ueber dem Eingabefeld, und zwei Schreibweisen liest man als Unterschied.
+ *
+ * Bewusst OHNE JS-Gegenstueck: Der Verlauf wird ausschliesslich
+ * server-gerendert.
+ */
+function dauer_hms(?int $sekunden): string {
+    if ($sekunden === null || $sekunden < 0) {
+        return '';
+    }
+
     $h = intdiv($sekunden, 3600);
+    if ($h === 0) {
+        return dauer_mmss($sekunden);
+    }
 
-    $mm = $h > 0 ? str_pad((string)$m, 2, '0', STR_PAD_LEFT) : (string)$m;
-    $ss = str_pad((string)$s, 2, '0', STR_PAD_LEFT);
-
-    return ($h > 0 ? $h . ':' : '') . $mm . ':' . $ss;
+    return $h . ':'
+        . str_pad((string)(intdiv($sekunden, 60) % 60), 2, '0', STR_PAD_LEFT) . ':'
+        . str_pad((string)($sekunden % 60), 2, '0', STR_PAD_LEFT);
 }
 
 /**
  * Wandelt eine Zeiteingabe in Sekunden oder null.
  *
  * Gegenstueck zu dauer_mmss() und zu dauerAusEingabe() in assets/app.js.
- * Angenommen werden "mm:ss", "h:mm:ss" -- und eine nackte Zahl als MINUTEN.
+ * Angenommen werden "mm:ss" (Minuten beliebig, "73:25") -- und eine nackte
+ * Zahl als MINUTEN. "h:mm:ss" ist seit 1.5.1 KEINE gueltige Eingabe mehr:
+ * Die Anzeige kennt kein Stundenfeld, und eine Eingabeform, die man nie
+ * angezeigt bekommt, ist nur eine zweite Lesart fuer denselben Doppelpunkt.
  *
  * Die letzte Form ist eine bewusste Entscheidung und keine Nachlaessigkeit:
  * "24" ist die naheliegendste Fehleingabe im Zeitfeld, und wer sie tippt,
@@ -388,21 +414,17 @@ function dauer_aus_eingabe(mixed $v): ?int {
         return (int)$s * 60;
     }
 
-    if (preg_match('/^(?:(\d+):)?(\d{1,2}):(\d{1,2})$/', $s, $t) !== 1) {
+    if (preg_match('/^(\d+):(\d{1,2})$/', $s, $t) !== 1) {
         return null;
     }
 
-    $h = $t[1] === '' ? 0 : (int)$t[1];
-    $m = (int)$t[2];
-    $sek = (int)$t[3];
-
-    // Bei "h:mm:ss" duerfen auch die Minuten nicht ueber 59 laufen; bei "mm:ss"
-    // sind 90 Minuten dagegen eine voellig gewoehnliche Angabe.
-    if ($sek > 59 || ($h > 0 && $m > 59)) {
+    $m = (int)$t[1];
+    $sek = (int)$t[2];
+    if ($sek > 59) {
         return null;
     }
 
-    return $h * 3600 + $m * 60 + $sek;
+    return $m * 60 + $sek;
 }
 
 /**

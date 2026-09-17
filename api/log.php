@@ -40,9 +40,14 @@ $eingabe = read_json_body();
 //
 // Auch die Saetze des Expertenmodus kommen ohne eigene Aktion aus: Sie reisen
 // als vollstaendige Liste im "check" mit. Siehe saetze_pruefen().
+//
+// Die Ausnahme ist "correct" (seit 1.5.1): Sie gilt ausschliesslich fuer
+// ABGESCHLOSSENE Einheiten, wo es kein Haekchen mehr zum Entfernen gibt
+// (Fallstrick 35). In einer laufenden Einheit weist sie jeden Aufruf ab.
 match (to_str($eingabe['action'] ?? '')) {
     'check'   => aktion_abhaken($eingabe),
     'uncheck' => aktion_abwaehlen($eingabe),
+    'correct' => aktion_korrigieren($eingabe),
     default   => json_err('Unbekannte Aktion', 400),
 };
 
@@ -392,11 +397,22 @@ function satz_gewicht_pruefen(mixed $roh, int $nr): ?float {
  * null, wenn kein einziger Satz ein Gewicht traegt -- eine 0 stuende fuer
  * "ohne Gewicht bewegt" und liesse sich von "nichts eingetragen" nicht mehr
  * unterscheiden.
+ *
+ * **Bei Unterstuetzung ist es der LEICHTESTE Satz** (Fallstrick 34): Dort ist
+ * das eingestellte Gewicht abgenommene Last, und wer 8×30, 6×20, 5×25 an der
+ * Klimmzug-Maschine macht, hat es mit 20 kg Hilfe geschafft. Ein Satz mit 0 kg
+ * zaehlt dabei als Wert -- er heisst "ganz ohne Hilfe" und ist das Ziel.
  */
-function leitgewicht(array $saetze): ?float {
+function leitgewicht(array $saetze, bool $unterstuetzt): ?float {
+    // Ohne Vorgabewert, mit Absicht: Ein neuer Aufrufer muss sich entscheiden,
+    // statt still die Richtung "mehr ist besser" zu erben.
     $best = null;
     foreach ($saetze as $s) {
-        if ($s['weight'] !== null && ($best === null || $s['weight'] > $best)) {
+        if ($s['weight'] === null) {
+            continue;
+        }
+        if ($best === null
+            || ($unterstuetzt ? $s['weight'] < $best : $s['weight'] > $best)) {
             $best = $s['weight'];
         }
     }
@@ -556,6 +572,32 @@ function angezeigte_uebung(int $peId, int $planUebungId, int $sessionId): int {
 }
 
 /**
+ * Wird das Gewicht dieser Position als Unterstuetzung gelesen (Fallstrick 34)?
+ *
+ * Massgeblich ist die TATSAECHLICH AUSGEFUEHRTE Uebung, nicht die des Plans --
+ * anders als bei der Erfassungsart in position_laden(). Dort stimmen beide
+ * zwangslaeufig ueberein, weil der Tausch die Erfassungsart trennt; die
+ * Gewichtswirkung trennt er absichtlich nicht: Unterstuetzte Klimmzuege sollen
+ * gegen gewoehnliche tauschbar bleiben. Nach einem solchen Tausch gilt also die
+ * Wirkung der Ersatzuebung, sonst waere ihr Leitgewicht falsch herum gewaehlt.
+ *
+ * Ohne laufende Einheit gibt es keinen Tausch; die Anfrage scheitert dann
+ * ohnehin weiter unten mit 409, und die Planuebung ist die richtige Antwort.
+ */
+function position_unterstuetzt(int $peId, int $planUebungId): bool {
+    $offen = offene_einheit(current_user_id());
+    $uebungId = $offen === null
+        ? $planUebungId
+        : angezeigte_uebung($peId, $planUebungId, (int)$offen['id']);
+
+    $stmt = db()->prepare('SELECT gewicht_wirkung FROM exercises WHERE id = ?');
+    $stmt->execute([$uebungId]);
+    $wirkung = $stmt->fetchColumn();
+
+    return ist_unterstuetzt($wirkung === false ? null : (string)$wirkung);
+}
+
+/**
  * Abhaken. Startet die Einheit, falls noch keine laeuft (§7.6).
  */
 function aktion_abhaken(array $eingabe): never {
@@ -589,7 +631,9 @@ function aktion_abhaken(array $eingabe): never {
         $gewicht  = null;
         $ausdauer = $saetze === null ? ausdauer_pruefen($eingabe) : leitwerte($saetze);
     } else {
-        $gewicht  = $saetze === null ? gewicht_pruefen($eingabe) : leitgewicht($saetze);
+        $gewicht  = $saetze === null
+            ? gewicht_pruefen($eingabe)
+            : leitgewicht($saetze, position_unterstuetzt($peId, (int)$position['exercise_id']));
         $ausdauer = ['distanz_m' => null, 'dauer_s' => null];
     }
 
@@ -685,8 +729,20 @@ function saetze_schreiben(int $sessionId, int $peId, ?array $saetze): void {
         'SELECT id FROM workout_log WHERE session_id = ? AND plan_exercise_id = ?'
     );
     $stmt->execute([$sessionId, $peId]);
-    $logId = (int)$stmt->fetchColumn();
+    saetze_ersetzen((int)$stmt->fetchColumn(), $saetze);
+}
 
+/**
+ * Der eigentliche Austausch der Saetze einer Protokollzeile -- geteilt von
+ * saetze_schreiben() (laufende Einheit, ueber die Planposition gefunden) und
+ * aktion_korrigieren() (abgeschlossene Einheit, ueber die Zeile selbst: Dort
+ * kann plan_exercise_id NULL sein, wenn die Uebung spaeter aus dem Plan
+ * genommen wurde).
+ *
+ * Nur innerhalb einer Transaktion aufrufen, aus dem Grund bei
+ * saetze_schreiben().
+ */
+function saetze_ersetzen(int $logId, ?array $saetze): void {
     db()->prepare('DELETE FROM workout_sets WHERE workout_log_id = ?')
         ->execute([$logId]);
 
@@ -705,6 +761,111 @@ function saetze_schreiben(int $sessionId, int $peId, ?array $saetze): void {
             $s['distanz_m'], $s['dauer_s'],
         ]);
     }
+}
+
+/**
+ * Die Saetze einer Uebung in einer ABGESCHLOSSENEN Einheit nachtraeglich
+ * korrigieren (§7.8, Fallstrick 35, seit 1.5.1).
+ *
+ * Anlass: Das Gewicht wurde im Studio erhoeht, aber nicht eingetragen -- die
+ * Vorbelegung vom letzten Mal blieb stehen und traegt sich ab da in jedes
+ * weitere Training fort. Ueber die Oberflaeche gab es bis dahin nur das
+ * Loeschen der ganzen Einheit.
+ *
+ * Was diese Aktion bewusst NICHT kann, jedes aus eigenem Grund:
+ *
+ * - **Keine Zeile anlegen.** Es wird nur eine bestehende workout_log-Zeile
+ *   geaendert. Eine uebersprungene Uebung nachzutragen hiesse, der Einheit
+ *   eine Uebung hinzuzufuegen -- ausdruecklich nicht gewuenscht.
+ * - **Keine Zeile loeschen.** Auch eine leere Satzliste laesst die Zeile
+ *   stehen; das ist "gemacht, nichts notiert", dieselbe Aussage wie ein
+ *   Haekchen ohne Werte.
+ * - **Keine laufende Einheit.** Dort gilt der eine Weg ueber das Haekchen
+ *   (§7.4), samt Warteschlange; zwei Schreibpfade auf dieselbe offene Zeile
+ *   liefen gegeneinander.
+ * - **Kein neues performed_at.** Der Zeitstempel ordnet "letztes Gewicht"
+ *   (Fallstrick 8); eine Korrektur an einer alten Einheit darf sie nicht zur
+ *   juengsten machen.
+ *
+ * Erfassungsart UND Gewichtswirkung kommen von workout_log.exercise_id -- der
+ * tatsaechlich AUSGEFUEHRTEN Uebung (Fallstrick 34). Ein Tausch ist darin
+ * bereits aufgeloest, exercise_swaps braucht es hier nicht.
+ *
+ * `sets` ist Pflicht, anders als bei "check": Dort heisst eine fehlende Liste
+ * "keine Werte", hier waere das ein stilles Loeschen aus einer
+ * unvollstaendigen Nutzlast (dieselbe Falle wie Fallstrick 22).
+ */
+function aktion_korrigieren(array $eingabe): never {
+    $logId = to_int_or_null($eingabe['log_id'] ?? null);
+    if ($logId === null) {
+        json_err('Kein Eintrag angegeben.', 422);
+    }
+    if (!array_key_exists('sets', $eingabe) || !is_array($eingabe['sets'])) {
+        json_err('Bitte die Eingabe prüfen.', 422, ['sets' => 'Satzliste fehlt.']);
+    }
+
+    $userId = current_user_id();
+
+    // Eigentuemerschaft in der WHERE-Klausel (§5) -- an der Zeile UND an der
+    // Einheit, damit eine Zeile nie ueber eine fremde Einheit erreichbar ist.
+    $stmt = db()->prepare(
+        'SELECT wl.id, s.ended_at, e.erfassung, e.gewicht_wirkung
+           FROM workout_log wl
+           JOIN sessions  s ON s.id = wl.session_id AND s.user_id = wl.user_id
+           JOIN exercises e ON e.id = wl.exercise_id
+          WHERE wl.id = ? AND wl.user_id = ?'
+    );
+    $stmt->execute([$logId, $userId]);
+    $zeile = $stmt->fetch();
+
+    if ($zeile === false) {
+        json_err('Diesen Eintrag gibt es nicht (mehr).', 404);
+    }
+    if ($zeile['ended_at'] === null) {
+        json_err(
+            'Diese Einheit läuft noch — Änderungen bitte direkt im Training eintragen.',
+            409
+        );
+    }
+
+    $ausdauerUebung = ist_ausdauer($zeile['erfassung'] ?? null);
+    $saetze = saetze_pruefen($eingabe, $ausdauerUebung ? 'ausdauer' : 'kraft') ?? [];
+
+    if ($ausdauerUebung) {
+        $gewicht  = null;
+        $ausdauer = leitwerte($saetze);
+    } else {
+        $gewicht  = leitgewicht($saetze, ist_unterstuetzt($zeile['gewicht_wirkung'] ?? null));
+        $ausdauer = ['distanz_m' => null, 'dauer_s' => null];
+    }
+
+    db_transaction(static function () use ($logId, $userId, $gewicht, $ausdauer, $saetze): void {
+        // Wer Saetze eintraegt, hat die Uebung gemacht -- dieselbe Regel wie
+        // beim Beenden (Fallstrick 18). Ohne Saetze bleibt done, wie es ist.
+        //
+        // Das CAST ist Pflicht: PDO bindet den Wert als Text, und SQLite
+        // vergleicht '1' = 1 als falsch -- ohne Meldung, das Haekchen bliebe
+        // einfach weg (CLAUDE.md, Datenbank). Beim ersten Anlauf genau so.
+        db()->prepare(
+            'UPDATE workout_log
+                SET weight = ?, distanz_m = ?, dauer_s = ?,
+                    done = CASE WHEN CAST(? AS INTEGER) = 1 THEN 1 ELSE done END
+              WHERE id = ? AND user_id = ?'
+        )->execute([
+            $gewicht, $ausdauer['distanz_m'], $ausdauer['dauer_s'],
+            $saetze === [] ? 0 : 1, $logId, $userId,
+        ]);
+
+        saetze_ersetzen($logId, $saetze === [] ? null : $saetze);
+    });
+
+    json_ok([
+        'log_id'    => $logId,
+        'weight'    => $gewicht,
+        'distanz_m' => $ausdauer['distanz_m'],
+        'dauer_s'   => $ausdauer['dauer_s'],
+        'saetze'    => $saetze,
+    ]);
 }
 
 /**

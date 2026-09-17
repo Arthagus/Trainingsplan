@@ -357,6 +357,19 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   zum Absatz über das Gerät darüber, sondern eine Frage anderer Art: Beim Gerät geht es um
   den Ausweg bei besetzter Maschine, hier darum, ob die bereits sichtbaren Felder überhaupt
   noch passen.
+- **`gewicht_wirkung`** (seit `1.4.11`) sagt, wie das Gewicht einer Kraftübung zu lesen ist:
+  `last` (Zusatzlast, mehr ist besser) oder `unterstuetzung` (die Maschine nimmt Last ab,
+  weniger ist besser — unterstützte Klimmzüge, Dips mit Gegengewicht; bei 0 kg geht die
+  Übung ohne Hilfe). Codeliste `GEWICHT_WIRKUNG` in `lib/geraete.php`, ohne `CHECK`,
+  `NOT NULL DEFAULT 'last'` — bis `1.4.10` wurde jede Übung so ausgewertet. Bei Ausdauer
+  immer `last`.
+
+  **Gespeichert wird dieselbe Zahl wie immer**; die Wirkung entscheidet nur, welcher Satz das
+  Leitgewicht ist (`workout_log.weight`, unten), was der Bestwert ist und wie der Verlauf
+  auswertet (§7.8). **Eine eigene Angabe und keine dritte Erfassungsart**, weil die
+  Erfassungsart den Tausch trennt (§7.5): Unterstützte Klimmzüge sollen gegen gewöhnliche
+  tauschbar bleiben. Maßgeblich ist deshalb die Wirkung der **tatsächlich ausgeführten**
+  Übung, nach einem Tausch also die der Ersatzübung.
 - Die Muskelgruppen hängen **nicht** als Fremdschlüssel an der Übung, sondern an der
   Zuordnungstabelle `exercise_muscle_groups` (n:m, siehe unten).
 - **`archived`** ersetzt das harte Löschen (§6.3). Archivierte Übungen verschwinden aus
@@ -487,7 +500,10 @@ deshalb je Beziehung explizit festzulegen (siehe §4.1).
   Position: den **schwersten Satz**. Das ist keine Redundanz, sondern der Grund, warum
   „letztes Gewicht" (unten), der Gewichtsverlauf und der Bestwert (§7.8) über beide Modi
   hinweg eine durchgehende Reihe bleiben. Der schwerste und nicht der letzte Satz, weil der
-  Bestwert die Zahl ist, an der man Fortschritt misst.
+  Bestwert die Zahl ist, an der man Fortschritt misst. **Bei `gewicht_wirkung =
+  unterstuetzung` ist es der leichteste Satz** — aus demselben Grund. Wird die Wirkung einer
+  Übung umgestellt, rechnet `api/exercises.php` das Leitgewicht ihrer Protokollzeilen aus
+  den Sätzen neu; Zeilen ohne Sätze bleiben, dort gibt es nur einen Wert.
 - **Eindeutig ist `(session_id, plan_exercise_id)`** — genau ein Eintrag pro Einheit und
   Planposition (Upsert beim Abhaken, Löschen beim Ab-wählen).
 - `plan_exercise_id` ist zwingend: Nach einem Tausch (§7.5) steht in `exercise_id` die
@@ -729,6 +745,12 @@ Sie sind seit `1.2.0` keine Adminsache mehr, jeder Benutzer verwaltet seine eige
   ersetzt die ganze Übung, ein Aufruf ohne das Feld fiele sonst still auf *Kraft* zurück und
   machte aus einer Laufbandübung lautlos wieder eine Kraftübung. In der Liste tragen nur
   Ausdauerübungen ein Abzeichen — an hundert Kraftübungen trüge es keine Information.
+- **Gewicht bedeutet (Pflicht bei Kraft, seit `1.4.11`):** *Zusatzlast — mehr ist besser*
+  oder *Unterstützung — weniger ist besser* (§4, `gewicht_wirkung`). Steht direkt unter der
+  Trainingsart, weil es von ihr abhängt: Bei *Ausdauer* ausgeblendet **und** deaktiviert,
+  wie der Muskelgruppen-Block. Ohne Leereintrag, serverseitig Pflicht aus demselben Grund wie
+  die Trainingsart. Übungen mit Unterstützung tragen in Liste und Trainingsansicht das
+  Abzeichen **„Unterstützung"**.
 
   **Bei *Ausdauer* entfällt die Muskelgruppen-Auswahl ganz** (seit `1.4.1`): „Welchen Muskel
   trainiert Laufen?" hat keine Antwort, die man ankreuzen könnte. Der Block wird ausgeblendet
@@ -755,6 +777,13 @@ Sie sind seit `1.2.0` keine Adminsache mehr, jeder Benutzer verwaltet seine eige
   Untergruppen ein. Beide Filter bleiben beim Umschalten zwischen Aktiv/Archiviert/Alle
   erhalten und stehen mit den drei Zustandsknöpfen in **einer** Zeile.
 - **Bild-Upload** gemäß §5 (Validierung, Re-Enkodierung, zufälliger Dateiname, Thumbnail).
+- **Bildausschnitt:** *linke Seite*, *Mitte*, *rechte Seite* oder — seit `1.4.12` — *ganzes
+  Bild* (`exercises.image_crop`). Die Vorschaubilder stehen in einem quadratischen Rahmen; bei
+  einem breiten Bild wählen die ersten drei, welche Seite stehen bleibt, *ganzes Bild*
+  verkleinert es stattdessen, bis es in der Breite ganz hineinpasst, und lässt oben und unten
+  frei. Gilt überall, wo ein Vorschaubild erscheint (Übungsliste, Trainingsansicht,
+  Planverwaltung, Tausch und Übungsauswahl). **Die große Ansicht** im Dialog zeigt das Bild
+  unabhängig davon immer ganz. Die Bilddatei ändert sich nicht.
 - **Der einfarbige Rand wird beim Hochladen abgeschnitten** (seit `1.2.21`), bei Vollbild
   und Thumbnail gleichermaßen. Katalogbilder zeigen ein Motiv auf weißer Fläche, und der
   Rand ist selten mittig — im quadratischen Rahmen sieht man dann vor allem die Leere.
@@ -1382,16 +1411,19 @@ getrennt** weiter (§7.6).
     Meter ist keine sinnvolle Schrittweite, und ein zweiter Schrittwert (±100 m? ±10 s?) wäre
     für Intervall, Dauerlauf und Rudern jeweils für etwas falsch. Dieselbe Überlegung, aus
     der auch das Gewicht keinen hat.
-  - **Die Zeit wird als `mm:ss` eingegeben** (`24:30`), gespeichert werden Sekunden.
-    Angenommen werden auch `h:mm:ss` und — als freundliche Lesart der naheliegendsten
-    Fehleingabe — eine nackte Zahl als **Minuten** (`24` = `24:00`). Sekunden über 59 werden
+  - **Die Zeit wird als Minuten und Sekunden eingegeben** (`24:30`, `73:25`), gespeichert
+    werden Sekunden. **Die Eingabe kennt kein Stundenfeld** (seit `1.5.1`): `h:mm:ss` wird
+    nicht angenommen, und die Trainingsansicht zeigt die Zeit in derselben Form wie das
+    Feld, auch über 60 Minuten. **Der Verlauf (§7.8) zeigt ab einer Stunde `h:mm:ss`** —
+    eingetippt `73:40`, dort `1:13:40`. Als freundliche Lesart der
+    naheliegendsten Fehleingabe gilt eine nackte Zahl als **Minuten** (`24` = `24:00`). Sekunden über 59 werden
     **abgewiesen und nicht umgerechnet**: `5:75` ist ein Vertipper, und daraus stillschweigend
     `6:15` zu machen hieße, eine Zahl zu speichern, die niemand eingegeben hat.
   - **Die Pace steht schon beim Eintragen da**, unter den Werten, aus denen sie entsteht —
     sonst sieht man beim Training nicht, ob man schneller war als letztes Mal. Sie ist bei
     Ausdauer **immer** vorhanden und zeigt `—`, solange nichts zu rechnen ist; eine Zeile,
     die beim Tippen erscheint und wieder verschwindet, ließe die ganze Liste springen.
-  - Grenzen: **1 bis 100 000 m** und **0:01 bis 6:00:00** je Intervall, wieder höchstens 20;
+  - Grenzen: **1 bis 100 000 m** und **0:01 bis 360:00** je Intervall, wieder höchstens 20;
     ein Intervall ohne Distanz **und** ohne Zeit wird abgelehnt.
   - **Der Warteschlangen-Schlüssel bleibt `-v3`.** Die *Form* eines Eintrags ändert sich
     nicht: Die neuen Felder sind additiv und optional, ein wartender Alt-Eintrag bleibt
@@ -1800,6 +1832,7 @@ Die Seite heißt `password.php` und trägt im Menü **„Konto"** — sie hat zw
   oder Testdaten. Nur die **eigenen**; die offene Einheit ist ausgenommen, die wird beendet.
   Ohne diesen Weg blieben Fehleingaben dauerhaft stehen und blockierten über ihre
   `workout_log`-Einträge sogar das endgültige Löschen von Übungen (§6.3).
+- **Einheiten bearbeiten** (in `history.php`, §7.8, seit `1.5.1`): siehe dort.
 
 **7.8 Trainingshistorie (`history.php`)**
 
@@ -1813,6 +1846,26 @@ eine Filterleiste umschaltbar:
   „n" schrumpft — sonst stünde dort „10/8". So bleibt „6/8" für zwei ausgelassene Übungen
   erhalten, und „x" kann nie über „n" laufen. Aufklappbar mit den protokollierten Übungen und Gewichten;
   eine getauschte Position ist als „statt …" gekennzeichnet.
+
+  **Nachträglich bearbeiten** (seit `1.5.1`): Neben „Einheit löschen" steht
+  „Einheit bearbeiten". Nach einer Sicherheitsabfrage öffnet sich die Einheit mit den
+  Sätzen jeder **protokollierten** Übung — Werte ändern, Sätze nachtragen, Sätze entfernen,
+  gespeichert erst über „Änderungen speichern". Anlass: Ein im Studio erhöhtes Gewicht, das
+  nicht eingetragen wurde, trägt sich sonst über die Vorbelegung in jedes weitere Training
+  fort.
+
+  - **Übungen kommen weder hinzu noch weg.** Auch eine übersprungene Übung (ohne jeden
+    Eintrag) lässt sich hier nicht nachtragen — das wäre das Hinzufügen einer Übung. Wer
+    alle Sätze einer Übung entfernt, lässt die Übung als „ohne Werte" stehen.
+  - **Nur abgeschlossene, eigene Einheiten.** In einer laufenden Einheit gilt weiter der Weg
+    über das Häkchen (§7.4).
+  - **Die Leitwerte werden neu gerechnet** (schwerster bzw. bei Unterstützung leichtester
+    Satz, bei Ausdauer die Summen), der Zeitpunkt des Eintrags bleibt. Verlauf, Bestwerte,
+    „zuletzt …" und die Vorbelegung im nächsten Training folgen der Korrektur.
+  - **Eine Übung, der Sätze eingetragen werden, gilt als erledigt** — dieselbe Regel wie
+    beim Beenden (§7.4).
+  - Eine Zeile aus der Zeit vor der satzgenauen Erfassung (nur ein Gewicht) erscheint mit
+    diesem Gewicht als ein Satz; unverändert wird sie nicht gespeichert.
 - **Übungen**: je Übung der Gewichtsverlauf — als kleine Kurve in der Kopfzeile, aufgeklappt
   als Tabelle mit Datum und Gewicht, dazu die Veränderung gegenüber dem ersten Eintrag und
   der Bestwert. Übungen ganz ohne Werte erscheinen nicht.
@@ -1899,6 +1952,20 @@ Auswahlfelder in der Filterleiste, die ohne eigenen Knopf sofort anzeigen:
 - **Bestwert** heißt bei Ausdauer die **weiteste Strecke** einer Einheit, die Entsprechung
   zum schwersten Gewicht. Eine beste Pace wäre die naheliegende Alternative und irreführend:
   Sie ist auf 400 m fast immer besser als auf 10 km.
+
+**Übungen mit Unterstützung** (§4, `gewicht_wirkung`, seit `1.4.11`) — weniger ist besser:
+
+- **Kein Volumen und kein 1RM.** Beide rechnen Wiederholungen × kg; mit abgenommener Last
+  gerechnet sänken sie mit dem Fortschritt. Ein Körpergewicht, gegen das man die echte Last
+  rechnen könnte, kennt die App nicht (Entscheidung des Benutzers, 2026-09-15).
+- In der Ansicht **Einheiten** steht in der Zahlenspalte das Leitgewicht mit dem Zusatz
+  „Unterst."; sobald eine satzgenaue Einheit eine solche Position enthält, heißt die Spalte
+  **„Kennzahl"** — dieselbe Regel wie bei Ausdauer.
+- In der Ansicht **Übungen** ist die Kurve **gespiegelt**: Sie steigt, wenn die Unterstützung
+  sinkt, damit „nach oben" überall Fortschritt heißt. Die Zahlen bleiben die echten kg, die
+  Differenz im Kopf behält ihr Vorzeichen, ist bei einem Minus aber grün. Die Tabelle hat
+  Datum, Sätze und **Unterstützung**.
+- **Bestwert** ist das **niedrigste** Gewicht („Bestwert 10 kg Unterstützung").
 
 **Jeder sieht ausschließlich seine eigenen Daten — auch Admins.** Trainingsdaten sind
 persönlich. Es gibt hier bewusst keine Benutzerauswahl; die `user_id` stammt durchgehend aus

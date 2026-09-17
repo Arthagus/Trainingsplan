@@ -114,6 +114,42 @@ function erfassung_label(?string $code): string {
 }
 
 /**
+ * Wie das Gewicht einer Kraftuebung zu lesen ist (§4, §6.3, Fallstrick 34).
+ *
+ * Bei einer Klimmzug-Maschine mit Unterstuetzung stellt man ein, wie viel Last
+ * die Maschine ABNIMMT -- Fortschritt heisst dort: das Gewicht sinkt, bei 0 kg
+ * sind es gewoehnliche Klimmzuege. Gespeichert wird dieselbe Zahl wie immer;
+ * die Wirkung entscheidet nur, welcher Satz das Leitgewicht ist (der leichteste
+ * statt des schwersten), was der Bestwert ist und wie die Kurve laeuft.
+ *
+ * Eine eigene Angabe und NICHT eine dritte Erfassungsart: Die Erfassungsart
+ * trennt den Tausch (§7.5), und unterstuetzte Klimmzuege sollen gegen normale
+ * Klimmzuege tauschbar bleiben. Ebenso wenig am Geraet -- dieselbe Maschine
+ * kann beides sein (Dip-Maschine mit und ohne Gegengewicht).
+ */
+const GEWICHT_WIRKUNG = [
+    'last'           => 'Zusatzlast — mehr ist besser',
+    'unterstuetzung' => 'Unterstützung — weniger ist besser',
+];
+
+/** Vorgabe fuer die Migration und fuer jede Ausdaueruebung. */
+const GEWICHT_WIRKUNG_VORGABE = 'last';
+
+/** Ist der Code eine der bekannten Wirkungen? */
+function gewicht_wirkung_gueltig(string $code): bool {
+    return array_key_exists($code, GEWICHT_WIRKUNG);
+}
+
+/**
+ * Der Torwaechter: faellt bei jedem unbekannten Wert auf "Zusatzlast" zurueck
+ * -- dieselbe Ueberlegung wie bei ist_ausdauer(). Eine alte Sicherung kennt die
+ * Spalte nicht, und der Rueckfall wertet dann genau so aus wie bis 1.4.10.
+ */
+function ist_unterstuetzt(?string $code): bool {
+    return $code !== null && trim($code) === 'unterstuetzung';
+}
+
+/**
  * Welche Seite eines breiten Bildes beim Zuschnitt stehen bleibt (§6.3).
  *
  * Die Vorschaubilder stehen in einem quadratischen Rahmen mit
@@ -137,11 +173,19 @@ function erfassung_label(?string $code): string {
  * dort schneidet `cover` oben und unten. Das ist hingenommen: Die Uebungsbilder
  * sind Geraetefotos im Querformat, ein Waehler fuer "oben/unten" waere ein
  * zweites Feld fuer einen Fall, den es hier nicht gibt.
+ *
+ * **'ganz' schneidet gar nicht** (seit 1.4.12, Wunsch des Benutzers vom
+ * 2026-09-15): Das Bild wird so weit verkleinert, dass es in der Breite ganz
+ * in den Rahmen passt, und oben und unten bleibt Platz. Wirkt ueber
+ * `object-fit: contain` statt ueber `object-position` -- und ebenfalls nur in
+ * den Vorschaubildern. Die grosse Ansicht (#info-bild) bekommt keine dieser
+ * Klassen und zeigt das Bild wie immer ganz.
  */
 const ZUSCHNITT = [
     'links'  => 'linke Seite',
     'mitte'  => 'Mitte',
     'rechts' => 'rechte Seite',
+    'ganz'   => 'ganzes Bild',
 ];
 
 /** Vorgabe fuer neue Uebungen und fuer alles, was die Migration vorfindet. */
@@ -163,6 +207,7 @@ function bild_zuschnitt_klasse(?string $code): string {
     return match ($code) {
         'links'  => 'bild-links',
         'rechts' => 'bild-rechts',
+        'ganz'   => 'bild-ganz',
         default  => '',
     };
 }
@@ -240,4 +285,16 @@ function erfassung_abzeichen(?string $code): string {
         return '';
     }
     return '<span class="abzeichen erfassung-ausdauer">Ausdauer</span>';
+}
+
+/**
+ * Abzeichen fuer die Gewichtswirkung -- nach derselben Regel wie oben nur fuer
+ * die Ausnahme. Wer "20 kg" an einer Klimmzug-Maschine liest, muss wissen, dass
+ * die Zahl abgenommene Last ist.
+ */
+function wirkung_abzeichen(?string $code): string {
+    if (!ist_unterstuetzt($code)) {
+        return '';
+    }
+    return '<span class="abzeichen wirkung-unterstuetzung">Unterstützung</span>';
 }

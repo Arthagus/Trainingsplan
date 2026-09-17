@@ -400,6 +400,7 @@ require __DIR__ . '/lib/view_header.php';
                     data-pe="<?= $z['plan_exercise_id'] ?>"
                     data-eintrag="<?= $z['hat_eintrag'] ? '1' : '' ?>"
                     data-erfassung="<?= $ausdauer ? 'ausdauer' : 'kraft' ?>"
+                    data-gewicht-wirkung="<?= ist_unterstuetzt($z['gewicht_wirkung'] ?? null) ? 'unterstuetzung' : 'last' ?>"
                     data-saetze="<?= h(json_encode($z['saetze'])) ?>"
                     data-letzte-saetze="<?= h(json_encode($z['letzte_saetze'])) ?>"
                     <?php // Rueckfall fuer den ersten Satz einer Uebung, die noch nie
@@ -484,6 +485,7 @@ require __DIR__ . '/lib/view_header.php';
                         <p class="schwerpunkt-zeile">
                             <?= geraet_abzeichen($z['equipment'] ?? null) ?>
                             <?= erfassung_abzeichen($z['erfassung'] ?? null) ?>
+                            <?= wirkung_abzeichen($z['gewicht_wirkung'] ?? null) ?>
                             <?php if (!empty($z['focus'])): ?>
                                 <span class="schwerpunkt"><?= h((string)$z['focus']) ?></span>
                             <?php endif; ?>
@@ -525,7 +527,8 @@ require __DIR__ . '/lib/view_header.php';
                         <?php elseif ($ausdauer): ?>
                             Noch keine Zeit gespeichert
                         <?php elseif ($z['letztes_gewicht'] !== null): ?>
-                            zuletzt <?= h(format_decimal($z['letztes_gewicht'])) ?> kg
+                            zuletzt <?= h(format_decimal($z['letztes_gewicht'])) ?> kg<?=
+                                ist_unterstuetzt($z['gewicht_wirkung'] ?? null) ? ' Unterstützung' : '' ?>
                         <?php else: ?>
                             Noch kein Gewicht gespeichert
                         <?php endif; ?>

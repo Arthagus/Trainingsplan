@@ -99,6 +99,21 @@ function eingabe_pruefen(array $eingabe): array {
         $fehler['erfassung'] = 'Unbekannte Erfassungsart.';
     }
 
+    // Wie das Gewicht zu lesen ist (Fallstrick 34) -- bei Kraft Pflicht und
+    // ohne Rueckfall, aus genau dem Grund wie die Erfassungsart darueber: Ein
+    // Update ohne das Feld machte aus einer Unterstuetzungsuebung sonst still
+    // wieder eine mit Zusatzlast, und ihr Bestwert kippte ins Gegenteil. Bei
+    // Ausdauer gibt es kein Gewicht; das Formular schickt das Feld dann gar
+    // nicht (deaktiviert), gespeichert wird die Vorgabe.
+    $wirkung = to_str($eingabe['gewicht_wirkung'] ?? '');
+    if (ist_ausdauer($erfassung)) {
+        $wirkung = GEWICHT_WIRKUNG_VORGABE;
+    } elseif ($wirkung === '') {
+        $fehler['gewicht_wirkung'] = 'Bitte angeben, was das Gewicht bedeutet.';
+    } elseif (!gewicht_wirkung_gueltig($wirkung)) {
+        $fehler['gewicht_wirkung'] = 'Unbekannte Angabe.';
+    }
+
     // Der Bildzuschnitt ist -- anders als das Geraet -- KEIN Pflichtfeld: Er
     // hat einen sinnvollen Vorgabewert ('mitte'), und der ist genau das
     // Verhalten von vorher. Ein fehlendes Feld faellt deshalb still darauf
@@ -167,6 +182,7 @@ function eingabe_pruefen(array $eingabe): array {
         'focus'       => $fokus === '' ? null : $fokus,
         'equipment'   => $geraet,
         'erfassung'   => $erfassung,
+        'gewicht_wirkung' => $wirkung,
         'image_crop'  => $zuschnitt,
         'groups'      => $gruppen,
         'primary'     => (int)$primaer,
@@ -194,6 +210,35 @@ function gruppen_schreiben(PDO $pdo, int $exerciseId, array $gruppen, int $prima
 }
 
 /**
+ * Rechnet nach dem Umstellen der Gewichtswirkung das Leitgewicht jeder
+ * Protokollzeile dieser Uebung neu (Fallstrick 34).
+ *
+ * workout_log.weight ist der schwerste Satz bei Zusatzlast und der leichteste
+ * bei Unterstuetzung. Ohne das Nachziehen stuende nach dem Umstellen der alte
+ * Wert in der Spalte, und MIN() ueber lauter Maxima ergaebe einen Bestwert,
+ * den es nie gab -- lautlos, weil jede Zahl fuer sich plausibel aussieht.
+ *
+ * Gefiltert wird ueber workout_log.exercise_id, also die tatsaechlich
+ * ausgefuehrte Uebung: Genau die traegt die Wirkung, nach der beim Speichern
+ * gerechnet wurde (api/log.php). Zeilen ohne Satz mit Gewicht bleiben
+ * unberuehrt -- dort gibt es nur einen Wert oder gar keinen, und die Richtung
+ * spielt keine Rolle.
+ */
+function leitgewichte_neu_rechnen(PDO $pdo, int $exerciseId, bool $unterstuetzt): void {
+    $agg = $unterstuetzt ? 'MIN' : 'MAX';
+    $pdo->prepare(
+        "UPDATE workout_log
+            SET weight = (SELECT $agg(ws.weight) FROM workout_sets ws
+                           WHERE ws.workout_log_id = workout_log.id
+                             AND ws.weight IS NOT NULL)
+          WHERE exercise_id = ?
+            AND EXISTS (SELECT 1 FROM workout_sets ws
+                         WHERE ws.workout_log_id = workout_log.id
+                           AND ws.weight IS NOT NULL)"
+    )->execute([$exerciseId]);
+}
+
+/**
  * Nimmt ein optional mitgeschicktes Bild entgegen.
  * Liefert den Dateinamen oder null, wenn keines dabei war.
  */
@@ -217,12 +262,13 @@ function aktion_anlegen(array $eingabe): never {
             $stmt = $pdo->prepare(
                 'INSERT INTO exercises
                      (name_de, name_en, description, focus, equipment, erfassung,
-                      image_path, image_crop, archived, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
+                      gewicht_wirkung, image_path, image_crop, archived, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
-                $daten['focus'], $daten['equipment'], $daten['erfassung'], $bild,
+                $daten['focus'], $daten['equipment'], $daten['erfassung'],
+                $daten['gewicht_wirkung'], $bild,
                 $daten['image_crop'], now(),
             ]);
             $neu = (int)$pdo->lastInsertId();
@@ -245,7 +291,7 @@ function aktion_bearbeiten(array $eingabe): never {
         json_err('Keine Übung angegeben.', 422);
     }
 
-    $stmt = db()->prepare('SELECT image_path FROM exercises WHERE id = ?');
+    $stmt = db()->prepare('SELECT image_path, gewicht_wirkung FROM exercises WHERE id = ?');
     $stmt->execute([$id]);
     $vorhanden = $stmt->fetch();
     if ($vorhanden === false) {
@@ -259,21 +305,27 @@ function aktion_bearbeiten(array $eingabe): never {
 
     $bildSpalte = $neuesBild ?? ($entfernen ? null : $altesBild);
 
+    $wirkungGeaendert = ist_unterstuetzt($vorhanden['gewicht_wirkung'])
+        !== ist_unterstuetzt($daten['gewicht_wirkung']);
+
     try {
-        db_transaction(function (PDO $pdo) use ($id, $daten, $bildSpalte): void {
+        db_transaction(function (PDO $pdo) use ($id, $daten, $bildSpalte, $wirkungGeaendert): void {
             $stmt = $pdo->prepare(
                 'UPDATE exercises
                     SET name_de = ?, name_en = ?, description = ?, focus = ?,
-                        equipment = ?, erfassung = ?, image_path = ?,
-                        image_crop = ?
+                        equipment = ?, erfassung = ?, gewicht_wirkung = ?,
+                        image_path = ?, image_crop = ?
                   WHERE id = ?'
             );
             $stmt->execute([
                 $daten['name_de'], $daten['name_en'], $daten['description'],
                 $daten['focus'], $daten['equipment'], $daten['erfassung'],
-                $bildSpalte, $daten['image_crop'], $id,
+                $daten['gewicht_wirkung'], $bildSpalte, $daten['image_crop'], $id,
             ]);
             gruppen_schreiben($pdo, $id, $daten['groups'], $daten['primary']);
+            if ($wirkungGeaendert) {
+                leitgewichte_neu_rechnen($pdo, $id, ist_unterstuetzt($daten['gewicht_wirkung']));
+            }
         });
     } catch (Throwable $e) {
         delete_exercise_image($neuesBild);

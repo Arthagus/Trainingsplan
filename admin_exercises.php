@@ -134,7 +134,7 @@ if ($gruppeFilter !== null) {
 
 $stmt = db()->prepare(
     'SELECT e.id, e.name_de, e.name_en, e.description, e.focus, e.equipment,
-            e.erfassung,
+            e.erfassung, e.gewicht_wirkung,
             e.image_path, e.image_crop, e.archived, e.archived_at, e.created_at,
             (SELECT COUNT(*) FROM workout_log wl WHERE wl.exercise_id = e.id) AS log_anzahl
        FROM exercises e' . MG_SORT_JOIN . $listeWoSql . '
@@ -377,9 +377,47 @@ function erfassung_auswahl(string $prefix, ?string $gewaehlt): void {
 }
 
 /**
+ * Die Auswahl, wie das Gewicht zu lesen ist (Fallstrick 34).
+ *
+ * Steht direkt unter der Trainingsart, weil sie davon abhaengt: Bei Ausdauer
+ * gibt es kein Gewicht, der Block ist dann ausgeblendet UND deaktiviert --
+ * dasselbe Muster wie der Muskelgruppen-Block, aus demselben Grund
+ * (`new FormData()` sammelt auch unsichtbare Felder ein). Der Anfangszustand
+ * wird serverseitig gerendert, `admin_exercises.js` schreibt ihn nur fort.
+ *
+ * Wie bei der Trainingsart ohne Leereintrag, serverseitig aber Pflicht: Ein
+ * Update ohne das Feld darf nicht still auf 'last' zurueckfallen (Fallstrick 22).
+ *
+ * @param bool $aus Anfangs ausgeblendet (Ausdaueruebung)
+ */
+function wirkung_auswahl(string $prefix, ?string $gewaehlt, bool $aus = false): void {
+    $gewaehlt = ist_unterstuetzt($gewaehlt) ? 'unterstuetzung' : GEWICHT_WIRKUNG_VORGABE;
+    ?>
+    <div data-wirkung-wahl <?= $aus ? 'hidden' : '' ?>>
+        <label for="<?= h($prefix) ?>_gewicht_wirkung">Gewicht bedeutet</label>
+        <select id="<?= h($prefix) ?>_gewicht_wirkung" name="gewicht_wirkung" required
+                <?= $aus ? 'disabled' : '' ?>>
+            <?php foreach (GEWICHT_WIRKUNG as $code => $label): ?>
+                <option value="<?= h($code) ?>" <?= $gewaehlt === $code ? 'selected' : '' ?>>
+                    <?= h($label) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+        <p class="matt">
+            <em>Unterstützung</em> für Maschinen, an denen man einstellt, wie viel
+            Last abgenommen wird — etwa unterstützte Klimmzüge oder Dips. Dann gilt
+            der <strong>leichteste</strong> Satz als Leistung, der Bestwert ist das
+            niedrigste Gewicht, und Volumen und 1RM entfallen im Verlauf.
+        </p>
+        <p class="feld-fehler" data-fehler-fuer="gewicht_wirkung" hidden></p>
+    </div>
+    <?php
+}
+
+/**
  * Waehler fuer den Bildzuschnitt.
  *
- * Radiobuttons und kein <select>: Es sind drei Werte, sie schliessen einander
+ * Radiobuttons und kein <select>: Es sind vier kurze Werte, sie schliessen einander
  * aus, und man will sie nebeneinander sehen, waehrend man auf das Bild schaut.
  * Ein zugeklapptes Auswahlfeld verlangte dafuer einen Griff mehr.
  *
@@ -410,8 +448,10 @@ function zuschnitt_auswahl(string $prefix, ?string $gewaehlt): void {
     <p class="matt">
         Nur wirksam, wenn das Bild <em>breiter als hoch</em> ist: In der Liste steht
         es in einem quadratischen Rahmen, und dann fällt an den Seiten etwas weg.
-        Hier wählt man, welche Seite stehen bleibt. Die Bilddatei ändert sich nicht —
-        die Einstellung lässt sich jederzeit umstellen.
+        Hier wählt man, welche Seite stehen bleibt — oder mit <em>ganzes Bild</em>,
+        dass nichts wegfällt: Das Bild wird dann verkleinert, bis es in der Breite
+        ganz hineinpasst. Die große Ansicht zeigt immer das ganze Bild. Die Bilddatei
+        ändert sich nicht — die Einstellung lässt sich jederzeit umstellen.
     </p>
     <p class="feld-fehler" data-fehler-fuer="image_crop" hidden></p>
     <?php
@@ -474,6 +514,8 @@ require __DIR__ . '/lib/view_header.php';
         <?php geraet_auswahl('neu', null); ?>
 
         <?php erfassung_auswahl('neu', null); ?>
+
+        <?php wirkung_auswahl('neu', null); ?>
 
         <?php gruppen_auswahl($hauptGruppen, $unterGruppen, [], 0, 'neu'); ?>
 
@@ -691,6 +733,7 @@ require __DIR__ . '/lib/view_header.php';
                         <?php // Nur bei Ausdauer, sonst leer -- an hundert
                               // Kraftuebungen traegt das Abzeichen nichts bei. ?>
                         <?= erfassung_abzeichen($u['erfassung'] ?? null) ?>
+                        <?= wirkung_abzeichen($u['gewicht_wirkung'] ?? null) ?>
                         <?php if (!empty($u['focus'])): ?>
                             <span class="schwerpunkt"><?= h((string)$u['focus']) ?></span>
                         <?php endif; ?>
@@ -746,6 +789,11 @@ require __DIR__ . '/lib/view_header.php';
                     <?php geraet_auswahl('e' . $id, $u['equipment'] ?? null); ?>
 
                     <?php erfassung_auswahl('e' . $id, $u['erfassung'] ?? null); ?>
+
+                    <?php wirkung_auswahl(
+                        'e' . $id, $u['gewicht_wirkung'] ?? null,
+                        ist_ausdauer($u['erfassung'] ?? null)
+                    ); ?>
 
                     <?php // Bei einer Ausdaueruebung steht der Block von vornherein
                           // ausgeblendet da -- serverseitig, damit er beim Aufklappen

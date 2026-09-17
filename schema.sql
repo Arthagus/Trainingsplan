@@ -77,6 +77,13 @@ CREATE INDEX IF NOT EXISTS idx_muscle_groups_sort
 -- rueckwirkend die Bedeutung bereits protokollierter Werte, sobald jemand ein
 -- Geraet umtraegt. Anders als bei equipment ist der Vorgabewert hier richtig
 -- und nicht geraten: Vor 1.4.0 gab es nur eine Art zu protokollieren.
+--
+-- gewicht_wirkung sagt, wie das Gewicht einer KRAFTuebung zu lesen ist:
+-- 'last' (Zusatzlast, mehr ist besser) oder 'unterstuetzung' (die Maschine
+-- nimmt Last ab, weniger ist besser -- etwa unterstuetzte Klimmzuege).
+-- Codeliste GEWICHT_WIRKUNG in lib/geraete.php. Bei Ausdauer immer 'last'.
+-- Sie aendert nicht, WAS gespeichert wird, sondern nur, welcher Satz das
+-- Leitgewicht ist und wie der Verlauf auswertet (Fallstrick 34).
 CREATE TABLE IF NOT EXISTS exercises (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name_de     TEXT    NOT NULL,
@@ -85,6 +92,7 @@ CREATE TABLE IF NOT EXISTS exercises (
     focus       TEXT,
     equipment   TEXT,
     erfassung   TEXT    NOT NULL DEFAULT 'kraft',
+    gewicht_wirkung TEXT NOT NULL DEFAULT 'last',
     image_path  TEXT,
     -- Welche Seite beim quadratischen Zuschnitt wegfaellt: 'links', 'mitte'
     -- oder 'rechts'. Wirkt allein ueber object-position im Stylesheet, die

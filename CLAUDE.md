@@ -458,7 +458,7 @@ ins `UPDATE`-Statement, bevor man das erste Mal darauf schreibt (Fallstrick 22):
 |---|---|
 | `auth.php` | `login`, `change_password`, `change_name`, `set_satz_vorlage`, `revoke_device`, `revoke_all` |
 | `exercises.php` | `create`, `update`, `archive`, `unarchive`, `delete` |
-| `log.php` | `check`, `uncheck` |
+| `log.php` | `check`, `uncheck`, `correct` (nur abgeschlossene Einheiten, Fallstrick 35) |
 | `maintenance.php` | `backup`, `restore`, `upload`, `delete_backup`, `vacuum`, `integrity`, `optimize`, `checkpoint`, `images_orphans`, `images_cleanup`, `images_recut_check`, `images_recut` |
 | `muscle_groups.php` | `create`, `update`, `delete`, `reorder` |
 | `plans.php` | `create_plan`, `rename_plan`, `delete_plan`, `reorder_plans`, `exercise_picker`, `add_exercise`, `remove_exercise`, `move_exercise`, `reorder_exercises`, `swap_suggestions`, `swap_exercise` |
@@ -898,7 +898,8 @@ stehen (siehe **11**), statt die folgenden aufrücken zu lassen.
 Übungsnamen anzeigt, mit **27**, an Leisten und Meldungen mit **19** und **29**, an allem,
 was Werte erfasst oder auswertet, zusätzlich mit **30**, an allem, was `plan_exercises`
 liest, mit **31**, an allem, was aussieht wie ein Rest des einfachen Modus, mit **32**, an „x/n" im
-Verlauf mit **33**.
+Verlauf mit **33**, an allem, was ein Gewicht als „besser" oder „schlechter" auswertet, mit **34**,
+an allem, was eine abgeschlossene Einheit verändert, mit **35**.
 
 **Die Vorgeschichte steht in `doku/historie.md`** — wer wann was gemeldet hat, welche
 Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
@@ -1253,13 +1254,19 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
 
     **Codelisten statt Tabellen**, in `lib/geraete.php`: `GERAETE` (das Womit) und
     `ZUSCHNITT` (`links`/`mitte`/`rechts` — welche Seite eines breiten Bildes im
-    quadratischen Rahmen bleibt). Klein, geschlossen, nicht am Datenbestand hängend; ein
+    quadratischen Rahmen bleibt; seit `1.4.12` dazu `ganz` — nichts abschneiden, sondern
+    über `object-fit: contain` verkleinern). Klein, geschlossen, nicht am Datenbestand hängend; ein
     achter Gerätetyp soll eine Zeile PHP kosten und keine Migration. Geprüft wird in
     `api/exercises.php`, **kein `CHECK`-Constraint** — das ließe sich in SQLite nur über
     einen Tabellen-Neubau ändern.
 
     Vier Dinge, die daran hängen:
 
+    - **`ganz` braucht `img.bild-ganz` als Selektor, nicht `.bild-ganz`.** `.vorschlag-bild`
+      und `.position-bild` setzen `object-fit: cover` weiter unten im Stylesheet; bei
+      gleicher Spezifität gewönne die spätere Regel, und die Einstellung wirkte dort
+      lautlos nicht — dieselbe Mechanik wie in Fallstrick 19e. Die große Ansicht
+      (`#info-bild`) trägt keine Zuschnittklasse und zeigt das Bild immer ganz.
     - **`ZUSCHNITT` wirkt allein über `object-position` im Stylesheet**, weil
       `write_resized()` ausschließlich **skaliert und nicht beschneidet**. Wer dort je einen
       Zuschnitt einbaut, nimmt der Einstellung die Grundlage: Ein bereits quadratisch
@@ -2344,6 +2351,107 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     **`fortschritt()` in `api/log.php` braucht das nicht.** Dort geht es um die LAUFENDE
     Einheit, und während einer solchen lässt sich keine Position entfernen — die
     Struktursperre verhindert es (Fallstrick 31).
+
+34. **Nicht bei jeder Übung ist mehr Gewicht besser** (§4, §7.8, seit `1.4.11`). An einer
+    Klimmzug-Maschine mit Unterstützung stellt man ein, wie viel Last abgenommen wird;
+    Fortschritt heißt dort, dass die Zahl sinkt. `exercises.gewicht_wirkung` ist `last` oder
+    `unterstuetzung`, Torwächter `ist_unterstuetzt()` in `lib/geraete.php` (unbekannt ⇒
+    `last`). **Gespeichert wird dieselbe Zahl wie immer** — geändert hat sich nur, wer sie
+    wie auswertet.
+
+    **Eine eigene Spalte und keine dritte Erfassungsart.** Das wäre der kürzere Weg
+    gewesen — `ist_ausdauer()` fällt bei jedem unbekannten Wert auf Kraft zurück, Satzzeile
+    und Warteschlange liefen also unverändert. Aber die Erfassungsart **trennt den Tausch**
+    (Fallstrick 30), und unterstützte Klimmzüge sollen gegen gewöhnliche Klimmzüge und Latzug
+    tauschbar bleiben.
+
+    Daraus die Stelle, die man am leichtesten falsch macht: **Die Wirkung kommt von der
+    AUSGEFÜHRTEN Übung, nicht von der Planübung** — `position_unterstuetzt()` in
+    `api/log.php` geht über `angezeigte_uebung()`. Bei der Erfassungsart liest
+    `position_laden()` die Planübung und darf das, weil beide zwangsläufig übereinstimmen;
+    hier stimmen sie nach einem Tausch gerade **nicht** überein. Gegengeprüft: Mit der
+    Planübung bekommt „Klimmzug" nach dem Tausch das Leitgewicht 20 statt 30 — lautlos, mit
+    `ok:true`.
+
+    Was daran hängt, jede Stelle für sich:
+
+    - **`leitgewicht($saetze, $unterstuetzt)` nimmt dann den LEICHTESTEN Satz.** Der zweite
+      Parameter hat **keinen Vorgabewert**, aus demselben Grund wie `bestaetigt` in
+      Fallstrick 13: Ein neuer Aufrufer erbte sonst still die Richtung „mehr ist besser".
+    - **Umstellen rechnet die Altzeilen neu** (`leitgewichte_neu_rechnen()` in
+      `api/exercises.php`, in derselben Transaktion). Sonst stünde nach dem Umstellen das
+      alte Maximum in `workout_log.weight`, und `MIN()` darüber ergäbe einen Bestwert, den
+      es nie gab. Zeilen ohne Satz mit Gewicht bleiben — dort gibt es nur einen Wert.
+      Gefiltert wird über `workout_log.exercise_id`, also wieder die ausgeführte Übung.
+    - **Im Formular Pflicht ohne Rückfall** (Fallstrick 22), bei Ausdauer fest `last`. Das
+      Feld steht in einem `<div data-wirkung-wahl>` und wird mit dem Muskelgruppen-Block
+      ausgeblendet **und** am `<select>` deaktiviert.
+    - **Die Spalte muss bis in die Rückgabe durchgereicht werden.** `plan_positionen()` baut
+      ihre Zeilen feldweise um; die Spalte stand in der Abfrage und fehlte in der Rückgabe —
+      die Karte trug danach für jede Übung `data-gewicht-wirkung="last"`, ohne Meldung.
+      Dieselbe Sorte wie `name_en` (Fallstrick 27) und `image_crop` (Fallstrick 16): an der
+      **Ausgabe** nachsehen, nicht an der Abfrage.
+    - **Verlauf:** Bestwert aus `bestwert_min` (`uebungen_mit_verlauf()`), **kein Volumen und
+      kein 1RM** — beide sänken mit dem Fortschritt; ein Körpergewicht, gegen das man die
+      echte Last rechnen könnte, gibt es nicht (Entscheidung des Benutzers, 2026-09-15).
+      `verlauf_kurve()` spiegelt über `$umgedreht`, **die Zahlen bleiben die echten kg**; die
+      Differenz behält ihr Vorzeichen und wechselt nur die Farbe.
+
+    **Nicht betroffen:** `letztes_gewicht()` und die Satz-Vorbelegung (`naechsterSatz()`) —
+    sie wollen den *zuletzt* benutzten Wert und keinen besten. Ebenso wenig der Tausch
+    (die Wirkung ist kein Tauschkriterium, wie das Gerät in Fallstrick 16).
+
+    **Prüfen lässt sich das nur mit einem Bestand, in dem der Tausch die Wirkung wechselt**:
+    eine Unterstützungsübung im Plan, eine gewöhnliche mit derselben Primärgruppe außerhalb.
+    Ohne Tausch liefern Plan- und ausgeführte Übung dieselbe Wirkung, und die wichtigste
+    Regel oben bleibt ungeprüft.
+
+35. **Eine abgeschlossene Einheit wird über `api/log.php → correct` korrigiert — und nur
+    so** (§7.8, seit `1.5.1`). Bis dahin gab es für sie nur das Löschen. Die Aktion ist die
+    ausdrückliche Ausnahme von „es gibt kein `update`" in derselben Datei; die Regel gilt
+    weiter für die **laufende** Einheit, und dort weist `correct` jeden Aufruf mit 409 ab —
+    zwei Schreibwege auf dieselbe offene Zeile liefen gegen die Warteschlange.
+
+    Was daran nicht beliebig ist:
+
+    - **Geschlüsselt über `workout_log.id`, nicht über `plan_exercise_id`.** Eine
+      Protokollzeile einer alten Einheit kann `plan_exercise_id = NULL` tragen (Übung später
+      aus dem Plan genommen, Fallstrick 33); über die Position wäre sie unerreichbar.
+      `saetze_ersetzen()` ist deshalb aus `saetze_schreiben()` herausgelöst.
+    - **Die Eigentümerprüfung sitzt im `SELECT`, und das `UPDATE` trägt `user_id` nur
+      zusätzlich.** Gegenprobe am 2026-09-17: Ohne die Bedingung im `SELECT` blieb das
+      Gewicht einer fremden Zeile zwar stehen — das `UPDATE` griff nicht —, **ihre Sätze
+      wurden aber überschrieben**, mit `ok:true`. Die zweite Bedingung ist also kein Beweis,
+      dass die erste entbehrlich wäre.
+    - **Keine Zeile entsteht, keine verschwindet.** Übungen nachzutragen ist ausdrücklich
+      nicht gewünscht (Benutzer, 2026-09-17), und eine leere Satzliste lässt die Zeile als
+      „ohne Werte" stehen. Die Bearbeitungsansicht zeigt deshalb nur Zeilen aus
+      `einheit_eintraege()`, übersprungene Positionen gar nicht.
+    - **`sets` ist Pflicht.** Bei `check` heißt eine fehlende Liste „keine Werte"; hier wäre
+      sie ein stilles Löschen aus einer unvollständigen Nutzlast (Fallstrick 22).
+    - **Erfassungsart und Gewichtswirkung von `workout_log.exercise_id`** — der
+      ausgeführten Übung, ein Tausch ist darin schon aufgelöst (Fallstrick 34).
+    - **`performed_at` bleibt.** Er ordnet „letztes Gewicht" (Fallstrick 8); eine Korrektur
+      an einer alten Einheit darf sie nicht zur jüngsten machen.
+    - **Sätze eingetragen ⇒ `done = 1`**, wie beim Beenden (Fallstrick 18). Im `UPDATE`
+      steht dafür `CAST(? AS INTEGER) = 1` — **ohne das `CAST` bleibt `done` lautlos
+      stehen**, weil PDO den Wert als Text bindet. Beim ersten Anlauf genau so passiert.
+      Damit gibt es **drei** Stellen, die `done` schreiben.
+    - **Eine Zeile aus dem einfachen Modus** (Leitwert, keine `workout_sets`) wird in
+      `history.php` über `korrektur_saetze()` als EIN Satz vorbelegt. Ohne das stünde sie mit
+      leerer Liste da, und ein Speichern daneben verlöre nichts — erst ein Speichern **an
+      ihr** verlöre das Gewicht. `history.js` schickt nur Übungen, deren Nutzlast vom
+      Anfangsstand abweicht; eine unberührte Altzeile bleibt deshalb unangetastet.
+    - **Die Satzzeile der Bearbeitung ist eine eigene, schlichtere Fassung** in
+      `history.js` (kein Stepper, keine Sperre, keine Warteschlange) und **nicht**
+      `satzZeileMarkup()` aus `index.js` — die hängt an der Trainingsansicht und ihrem
+      Zustand. Wer die Felder der Trainingszeile ändert (neue Wertart), zieht diese mit.
+
+    **Prüfstand-Falle beim Ausführen unter jsdom:** `app.js` beginnt mit `'use strict'`,
+    und ein strikter `eval` behält seine Funktionsdeklarationen für sich — ein zweiter
+    `eval` mit `history.js` findet `qs` dann nicht. `app.js`, Attrappe und Seiten-Skript
+    gehören in **einen** `eval`, so wie sich die Skripte im Browser den globalen Bereich
+    teilen.
 
 ## Deployment
 

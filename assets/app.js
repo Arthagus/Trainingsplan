@@ -980,7 +980,8 @@ function zahlFuerAnzeige(wert) {
 }
 
 /**
- * Formatiert eine Dauer in Sekunden als "5:30" bzw. "1:02:45".
+ * Formatiert eine Dauer in Sekunden als "5:30" bzw. "73:25" -- ohne
+ * Stundenfeld, auch ueber 60 Minuten (seit 1.5.1).
  * Gegenstueck zu dauer_mmss() in lib/helpers.php -- beide muessen zeichengleich
  * antworten, weil die Zeit server-gerendert und im Browser gebaut am Handy
  * direkt uebereinander steht.
@@ -990,19 +991,14 @@ function dauerMMSS(sekunden) {
     const n = Math.trunc(Number(sekunden));
     if (!Number.isFinite(n) || n < 0) return '';
 
-    const s = n % 60;
-    const m = Math.trunc(n / 60) % 60;
-    const h = Math.trunc(n / 3600);
-
-    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
-    return (h > 0 ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+    return Math.trunc(n / 60) + ':' + String(n % 60).padStart(2, '0');
 }
 
 /**
  * Wandelt eine Zeiteingabe in Sekunden. Leer oder ungueltig -> null.
  * Gegenstueck zu dauer_aus_eingabe() in lib/helpers.php; die Sonderfaelle sind
- * dort begruendet -- eine nackte Zahl gilt als MINUTEN, Sekunden ueber 59
- * werden abgewiesen und nicht umgerechnet.
+ * dort begruendet -- nur "mm:ss" (Minuten beliebig), eine nackte Zahl gilt als
+ * MINUTEN, Sekunden ueber 59 werden abgewiesen und nicht umgerechnet.
  */
 function dauerAusEingabe(wert) {
     const s = String(wert ?? '').trim();
@@ -1010,15 +1006,12 @@ function dauerAusEingabe(wert) {
 
     if (/^\d+$/.test(s)) return Number(s) * 60;
 
-    const t = s.match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2})$/);
+    const t = s.match(/^(\d+):(\d{1,2})$/);
     if (!t) return null;
 
-    const h = t[1] === undefined ? 0 : Number(t[1]);
-    const m = Number(t[2]);
-    const sek = Number(t[3]);
-
-    if (sek > 59 || (h > 0 && m > 59)) return null;
-    return h * 3600 + m * 60 + sek;
+    const sek = Number(t[2]);
+    if (sek > 59) return null;
+    return Number(t[1]) * 60 + sek;
 }
 
 /**
@@ -1744,6 +1737,7 @@ function vorschlagMarkup(v, knoepfe) {
     // ausgerichtet aus als in der Liste, aus der man kommt.
     const zuschnitt = v.image_crop === 'links'  ? ' bild-links'
                     : v.image_crop === 'rechts' ? ' bild-rechts'
+                    : v.image_crop === 'ganz'   ? ' bild-ganz'
                     : '';
 
     // Mit Bild: An der Hantelbank erkennt man die Uebung schneller am Motiv als

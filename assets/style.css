@@ -313,6 +313,13 @@ button.gefahr { background: var(--fehler); }
     color: var(--gut);
 }
 
+/* Dieselbe Sorte Hinweis: eine Eigenschaft der Übung, kein Mangel. In der
+   Akzentfarbe, damit es sich neben „Ausdauer" nicht als dasselbe liest. */
+.wirkung-unterstuetzung {
+    border-color: var(--akzent);
+    color: var(--akzent);
+}
+
 /* Symbol UND Text: Ein Piktogramm allein spart Platz, verlangt aber, dass man
    zehn Zeichen auswendig kennt. inline-flex statt inline-block, damit das
    Symbol auf der Textmitte sitzt und nicht auf der Grundlinie. */
@@ -576,6 +583,21 @@ button.gefahr { background: var(--fehler); }
    und Tauschvorschlag —, damit dasselbe Motiv überall gleich ausgerichtet ist. */
 .bild-links  { object-position: 0% 50%; }
 .bild-rechts { object-position: 100% 50%; }
+
+/* 'ganz': nichts abschneiden, sondern verkleinern, bis das Bild in der Breite
+   ganz hineinpasst (seit 1.4.12).
+
+   `img.bild-ganz` und nicht bloß `.bild-ganz`: .vorschlag-bild und
+   .position-bild setzen `object-fit: cover` WEITER UNTEN in dieser Datei, bei
+   gleicher Spezifität gewönne also die spätere Regel — und die Einstellung
+   täte an genau zwei von vier Stellen nichts, ohne Fehlermeldung.
+
+   Durchsichtiger Grund statt --grund-tief: Oben und unten bleibt Platz, und ein
+   grauer Balken darüber und darunter läse sich wie ein Rahmen um das Bild. */
+img.bild-ganz {
+    object-fit: contain;
+    background: transparent;
+}
 
 .uebung-bild-leer {
     display: flex;
@@ -2170,7 +2192,21 @@ details[open] > .einheit-kopf::before { content: "▾"; }
 #verwaiste-liste { margin: 0.4rem 0; }
 #verwaiste-liste li { padding: 0.15rem 0; overflow-wrap: anywhere; }
 
-.einheit-aktionen { margin: 0.75rem 0 0; }
+.einheit-aktionen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+}
+
+/* Nachträgliche Korrektur einer Einheit (§7.8, 1.5.1). Die Satzzeilen sind
+   dieselben Bausteine wie im Training, nur ohne Stepper — die Wiederholungen
+   stehen deshalb in einem gewöhnlichen Wertfeld, schmaler als das Gewicht. */
+.korrektur-position .uebung-text { margin-bottom: 0.4rem; }
+
+.korrektur-position .satz-zeile .satz-reps { width: 3rem; }
+
+.korrektur-position .satz-hinzu { margin-top: 0.25rem; }
 
 /* --------------------------------------------------------------------------
    Workout-Splits (§6.4, §7.6)
