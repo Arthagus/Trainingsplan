@@ -620,9 +620,9 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
     $gruppen = db()->prepare(
         'SELECT mg.name_de, emg.is_primary
            FROM exercise_muscle_groups emg
-           JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+           JOIN muscle_groups mg ON mg.id = emg.muscle_group_id' . MG_ZUORDNUNG_JOIN . '
           WHERE emg.exercise_id = ?
-          ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de'
+          ORDER BY ' . MG_ZUORDNUNG_ORDER
     );
 
     // Einmal fuer die ganze Einheit, nicht je Position. Ohne laufende Einheit
@@ -1137,9 +1137,9 @@ function tausch_vorschlaege(int $exerciseId, array $ausschluss = []): array {
     $gruppen = db()->prepare(
         'SELECT mg.name_de, emg.is_primary
            FROM exercise_muscle_groups emg
-           JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+           JOIN muscle_groups mg ON mg.id = emg.muscle_group_id' . MG_ZUORDNUNG_JOIN . '
           WHERE emg.exercise_id = ?
-          ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de'
+          ORDER BY ' . MG_ZUORDNUNG_ORDER
     );
     foreach ($vorschlaege as &$v) {
         $gruppen->execute([(int)$v['id']]);

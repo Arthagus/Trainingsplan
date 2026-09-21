@@ -119,12 +119,80 @@
 
         try {
             await apiFetch(ENDPUNKT, { body: daten });
+            // Nach dem Bearbeiten steht die Übung wieder oben am Bildschirm
+            // (Ansage des Benutzers, 2026-09-21) -- die Seite lädt neu, das
+            // Formular ist danach zu, und die Karte wäre sonst irgendwo.
+            const zeile = formular.closest('li.uebung');
+            if (aktion === 'update' && zeile) merkeUebung(zeile.dataset.id);
             window.location.reload();
         } catch (fehler) {
             feldFehlerZeigen(fehler, hinweis, formular);
             knopf.disabled = false;
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Nach dem Speichern zur bearbeiteten Übung springen
+    //
+    // Der Merker überlebt das Neuladen in sessionStorage und wird beim
+    // Abholen sofort gelöscht -- ein gewöhnlicher Seitenaufruf danach bleibt,
+    // wo er ist. `scrollRestoration = 'manual'`, weil der Browser beim
+    // Neuladen sonst die alte Position wiederherstellt, und zwar womöglich
+    // NACH unserem Sprung. Zurückgestellt wird immer (siehe index.js,
+    // neuLadenNachEnde()): Der Wert gehört dem History-Eintrag.
+    // -----------------------------------------------------------------------
+
+    const SPRUNG_SCHLUESSEL = 'trainingsplan-uebung-sprung';
+
+    function merkeUebung(id) {
+        try {
+            window.sessionStorage.setItem(SPRUNG_SCHLUESSEL, String(id));
+            window.history.scrollRestoration = 'manual';
+        } catch (e) {
+            // Privater Modus: Dann wird eben nicht gescrollt.
+        }
+    }
+
+    function uebungAbholen() {
+        try {
+            const id = window.sessionStorage.getItem(SPRUNG_SCHLUESSEL);
+            window.sessionStorage.removeItem(SPRUNG_SCHLUESSEL);
+            return id;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Setzt die Karte an den oberen Rand -- UNTER den Leisten-Stapel, nicht
+     * dahinter (Fallstrick 19d, stapelUnterkante() in assets/app.js).
+     * Fehlt sie, weil ein Filter sie jetzt ausblendet (etwa nach dem Ändern
+     * der Primärgruppe), bleibt die Seite oben stehen.
+     */
+    function zurUebungSpringen(id) {
+        const karte = qs('li.uebung[data-id="' + Number(id) + '"]');
+        if (!karte) return;
+        const LUFT = 8;
+        const ziel = karte.getBoundingClientRect().top + window.scrollY
+            - stapelUnterkante() - LUFT;
+        window.scrollTo(0, Math.max(0, ziel));
+    }
+
+    const sprungId = uebungAbholen();
+    if (sprungId) {
+        // Zweimal, wie nachObenSpringen() in index.js: Ob eine Wiederherstellung
+        // des Browsers vor oder nach dem Skript liegt, ist nicht zugesichert,
+        // und bis `load` können Bilder die Höhe darüber noch ändern.
+        zurUebungSpringen(sprungId);
+        window.addEventListener('load', () => zurUebungSpringen(sprungId), { once: true });
+    }
+    window.addEventListener('load', () => {
+        try {
+            window.history.scrollRestoration = 'auto';
+        } catch (e) {
+            // Nichts zu tun.
+        }
+    }, { once: true });
 
     const neu = qs('#neu-formular');
     if (neu) {

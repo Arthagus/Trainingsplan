@@ -81,3 +81,41 @@ const MG_SORT_ORDER = '
         pwurz.sort_order, pwurz.name_de,
         CASE WHEN pgrp.parent_id IS NULL THEN 0 ELSE 1 END,
         pgrp.sort_order, pgrp.name_de';
+
+/**
+ * Die Reihenfolge der Muskelgruppen EINER Uebung -- die Zeile blau/grau unter
+ * dem Namen, ueberall wo eine Uebung angezeigt wird (Ansage des Benutzers vom
+ * 2026-09-21). Etwas anderes als MG_SORT_ORDER darueber: Dort geht es um die
+ * Reihenfolge der Uebungen, hier um die der Gruppen innerhalb einer Uebung.
+ *
+ *   1. Die primaere Gruppe immer zuerst.
+ *   2. Danach die sekundaeren aus DERSELBEN Hauptgruppe wie die primaere --
+ *      wer "Brust (oben)" trainiert, liest "Brust (unten)" gleich dahinter.
+ *   3. Danach alle uebrigen, geordnet wie auf admin_muscle_groups.php: erst
+ *      nach der Hauptgruppe, darin die Hauptgruppe selbst vor ihren
+ *      Untergruppen, die Untergruppen in ihrer Reihenfolge.
+ *
+ * Aus demselben Grund wie oben nach der WURZEL und nicht nach dem blossen
+ * `mg.sort_order`: Eine neu angelegte Untergruppe steht global ganz hinten.
+ *
+ * Die Aliase an der Aufrufstelle MUESSEN `emg` (exercise_muscle_groups) und
+ * `mg` (muscle_groups) heissen. Die Wurzel der primaeren Gruppe kommt aus
+ * einer Unterabfrage; ohne Primaergruppe liefert sie NULL, der Vergleich ist
+ * dann nie wahr, und es bleibt bei Stufe 3. Gebunden wird nichts -- die
+ * COALESCE-Falle mit Text gegen Integer (CLAUDE.md, Datenbank) kann hier
+ * nicht zuschlagen.
+ */
+const MG_ZUORDNUNG_JOIN = '
+        JOIN muscle_groups zwurz ON zwurz.id = COALESCE(mg.parent_id, mg.id)';
+
+const MG_ZUORDNUNG_ORDER = '
+        emg.is_primary DESC,
+        CASE WHEN zwurz.id = (SELECT COALESCE(zpg.parent_id, zpg.id)
+                                FROM exercise_muscle_groups zpe
+                                JOIN muscle_groups zpg ON zpg.id = zpe.muscle_group_id
+                               WHERE zpe.exercise_id = emg.exercise_id
+                                 AND zpe.is_primary = 1)
+             THEN 0 ELSE 1 END,
+        zwurz.sort_order, zwurz.name_de,
+        CASE WHEN mg.parent_id IS NULL THEN 0 ELSE 1 END,
+        mg.sort_order, mg.name_de';

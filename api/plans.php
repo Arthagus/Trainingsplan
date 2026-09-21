@@ -398,9 +398,9 @@ function aktion_uebungs_auswahl(array $eingabe): never {
         $stmt = db()->prepare(
             "SELECT emg.exercise_id, mg.name_de, emg.is_primary
                FROM exercise_muscle_groups emg
-               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
+               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id" . MG_ZUORDNUNG_JOIN . "
               WHERE emg.exercise_id IN ($platzhalter)
-              ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de"
+              ORDER BY " . MG_ZUORDNUNG_ORDER
         );
         $stmt->execute($ids);
         foreach ($stmt as $g) {

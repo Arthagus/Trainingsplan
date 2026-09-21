@@ -185,8 +185,8 @@ if ($split !== null) {
         foreach (db()->query(
             'SELECT emg.exercise_id, emg.is_primary, mg.name_de
                FROM exercise_muscle_groups emg
-               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
-              ORDER BY emg.is_primary DESC, mg.sort_order, mg.name_de'
+               JOIN muscle_groups mg ON mg.id = emg.muscle_group_id' . MG_ZUORDNUNG_JOIN . '
+              ORDER BY ' . MG_ZUORDNUNG_ORDER
         ) as $g) {
             $gruppenZuPosition[(int)$g['exercise_id']][] = $g;
         }
