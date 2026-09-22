@@ -1676,6 +1676,13 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     und der Kopf des Satzblocks (im Browser gebaut) am Handy direkt übereinander stehen.
     Zwei Schreibweisen liest man dort als Unterschied in der Sache.
 
+    **Seit `1.5.3` steht „zuletzt …" zweizeilig** — „zuletzt 3 Sätze am 20.09.26", darunter
+    die Liste in Klammern (Ansage des Benutzers, 2026-09-22). Das ist **dieselbe**
+    Schreibweise, nur umbrochen: `saetze_anzahl()` ist der vordere Teil von
+    `saetze_zusammenfassung()` und wird von ihr benutzt. Das Datum kommt aus
+    `letzte_saetze_mit_datum()`, **in derselben Abfrage** wie die Sätze — es ist der
+    Beginn der Einheit (`started_at`), nicht `performed_at`.
+
 21. **Die Plan-Rotation liest ihren Stand aus der HISTORIE, sie merkt ihn sich nicht**
     (`zuletzt_trainierter_plan()`, §7.6) — seit `1.2.0` **je Split getrennt**. Die
     allgemeine Form: **Was sich aus der Historie ableiten lässt, gehört nicht zusätzlich in
@@ -1723,8 +1730,11 @@ Version es brachte, was vorher galt. Hier steht nur, was gilt und warum.
     zeigt. Genau deshalb: Ein Aufruf ohne das Feld fiele sonst still auf `kraft` zurück, und
     aus einer Laufbandübung wäre lautlos wieder eine Kraftübung geworden — mit `ok:true`.
     Der Vorgabewert gilt für die **Migration**, nicht für eine unvollständige Nutzlast. Beim
-    Bildzuschnitt daneben ist es umgekehrt geregelt, und das ist kein Widerspruch: `mitte`
-    ist eine Ausrichtung und ändert keine Bedeutung. Jeder Aufruf muss die
+    Bildzuschnitt daneben ist es umgekehrt geregelt, und das ist kein Widerspruch: Die
+    Vorgabe (`ZUSCHNITT_VORGABE`, seit `1.5.3` `ganz`) ist eine Ausrichtung und ändert keine
+    Bedeutung. **Neue Übungen und Bestand haben dort verschiedene Vorgaben**: Das Formular
+    wählt `ganz` vor, die Spalte behält `DEFAULT 'mitte'` — eine gespeicherte Übung sieht nach
+    einem Rollout aus wie vorher. Jeder Aufruf muss die
     unveränderten Felder aus einem **vorher gezogenen Abzug** wörtlich mittragen; jedes neue Feld an `exercises` erbt dieses Verhalten (so kam `image_crop`
     dazu). **Das Muster ist nicht einheitlich, Analogieschluss hilft nicht:**
     `api/plans.php → rename_plan` und `api/users.php → set_admin` fassen genau eine Spalte
@@ -2563,7 +2573,7 @@ Daraus die Zählweise:
   hängt ab, dass dem `X-Forwarded-Proto`-Header vertraut werden darf.
 - **Pflicht im `Dockerfile`:** `mod_remoteip` (ohne echte Client-IP sperrt die
   Brute-Force-Bremse alle Benutzer gemeinsam), `libsqlite3-dev` (Header für `pdo_sqlite`),
-  `libzip-dev` + `zip` (Sicherung mit Bildern), `libwebp-dev` (WebP-Upload).
+  `libzip-dev` + `zip` (Sicherung mit Bildern), `libwebp-dev` (WebP-Upload). **Kein `libavif-dev`:** Mit AVIF-Unterstützung blieb der Image-Bau in Portainer am 2026-09-22 endlos hängen (`1.5.3`, nie ausgerollt; Ursache vermutet, nicht nachgewiesen). Wer AVIF wieder einbaut, baut zuerst von Hand auf dem LXC, wo man das Protokoll sieht. GIF braucht keine Zeile. **SVG wird absichtlich nicht angenommen**: Es ist kein Pixelbild, GD kann es nicht neu speichern, und unverändert ausgeliefert trüge es Skript in die Seite.
 - **Die `session.*`-Zeilen der `app.ini` sind Fachlichkeit, keine Kosmetik.** Das Basis-Image
   bringt **keine** `php.ini` mit — ohne diese Zeilen gelten die eingebauten Vorgaben, und die
   räumen eine Sitzung nach 24 Minuten Ruhe weg. Was daraus folgt und warum `lazy_write = Off`

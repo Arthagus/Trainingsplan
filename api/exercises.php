@@ -115,10 +115,10 @@ function eingabe_pruefen(array $eingabe): array {
     }
 
     // Der Bildzuschnitt ist -- anders als das Geraet -- KEIN Pflichtfeld: Er
-    // hat einen sinnvollen Vorgabewert ('mitte'), und der ist genau das
-    // Verhalten von vorher. Ein fehlendes Feld faellt deshalb still darauf
-    // zurueck, ein gesetztes aber falsches wird abgewiesen -- sonst landete ein
-    // Tippfehler als toter Wert in der Spalte.
+    // hat einen sinnvollen Vorgabewert (ZUSCHNITT_VORGABE, seit 1.5.3 'ganz'),
+    // und eine Ausrichtung aendert keine Bedeutung. Ein fehlendes Feld faellt
+    // deshalb still darauf zurueck, ein gesetztes aber falsches wird
+    // abgewiesen -- sonst landete ein Tippfehler als toter Wert in der Spalte.
     $zuschnitt = to_str($eingabe['image_crop'] ?? '');
     if ($zuschnitt === '') {
         $zuschnitt = ZUSCHNITT_VORGABE;

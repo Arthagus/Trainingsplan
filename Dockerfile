@@ -16,6 +16,12 @@ ENV TZ=Europe/Vienna \
 # zip wird fuer die Wartungsseite gebraucht (§6.5): Ein vollstaendiges Backup
 # buendelt Datenbank und Bilder in einer Datei. Ohne die Erweiterung gaebe es
 # nur die nackte .db -- die Uebungsbilder blieben ungesichert.
+# GIF braucht hier nichts: Das mitgelieferte GD liest es immer. AVIF bewusst
+# NICHT: Mit libavif-dev und --with-avif blieb der Image-Bau in Portainer am
+# 2026-09-22 zweimal endlos auf "in progress" haengen (1.5.3, nie
+# ausgerollt). Vermutete Ursache, nicht nachgewiesen: Das Paket zieht unter
+# Debian die AV1-Codecs samt Headern nach. Wer AVIF wieder einbaut, baut
+# zuerst von Hand auf dem LXC (docker build), wo man das Protokoll sieht.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libsqlite3-dev libpng-dev libjpeg-dev libwebp-dev libzip-dev tzdata \

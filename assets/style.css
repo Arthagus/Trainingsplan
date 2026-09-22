@@ -1398,6 +1398,9 @@ button.sperr-knopf {
 /* .bild-knopf:hover ebenfalls oben, siehe @media (hover: hover). */
 
 .letzter-wert { margin: 0.2rem 0 0.6rem; font-size: 0.9rem; }
+/* Die Satzliste vom letzten Mal in einer eigenen Zeile unter "zuletzt 3 Sätze
+   am …" (seit 1.5.3). */
+.letzter-wert-liste { display: block; }
 
 /* Tauschen — Gewicht — Erledigt in einer Zeile. Auf sehr schmalen Geräten
    bricht sie um; die Reihenfolge bleibt dabei erhalten. */

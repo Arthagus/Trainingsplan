@@ -182,14 +182,24 @@ function ist_unterstuetzt(?string $code): bool {
  * Klassen und zeigt das Bild wie immer ganz.
  */
 const ZUSCHNITT = [
+    'ganz'   => 'ganzes Bild',
     'links'  => 'linke Seite',
     'mitte'  => 'Mitte',
     'rechts' => 'rechte Seite',
-    'ganz'   => 'ganzes Bild',
 ];
 
-/** Vorgabe fuer neue Uebungen und fuer alles, was die Migration vorfindet. */
-const ZUSCHNITT_VORGABE = 'mitte';
+/**
+ * Vorgabe fuer NEUE Uebungen und fuer ein fehlendes Feld in der Nutzlast --
+ * seit 1.5.3 'ganz', auf Ansage des Benutzers vom 2026-09-22 (steht deshalb
+ * auch als erster Eintrag oben). Die Reihenfolge von ZUSCHNITT ist die der
+ * Auswahl im Formular.
+ *
+ * NICHT betroffen ist der Bestand: Die Spalte behaelt `DEFAULT 'mitte'`
+ * (schema.sql, Migration in lib/db.php), und bild_zuschnitt_klasse() faellt
+ * bei unbekanntem Wert weiter auf die Mitte zurueck. Eine gespeicherte Uebung
+ * sieht damit unveraendert aus; umgestellt wird nur, was jemand neu anlegt.
+ */
+const ZUSCHNITT_VORGABE = 'ganz';
 
 function zuschnitt_gueltig(string $code): bool {
     return array_key_exists($code, ZUSCHNITT);

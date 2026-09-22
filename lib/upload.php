@@ -83,11 +83,18 @@ function save_exercise_image(array $file): string {
 
     // WebP ist mit dabei, weil Screenshots und Downloads heute oft in diesem
     // Format anfallen -- sonst muesste jedes Bild vorher umgewandelt werden.
-    // Ausgegeben wird weiterhin ausschliesslich JPEG; es waechst also nur der
-    // Kreis der Formate, die hineinreichen duerfen.
-    $erlaubt = ['image/jpeg', 'image/png', 'image/webp'];
+    // GIF seit 1.5.4 (Wunsch des Benutzers, 2026-09-22). AVIF war in 1.5.3
+    // mit dabei und ist wieder entfallen: Mit der GD-Unterstuetzung dafuer
+    // blieb der Image-Bau haengen (siehe Dockerfile). Ausgegeben
+    // wird weiterhin ausschliesslich JPEG; es waechst also nur der Kreis der
+    // Formate, die hineinreichen duerfen.
+    //
+    // SVG bewusst NICHT: Es ist kein Pixelbild, GD kann es nicht dekodieren,
+    // und unveraendert ausgeliefert traege es Skript in die Seite (§5 verlangt
+    // die Re-Enkodierung gerade deshalb).
+    $erlaubt = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!in_array($mime, $erlaubt, true)) {
-        throw new RuntimeException('Nur JPEG, PNG und WebP sind erlaubt.');
+        throw new RuntimeException('Nur JPEG, PNG, WebP und GIF sind erlaubt.');
     }
     if ($mime === 'image/webp' && !function_exists('imagecreatefromwebp')) {
         throw new RuntimeException(
@@ -113,9 +120,20 @@ function save_exercise_image(array $file): string {
         'image/jpeg' => @imagecreatefromjpeg($tmp),
         'image/png'  => @imagecreatefrompng($tmp),
         'image/webp' => @imagecreatefromwebp($tmp),
+        'image/gif'  => @imagecreatefromgif($tmp),
     };
     if ($src === false) {
         throw new RuntimeException('Das Bild ließ sich nicht lesen.');
+    }
+    // Ein GIF kommt als PALETTENbild an, und das ist nicht nur eine Formsache:
+    // Ohne die Umwandlung steht ein transparenter Grund im gespeicherten JPEG
+    // SCHWARZ statt weiss (nachgemessen 2026-09-22 -- die Ecke kam als
+    // 000000 statt ffffff heraus). Nach der Umwandlung ist die transparente
+    // Farbe echtes Alpha und landet wie bei PNG auf Weiss. Dazu liefert
+    // imagecolorat() bei Palettenbildern den Index statt der Farbe. Eine
+    // Animation wird zum Standbild: GD liest nur das erste Bild.
+    if (!imageistruecolor($src)) {
+        imagepalettetotruecolor($src);
     }
 
     $dir = uploads_path();
@@ -511,7 +529,7 @@ function bild_rahmen_quadrat(int $breite, int $hoehe): array {
  * viel kann der Mittelwert verstecken. Wer hier ein festes Maß einsetzt, holt
  * sich den Fehler zurück.
  *
- * **Gesucht wird auf WEISSEM Grund.** PNG und WebP können transparent sein;
+ * **Gesucht wird auf WEISSEM Grund.** PNG, WebP und GIF können transparent sein;
  * `imagecolorat()` liefert dort Schwarz mit Alpha, und der Schnitt hielte eine
  * schwarze Hantel vor transparentem Grund für Hintergrund. Weiß ist außerdem
  * das, was `write_resized()` später ohnehin einsetzt — gesucht wird damit auf

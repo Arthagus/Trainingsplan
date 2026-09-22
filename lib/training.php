@@ -311,23 +311,54 @@ function saetze_der_einheit(int $sessionId): array {
  * Modus trainiert hat, verliert seine Satzvorlage dadurch nicht.
  */
 function letzte_saetze(int $userId, int $exerciseId, ?int $ausserSessionId = null): array {
+    return letzte_saetze_mit_datum($userId, $exerciseId, $ausserSessionId)['saetze'];
+}
+
+/**
+ * Wie letzte_saetze(), dazu das DATUM jener Einheit -- fuer die Zeile
+ * "zuletzt 3 Saetze am 20.09.26" in der Trainingsansicht (seit 1.5.3).
+ *
+ * Eine Abfrage fuer beides und nicht zwei nebeneinander: Zwei Fassungen der
+ * Frage "welche Protokollzeile ist die letzte?" liefen irgendwann auseinander,
+ * und dann stuende unter einem Datum die Satzfolge einer anderen Einheit.
+ *
+ * Das Datum ist der BEGINN der Einheit (sessions.started_at), dasselbe, das der
+ * Verlauf nennt -- nicht performed_at, das bei einem Training ueber
+ * Mitternacht einen Tag spaeter laege. Fehlt die Einheit (Altbestand), steht
+ * performed_at ein.
+ *
+ * @return array{datum: ?string, saetze: array}
+ */
+function letzte_saetze_mit_datum(int $userId, int $exerciseId, ?int $ausserSessionId = null): array {
     $stmt = db()->prepare(
-        'SELECT ws.satz_nr, ws.reps, ws.weight, ws.distanz_m, ws.dauer_s
-           FROM workout_sets ws
-          WHERE ws.workout_log_id = (
-                SELECT wl.id
-                  FROM workout_log wl
-                 WHERE wl.user_id = ? AND wl.exercise_id = ?
-                   AND (? IS NULL OR wl.session_id <> CAST(? AS INTEGER))
-                   AND EXISTS (SELECT 1 FROM workout_sets w2
-                                WHERE w2.workout_log_id = wl.id)
-                 ORDER BY wl.performed_at DESC, wl.id DESC
-                 LIMIT 1)
-          ORDER BY ws.satz_nr'
+        'SELECT wl.id, COALESCE(s.started_at, wl.performed_at) AS datum
+           FROM workout_log wl
+           LEFT JOIN sessions s ON s.id = wl.session_id
+          WHERE wl.user_id = ? AND wl.exercise_id = ?
+            AND (? IS NULL OR wl.session_id <> CAST(? AS INTEGER))
+            AND EXISTS (SELECT 1 FROM workout_sets w2
+                         WHERE w2.workout_log_id = wl.id)
+          ORDER BY wl.performed_at DESC, wl.id DESC
+          LIMIT 1'
     );
     $stmt->execute([$userId, $exerciseId, $ausserSessionId, $ausserSessionId]);
+    $zeile = $stmt->fetch();
+    if ($zeile === false) {
+        return ['datum' => null, 'saetze' => []];
+    }
 
-    return array_map('satz_zeile', $stmt->fetchAll());
+    $saetze = db()->prepare(
+        'SELECT satz_nr, reps, weight, distanz_m, dauer_s
+           FROM workout_sets
+          WHERE workout_log_id = ?
+          ORDER BY satz_nr'
+    );
+    $saetze->execute([(int)$zeile['id']]);
+
+    return [
+        'datum'  => (string)$zeile['datum'],
+        'saetze' => array_map('satz_zeile', $saetze->fetchAll()),
+    ];
 }
 
 /**
@@ -426,11 +457,23 @@ function saetze_zusammenfassung(array $saetze, string $erfassung): string {
     // Saetze. Nur Beschriftung: Im Datenmodell heissen die Zeilen weiterhin
     // workout_sets.satz_nr, und das bleibt auch so, sonst braeuchte dieselbe
     // Sache zwei Namen in der Datenbank.
-    $wort = $ausdauer
+    return saetze_anzahl($saetze, $erfassung) . ' (' . saetze_text($saetze, $erfassung) . ')';
+}
+
+/**
+ * Nur der Anfang der Zusammenfassung: "3 Sätze" bzw. "2 Intervalle".
+ *
+ * Eigene Funktion, weil die Zeile "zuletzt ..." seit 1.5.3 ZWEIZEILIG steht
+ * (Ansage des Benutzers, 2026-09-22): oben Anzahl und Datum, darunter die
+ * Liste in Klammern. Zerlegt wird dafuer dieselbe Schreibweise, nicht eine
+ * zweite gebaut -- Wortwahl und Klammer bleiben gleich wie im Satzblock.
+ */
+function saetze_anzahl(array $saetze, string $erfassung): string {
+    $wort = ist_ausdauer($erfassung)
         ? (count($saetze) === 1 ? ' Intervall' : ' Intervalle')
         : (count($saetze) === 1 ? ' Satz' : ' Sätze');
 
-    return count($saetze) . $wort . ' (' . saetze_text($saetze, $erfassung) . ')';
+    return count($saetze) . $wort;
 }
 
 /**
@@ -652,6 +695,7 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
         $letzteAd = $ausdauer
             ? letzte_ausdauerwerte($userId, $exerciseId)
             : ['distanz_m' => null, 'dauer_s' => null];
+        $letzteSaetze = letzte_saetze_mit_datum($userId, $exerciseId, $sessionId);
 
         $ergebnis[] = [
             'plan_exercise_id' => $peId,
@@ -696,7 +740,8 @@ function plan_positionen(int $userId, int $planId, ?int $sessionId): array {
             // Die Saetze vom LETZTEN Mal -- Anzeige und Vorbelegung. Die
             // laufende Einheit ist ausgeschlossen, sonst zeigte "letztes Mal"
             // auf das, was man gerade selbst eingetragen hat.
-            'letzte_saetze'    => letzte_saetze($userId, $exerciseId, $sessionId),
+            'letzte_saetze'    => $letzteSaetze['saetze'],
+            'letzte_saetze_datum' => $letzteSaetze['datum'],
         ];
     }
 

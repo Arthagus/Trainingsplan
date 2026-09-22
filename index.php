@@ -510,10 +510,16 @@ require __DIR__ . '/lib/view_header.php';
                                   // vorschlaegt. Gleiche Form wie die Zusammenfassung im
                                   // Satzblock darunter, damit man beides ohne Umdenken
                                   // vergleichen kann: erst wie viele, dann welche. ?>
-                            zuletzt <?= h(saetze_zusammenfassung(
-                                $z['letzte_saetze'],
-                                $ausdauer ? 'ausdauer' : 'kraft'
-                            )) ?>
+                            <?php // Zweizeilig seit 1.5.3 (Ansage des Benutzers,
+                                  // 2026-09-22): oben Anzahl und Datum, darunter die
+                                  // Liste. Die Teile sind dieselben wie in
+                                  // saetze_zusammenfassung(), nur umbrochen. ?>
+                            <?php $erf = $ausdauer ? 'ausdauer' : 'kraft'; ?>
+                            zuletzt <?= h(saetze_anzahl($z['letzte_saetze'], $erf)) ?><?php
+                                if ($z['letzte_saetze_datum'] !== null): ?>
+                                am <?= h(format_datum_kurz($z['letzte_saetze_datum'])) ?><?php
+                                endif; ?>
+                            <span class="letzter-wert-liste">(<?= h(saetze_text($z['letzte_saetze'], $erf)) ?>)</span>
                         <?php elseif ($ausdauer && ($z['letzte_distanz_m'] !== null
                                                     || $z['letzte_dauer_s'] !== null)): ?>
                             zuletzt

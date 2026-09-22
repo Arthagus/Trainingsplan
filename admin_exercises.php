@@ -532,8 +532,8 @@ require __DIR__ . '/lib/view_header.php';
         <label for="neu_description">Beschreibung (optional)</label>
         <textarea id="neu_description" name="description" rows="3"></textarea>
 
-        <label for="neu_image">Bild (optional, JPEG, PNG oder WebP, max. 5 MB)</label>
-        <input type="file" id="neu_image" name="image" accept="image/jpeg,image/png,image/webp">
+        <label for="neu_image">Bild (optional, JPEG, PNG, WebP oder GIF, max. 5 MB)</label>
+        <input type="file" id="neu_image" name="image" accept="image/jpeg,image/png,image/webp,image/gif">
         <p class="feld-fehler" data-fehler-fuer="image" hidden></p>
 
         <?php zuschnitt_auswahl('neu', null); ?>
@@ -815,10 +815,10 @@ require __DIR__ . '/lib/view_header.php';
 
                     <label for="e<?= $id ?>_image">
                         <?= empty($u['image_path']) ? 'Bild hinzufügen' : 'Bild ersetzen' ?>
-                        (JPEG, PNG oder WebP, max. 5 MB)
+                        (JPEG, PNG, WebP oder GIF, max. 5 MB)
                     </label>
                     <input type="file" id="e<?= $id ?>_image" name="image"
-                           accept="image/jpeg,image/png,image/webp">
+                           accept="image/jpeg,image/png,image/webp,image/gif">
                     <p class="feld-fehler" data-fehler-fuer="image" hidden></p>
 
                     <?php if (!empty($u['image_path'])): ?>
